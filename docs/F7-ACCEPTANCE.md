@@ -35,7 +35,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-002 | BlueBubbles | kirim REST + terima webhook; password hanya dari secret; URL wajib https atau loopback | `TestF7PLAT002BlueBubbles` | BELUM | server macOS, fake HTTP |
 | PLAT-003 | Buzz (Nostr relay) | subscribe/publish relay WS; private key hanya dari secret; 0 key di log/error | `TestF7PLAT003Buzz` | LULUS | — |
 | PLAT-004 | DingTalk Stream | WS client id/secret; ack ≤ 3 s; dedupe `msgId` (replay 2× → 1 turn) | `TestF7PLAT004DingTalk`, `TestF7DingTalkDedupe` | BELUM | — |
-| PLAT-005 | Discord | Gateway WS + REST; intents minimal; thread/DM mapping; slash command; 4004 → needs_attention (GW-11) | `TestF7PLAT005Discord`, `TestF7DiscordIntents` | BELUM | voice MEDIA-029 |
+| PLAT-005 | Discord | Gateway WS + REST; intents minimal; thread/DM mapping; slash command; 4004 → needs_attention (GW-11) | `TestF7PLAT005Discord`, `TestF7DiscordIntents` | LULUS | voice MEDIA-029 |
 | PLAT-006 | Email | IMAP polling + SMTP reply; MIME multipart; dedupe `Message-ID`; BODY.PEEK (GW-08) | `TestF7PLAT006Email` | BELUM | GAP-GW-08 |
 | PLAT-007 | Feishu/Lark | WS long connection + webhook fallback; tenant token cache; dedupe `event_id` | `TestF7PLAT007Feishu` | BELUM | — |
 | PLAT-008 | Google Chat | callback HTTP terverifikasi (JWT Google) atau Pub/Sub pull; payload tak terverifikasi → 0 turn | `TestF7PLAT008GoogleChat`, `TestF7GoogleChatVerify` | BELUM | — |
