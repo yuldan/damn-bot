@@ -97,6 +97,7 @@ func Builtin() []Definition {
 	acp := slices.DeleteFunc(slices.Clone(coding), func(t string) bool { return t == "clarify" })
 	room := []string{"room_send", "room_history", "room_members"}
 	botRoom := slices.Concat(room, []string{"read_file", "glob", "grep", "session_search"})
+	apiServer := slices.DeleteFunc(slices.Clone(core), func(t string) bool { return t == "clarify" })
 	defs := []Definition{
 		{Name: "web", Description: "Web research and content extraction tools", Tools: web},
 		{Name: "search", Description: "Search bundle: web research tools", Includes: []string{"web"}},
@@ -131,6 +132,7 @@ func Builtin() []Definition {
 		{Name: "hermes-cron", Description: "Default cron toolset: the full headless toolkit", Includes: []string{"hermes-cli"}},
 		{Name: "hermes-telegram", Description: "Telegram bot toolset: full access for personal use", Includes: []string{"hermes-cli"}},
 		{Name: "hermes-gateway", Description: "Gateway toolset: union of the messaging platform toolsets", Includes: []string{"hermes-telegram"}},
+		{Name: "hermes-api-server", Description: "OpenAI-compatible API toolkit: full headless toolkit without clarify", Tools: apiServer},
 		{Name: "cli", Description: "Alias of the full headless toolkit", Includes: []string{"hermes-cli"}},
 	}
 	out := make([]Definition, len(defs)) // fresh slices: no mutable package state

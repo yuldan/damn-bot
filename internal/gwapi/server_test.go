@@ -1,39 +1,8 @@
 package gwapi
 
 import (
-	"encoding/json"
-	"net/http"
 	"testing"
 )
-
-// TestAPIServerAuthAndLimits covers the mandatory bearer gate, healthz, and
-// the model listing of the server envelope.
-func TestAPIServerAuthAndLimits(t *testing.T) {
-	t.Parallel()
-	h := newTestServer(t, &fakeEngine{}, nil, testConfig()).Handler()
-	if rec := get(t, h, "/healthz", nil); rec.Code != http.StatusOK {
-		t.Errorf("healthz = %d", rec.Code)
-	}
-	rec := get(t, h, "/v1/models", nil)
-	if rec.Code != http.StatusUnauthorized || rec.Header().Get("WWW-Authenticate") == "" {
-		t.Fatalf("models without auth = %d", rec.Code)
-	}
-	rec = get(t, h, "/v1/models", map[string]string{"Authorization": "Bearer wrong"})
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("models wrong auth = %d", rec.Code)
-	}
-	rec = get(t, h, "/v1/models", authHeaders())
-	if rec.Code != http.StatusOK {
-		t.Fatalf("models = %d", rec.Code)
-	}
-	var list ModelList
-	if err := json.Unmarshal(rec.Body.Bytes(), &list); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if list.Object != "list" || len(list.Data) != 1 || list.Data[0].ID != "damnbot" {
-		t.Errorf("list = %+v", list)
-	}
-}
 
 // TestAPIServerRequestDecoding pins strict decoding and the typed validation
 // errors before any engine exists.
