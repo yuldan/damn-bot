@@ -171,6 +171,14 @@ func Descriptors() []Descriptor {
 			DefaultOff: true,
 		},
 		{
+			Name:       "email",
+			Transport:  TransportLongPoll,
+			Caps:       capsOf("email"),
+			Render:     render.PlatformPlain,
+			Secrets:    []string{"email_password"},
+			DefaultOff: true,
+		},
+		{
 			Name:       "irc",
 			Transport:  TransportWS,
 			Caps:       gateway.IRCCaps(true),

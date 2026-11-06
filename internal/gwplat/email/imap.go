@@ -72,6 +72,87 @@ func dialIMAP(ctx context.Context, cfg *Config, password string) (*client, error
 	return c, nil
 }
 
+func (c *client) writeLine(line string) error {
+	if err := c.setDeadline(); err != nil {
+		return err
+	}
+	if _, err := c.w.WriteString(line + "\r\n"); err != nil {
+		return fmt.Errorf("%w: write: %w", ErrIMAP, err)
+	}
+	if err := c.w.Flush(); err != nil {
+		return fmt.Errorf("%w: flush: %w", ErrIMAP, err)
+	}
+	return nil
+}
+
+// idle holds the connection open for one IDLE cycle (GAP-GW-08: one connection
+// and one LOGIN per process, not one per poll). An event or the window ends the
+// cycle; the caller then re-polls on the same connection.
+func (c *client) idle(ctx context.Context, wait time.Duration) error {
+	if wait <= 0 {
+		return nil
+	}
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-ctx.Done():
+			if err := c.conn.SetDeadline(time.Now()); err != nil {
+				return
+			}
+		case <-stop:
+		}
+	}()
+	c.tags++
+	tag := "a" + strconv.Itoa(c.tags)
+	if err := c.writeLine(tag + " IDLE"); err != nil {
+		return err
+	}
+	if err := c.conn.SetDeadline(time.Now().Add(wait)); err != nil {
+		return fmt.Errorf("%w: idle deadline: %w", ErrIMAP, err)
+	}
+	line, rerr := c.rawLine()
+	if rerr == nil && strings.HasPrefix(line, "+") {
+		_, rerr = c.rawLine() // one event, or the window closes
+	}
+	if err := c.conn.SetDeadline(time.Time{}); err != nil {
+		return fmt.Errorf("%w: idle deadline: %w", ErrIMAP, err)
+	}
+	if rerr != nil && !isTimeout(rerr) {
+		return fmt.Errorf("%w: idle: %w", ErrIMAP, rerr)
+	}
+	if err := c.writeLine("DONE"); err != nil {
+		return err
+	}
+	return c.drainIdle(tag)
+}
+
+// drainIdle reads until the tagged IDLE completion.
+func (c *client) drainIdle(tag string) error {
+	for {
+		done, err := c.rawLine()
+		if err != nil {
+			return fmt.Errorf("%w: idle done: %w", ErrIMAP, err)
+		}
+		if strings.HasPrefix(done, tag+" ") {
+			return nil
+		}
+	}
+}
+
+func (c *client) rawLine() (string, error) {
+	line, err := c.r.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("%w: idle read: %w", ErrIMAP, err)
+	}
+	return strings.TrimRight(line, "\r\n"), nil
+}
+
+func isTimeout(err error) bool {
+	var nerr net.Error
+	return errors.As(err, &nerr) && nerr.Timeout()
+}
+
 func (c *client) setDeadline() error {
 	if c.timeout <= 0 {
 		return nil
@@ -154,14 +235,8 @@ func (c *client) cmd(ctx context.Context, name string, args ...string) ([]entry,
 		b.WriteString(" ")
 		b.WriteString(arg)
 	}
-	if err := c.setDeadline(); err != nil {
+	if err := c.writeLine(b.String()); err != nil {
 		return nil, err
-	}
-	if _, err := c.w.WriteString(b.String() + "\r\n"); err != nil {
-		return nil, fmt.Errorf("%w: write: %w", ErrIMAP, err)
-	}
-	if err := c.w.Flush(); err != nil {
-		return nil, fmt.Errorf("%w: flush: %w", ErrIMAP, err)
 	}
 	var out []entry
 	for {
@@ -270,11 +345,11 @@ func (c *client) markSeen(ctx context.Context, uid uint32) error {
 	return err
 }
 
-func (c *client) logout() error {
+func (c *client) logout(ctx context.Context) error {
 	if c.conn == nil {
 		return nil
 	}
-	_, err := c.cmd(context.Background(), "LOGOUT")
+	_, err := c.cmd(ctx, "LOGOUT")
 	cerr := c.conn.Close()
 	c.conn = nil
 	if err != nil {
