@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestF7GW014HostedRooms(t *testing.T) {
@@ -99,5 +100,134 @@ func TestF7GW014RoomOrder(t *testing.T) {
 	wg.Wait()
 	if got := maxSeen.Load(); got != 1 {
 		t.Errorf("simultaneous turns in one room = %d, want 1", got)
+	}
+}
+
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *fakeClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
+}
+
+func TestF7GW022ScaleToZero(t *testing.T) {
+	t.Parallel()
+	clock := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	var starts, stops, delivered atomic.Int32
+	s := &ScaleToZero{
+		Idle: time.Minute,
+		Now:  clock.Now,
+		Start: func(context.Context, string) error {
+			starts.Add(1)
+			return nil
+		},
+		Stop: func(context.Context, string) error {
+			stops.Add(1)
+			return nil
+		},
+		Deliver: func(context.Context, string, *Envelope) error {
+			delivered.Add(1)
+			return nil
+		},
+	}
+	if err := s.Wake(t.Context(), "p", &Envelope{ID: "m1"}); err != nil {
+		t.Fatal(err)
+	}
+	if starts.Load() != 1 || delivered.Load() != 1 {
+		t.Fatalf("wake: starts=%d delivered=%d", starts.Load(), delivered.Load())
+	}
+	clock.Advance(30 * time.Second)
+	stopped, err := s.Tick(t.Context())
+	if err != nil || len(stopped) != 0 {
+		t.Fatalf("early tick = %v, %v", stopped, err)
+	}
+	s.BeginTurn("p")
+	clock.Advance(2 * time.Minute)
+	stopped, err = s.Tick(t.Context())
+	if err != nil || len(stopped) != 0 || stops.Load() != 0 {
+		t.Fatalf("tick during active turn = %v, %v, stops=%d", stopped, err, stops.Load())
+	}
+	s.EndTurn("p")
+	clock.Advance(2 * time.Minute)
+	stopped, err = s.Tick(t.Context())
+	if err != nil || len(stopped) != 1 || stops.Load() != 1 {
+		t.Fatalf("idle tick = %v, %v, stops=%d", stopped, err, stops.Load())
+	}
+	if werr := s.Wake(t.Context(), "p", &Envelope{ID: "m2"}); werr != nil {
+		t.Fatal(werr)
+	}
+	if starts.Load() != 2 || delivered.Load() != 2 {
+		t.Fatalf("wake after stop: starts=%d delivered=%d", starts.Load(), delivered.Load())
+	}
+}
+
+func TestF7ScaleToZeroWakeNoLoss(t *testing.T) {
+	t.Parallel()
+	clock := &fakeClock{t: time.Unix(1_700_000_000, 0)}
+	var delivered []string
+	var state State
+	deliver := func(_ context.Context, _ string, env *Envelope) error {
+		delivered = append(delivered, env.ID)
+		return nil
+	}
+	s := &ScaleToZero{
+		Idle: time.Minute,
+		Now:  clock.Now,
+		Start: func(context.Context, string) error {
+			return nil
+		},
+		Stop: func(context.Context, string) error {
+			return nil
+		},
+		Deliver: deliver,
+		Persist: func(_ context.Context, st State) error {
+			state = st
+			return nil
+		},
+	}
+	if err := s.Wake(t.Context(), "p", &Envelope{ID: "m1"}); err != nil {
+		t.Fatal(err)
+	}
+	clock.Advance(2 * time.Minute)
+	if _, err := s.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	restored := &ScaleToZero{
+		Idle: time.Minute,
+		Now:  clock.Now,
+		Start: func(context.Context, string) error {
+			return nil
+		},
+		Stop: func(context.Context, string) error {
+			return nil
+		},
+		Deliver: deliver,
+	}
+	state.Profiles = []ProfileState{{Name: "p", Pending: []Envelope{{ID: "m2"}, {ID: "m3"}}}}
+	restored.Restore(state)
+	if err := restored.Wake(t.Context(), "p", &Envelope{ID: "m4"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"m1", "m2", "m3", "m4"}
+	if len(delivered) != len(want) {
+		t.Fatalf("delivered = %v, want %v", delivered, want)
+	}
+	for i := range want {
+		if delivered[i] != want[i] {
+			t.Fatalf("delivered = %v, want %v", delivered, want)
+		}
+	}
+	if pending := restored.Snapshot().Profiles[0].Pending; len(pending) != 0 {
+		t.Fatalf("pending after wake = %v", pending)
 	}
 }

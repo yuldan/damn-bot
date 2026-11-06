@@ -975,13 +975,13 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | GW-013 | Peer gateways (bot-to-bot DM) | DM antar gateway Hermes lintas mesin | `gateway/hosted_room_peer.py`, `hermes_cli/subcommands/peer.py` | opt-in | Network | `hermes peer` | F7 | LULUS |
 | GW-014 | Hosted rooms / group chat | Ruang multi-agent terhost | `gateway/hosted_rooms.py` | opt-in | — | toolset `bot_room` | F7 | LULUS |
 | GW-015 | Bot mode / relay | Mode bot DM dan relay antar profil | `tools/bot_relay.py`, `tools/bot_mode_dm.py` | opt-in | — |  | F7 | LULUS |
-| GW-016 | Profile routing / multiplex | Satu gateway melayani banyak profil | `gateway/profile_routing.py`, `hermes_cli/gateway_multiplex_mode.py` | on (`gateway.auto_multiplex_migration`) | s6 (opsional) |  | F7 | planned |
+| GW-016 | Profile routing / multiplex | Satu gateway melayani banyak profil | `gateway/profile_routing.py`, `hermes_cli/gateway_multiplex_mode.py` | on (`gateway.auto_multiplex_migration`) | s6 (opsional) |  | F7 | LULUS |
 | GW-017 | Gateway restart/drain | Restart anggun setelah drain run aktif | `gateway/restart.py`, `gateway/drain_control.py` | opt-in | — | `/restart` | F4 | planned |
 | GW-018 | Platform pause/resume | Pause platform yang gagal | `hermes_cli/commands.py:330` | opt-in | — | `/platform` | F4 | planned |
 | GW-019 | Topics/threads | Sesi per topik Telegram/thread Discord | `gateway/run_topics.py` | opt-in | — | `/topic` | F4 | planned |
 | GW-020 | Message timestamps | Prefix timestamp ke pesan | `gateway/message_timestamps.py` | off | — |  | F4 | planned |
 | GW-021 | Runtime footer | Footer metadata runtime di balasan | `gateway/runtime_footer.py` | off | — | `/footer` | F4 | planned |
-| GW-022 | Scale-to-zero | Gateway berhenti saat idle | `gateway/scale_to_zero.py` | opt-in | — |  | F7 | planned |
+| GW-022 | Scale-to-zero | Gateway berhenti saat idle | `gateway/scale_to_zero.py` | opt-in | — |  | F7 | LULUS |
 | GW-023 | Channel directory | Direktori channel lintas platform | `gateway/channel_directory.py` | on | — |  | F7 | planned |
 | GW-024 | Gateway chat CLI | Chat ke gateway dari CLI | `hermes_cli/gateway_chat.py` | opt-in | — |  | F4 | planned |
 | GW-025 | Telegram managed bot | Bot Telegram terkelola | `hermes_cli/telegram_managed_bot.py` | opt-in | Nous [INFERENCE] |  | F7 | planned |

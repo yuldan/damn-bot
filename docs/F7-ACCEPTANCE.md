@@ -81,8 +81,8 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | GW-013 | Peer gateways | DM bot-ke-bot lintas mesin; envelope bertanda tangan; replay ditolak; identitas peer `cryptographic` | `TestF7GW013PeerDM`, `TestF7PeerReplay` | LULUS | SEC-10 |
 | GW-014 | Hosted rooms | ruang multi-agent; urutan turn per room; biaya dipisah per agen; anggota asing tidak bisa join | `TestF7GW014HostedRooms` | LULUS | TSET-036 |
 | GW-015 | Bot mode / relay | mode bot DM + relay antar profil; loop dicegah (maks 2 hop); relay ke profil non-allowlist ditolak | `TestF7GW015BotRelay`, `TestF7RelayLoopGuard` | LULUS | — |
-| GW-016 | Profile routing / multiplex | satu gateway melayani banyak profil; routing per bot/identitas; EC-STATE-004 (koneksi read-pool berbatas); EC-TERM-004/005 (sandbox & policy per profil, fail-closed) | `TestF7GW016ProfileRouting`, `TestEdgeCases/EC-STATE-004`, `TestEdgeCases/EC-TERM-004`, `TestEdgeCases/EC-TERM-005` | BELUM | EC §10 |
-| GW-022 | Scale-to-zero | idle > ambang → proses gateway berhenti bersih; pesan masuk pertama membangunkan tanpa kehilangan/duplikasi; 0 pesan diparkir hilang | `TestF7GW022ScaleToZero`, `TestF7ScaleToZeroWakeNoLoss` | BELUM | — |
+| GW-016 | Profile routing / multiplex | satu gateway melayani banyak profil; routing per bot/identitas; EC-STATE-004 (koneksi read-pool berbatas); EC-TERM-004/005 (sandbox & policy per profil, fail-closed) | `TestF7GW016ProfileRouting`, `TestEdgeCases/EC-STATE-004`, `TestEdgeCases/EC-TERM-004`, `TestEdgeCases/EC-TERM-005` | LULUS | EC §10 |
+| GW-022 | Scale-to-zero | idle > ambang → proses gateway berhenti bersih; pesan masuk pertama membangunkan tanpa kehilangan/duplikasi; 0 pesan diparkir hilang | `TestF7GW022ScaleToZero`, `TestF7ScaleToZeroWakeNoLoss` | LULUS | — |
 | GW-023 | Channel directory | direktori channel lintas platform; 0 token/secret; entri hilang → baris kosong bukan panic | `TestF7GW023ChannelDirectory` | BELUM | — |
 | GW-025 | Telegram managed bot | provisioning bot terkelola opt-in; tanpa kredensial → `module_unavailable`; 0 panggilan jaringan saat default | `TestF7GW025ManagedBot` | BELUM | default off |
 | GW-026 | Handoff ke platform | serahkan sesi CLI ke platform chat; transcript ringkas; konfirmasi idempoten (retry 1× tidak menggandakan) | `TestF7GW026Handoff` | BELUM | SLASH-012 |
@@ -189,9 +189,9 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | EC-PLAT-006 | media hanya dari turn saat ini; gambar turn lama tidak menempel | `TestEdgeCases/EC-PLAT-006` (`TestF7ECPLAT006MediaIsolation`) | LULUS |
 | EC-PLAT-008 | edit pairing store diserialisasi lintas proses (dua proses, 0 lost update) | `TestEdgeCases/EC-PLAT-008` (`TestF7ECPLAT008PairingLock`) | LULUS |
 | EC-PLAT-024 | timeout baca body bridge tidak melepas ownership sesi; request lambat tetap milik satu owner | `TestEdgeCases/EC-PLAT-024` (`TestF7ECPLAT024BridgeOwnership`) | BELUM |
-| EC-STATE-004 | multiplex banyak profil tidak menembus batas koneksi; EMFILE → fallback ke writer, bukan 500 | `TestEdgeCases/EC-STATE-004` (`TestF7ECSTATE004ReadPool`) | BELUM |
-| EC-TERM-004 | task id sama lintas profil tidak berbagi sandbox/cwd; kunci dikualifikasi per profil/sesi | `TestEdgeCases/EC-TERM-004` (`TestF7ECTERM004SandboxKey`) | BELUM |
-| EC-TERM-005 | policy terminal yang gagal resolve → fail closed, bukan nilai ambient | `TestEdgeCases/EC-TERM-005` (`TestF7ECTERM005PolicyResolve`) | BELUM |
+| EC-STATE-004 | multiplex banyak profil tidak menembus batas koneksi; EMFILE → fallback ke writer, bukan 500 | `TestEdgeCases/EC-STATE-004` (`TestF7ECSTATE004ReadPool`) | LULUS |
+| EC-TERM-004 | task id sama lintas profil tidak berbagi sandbox/cwd; kunci dikualifikasi per profil/sesi | `TestEdgeCases/EC-TERM-004` (`TestF7ECTERM004SandboxKey`) | LULUS |
+| EC-TERM-005 | policy terminal yang gagal resolve → fail closed, bukan nilai ambient | `TestEdgeCases/EC-TERM-005` (`TestF7ECTERM005PolicyResolve`) | LULUS |
 | EC-SEC-006 | payload webhook tidak pernah mengeksekusi file/terminal; toolset webhook = web/vision/clarify | `TestEdgeCases/EC-SEC-006` (`TestF7ECSEC006WebhookToolset`) | BELUM |
 
 Katalog EC dibaca lewat `internal/testutil/phase` (`g.Item(t, "<EC-ID>", "F7", "covered")`); `make phase-acceptance` pada `PHASE=F7` mensertifikasi F6, sedangkan baris F7 menjadi gate saat `PHASE`→F8.
