@@ -61,6 +61,8 @@ func allowedImports() map[string][]string {
 		// Sibling parser/client packages: ts is stdlib-only, lsp reaches netx/jsonrpc.
 		"internal/codeintel/ts": nil, "internal/codeintel/lsp": {"internal/netx/jsonrpc"},
 		"internal/gateway" + moduleWildcard: moduleImports(),
+		"internal/gwplat": {"internal/gateway", "internal/gateway/outq", "internal/gateway/render"},
+		"internal/gwplat" + moduleWildcard: {"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"},
 
 		// Core.
 		"internal/loop":               {"internal/loop/event", "internal/boundary"}, // E-02
