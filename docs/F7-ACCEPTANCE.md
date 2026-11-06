@@ -34,7 +34,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-001 | A2A | server inbound A2A v1.0 (task/send, task/get) + agent card; adapter default-off; card absen → error typed | `TestF7PLAT001A2A`, `TestF7A2AAgentCard` | BELUM | §8 tools |
 | PLAT-002 | BlueBubbles | kirim REST + terima webhook; password hanya dari secret; URL wajib https atau loopback | `TestF7PLAT002BlueBubbles` | LULUS | server macOS, fake HTTP |
 | PLAT-003 | Buzz (Nostr relay) | subscribe/publish relay WS; private key hanya dari secret; 0 key di log/error | `TestF7PLAT003Buzz` | LULUS | — |
-| PLAT-004 | DingTalk Stream | WS client id/secret; ack ≤ 3 s; dedupe `msgId` (replay 2× → 1 turn) | `TestF7PLAT004DingTalk`, `TestF7DingTalkDedupe` | BELUM | — |
+| PLAT-004 | DingTalk Stream | WS client id/secret; ack ≤ 3 s; dedupe `msgId` (replay 2× → 1 turn) | `TestF7PLAT004DingTalk`, `TestF7DingTalkDedupe` | LULUS | — |
 | PLAT-005 | Discord | Gateway WS + REST; intents minimal; thread/DM mapping; slash command; 4004 → needs_attention (GW-11) | `TestF7PLAT005Discord`, `TestF7DiscordIntents` | LULUS | voice MEDIA-029 |
 | PLAT-006 | Email | IMAP polling + SMTP reply; MIME multipart; dedupe `Message-ID`; BODY.PEEK (GW-08) | `TestF7PLAT006Email` | LULUS | GAP-GW-08 |
 | PLAT-007 | Feishu/Lark | WS long connection + webhook fallback; tenant token cache; dedupe `event_id` | `TestF7PLAT007Feishu` | BELUM | — |
@@ -45,7 +45,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-012 | Mattermost | REST v4 + WebSocket; token dari secret; reconnect backoff netx | `TestF7PLAT012Mattermost` | BELUM | — |
 | PLAT-013 | ntfy | subscribe topic + publish; topic dari config; isi pesan tidak masuk log INFO | `TestF7PLAT013Ntfy` | LULUS | — |
 | PLAT-014 | Photon (iMessage) | sidecar HTTP; project id/secret; sidecar absen → `module_unavailable` 0 network | `TestF7PLAT014Photon` | LULUS | — |
-| PLAT-015 | QQ Bot | API v2 WS + REST; refresh token; dedupe event | `TestF7PLAT015QQBot` | BELUM | — |
+| PLAT-015 | QQ Bot | API v2 WS + REST; refresh token; dedupe event | `TestF7PLAT015QQBot` | LULUS | — |
 | PLAT-016 | Raft | wake-channel bridge lokal; `RAFT_PROFILE`; bridge absen → pesan instalasi | `TestF7PLAT016Raft` | LULUS | — |
 | PLAT-017 | Signal | daemon signal-cli (SSE + JSON-RPC); account → session key; plaintext tidak dipersist | `TestF7PLAT017Signal` | LULUS | — |
 | PLAT-018 | SimpleX | daemon WS lokal; reconnect; 0 tulis plaintext | `TestF7PLAT018Simplex` | LULUS | — |
