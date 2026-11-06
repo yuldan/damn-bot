@@ -32,6 +32,10 @@ Angka kunci terverifikasi: **88 tool** (= `get_all_tool_names()`), **33 toolset*
 
 Baris berfase F6 memakai status `planned` sampai PR penutupnya mendarat. Sebuah baris F6 hanya boleh menjadi `LULUS` bila PR yang sama menambah tes bernama di `docs/F6-ACCEPTANCE.md`, menjalankannya hijau, dan mengubah baris ledger `BELUM`→`LULUS`. Baris yang tidak dapat dibuktikan memakai `N/A — <alasan teknis> (carryover F7)`. Setelah `PHASE` > F6, `TestParityPhaseColumn` menolak baris F6 yang masih `planned` dan `TestF6LedgerClosed` menolak ledger yang masih `BELUM`; selama `PHASE=F6` gate tidak aktif.
 
+## Status baris F7 (ADR-326)
+
+Baris berfase F7 memakai status `planned` sampai PR penutupnya mendarat; `PLAT-025` memakai penanda desain `external-bridge (ADR-034)` yang **bukan** penutupan. Sebuah baris F7 hanya boleh menjadi `LULUS` bila PR yang sama menambah tes bernama di `docs/F7-ACCEPTANCE.md`, menjalankannya hijau, dan mengubah baris ledger `BELUM`→`LULUS`. Baris yang tidak dapat dibuktikan memakai `N/A — <alasan teknis> (carryover F8)`. Setelah `PHASE` > F7, `TestParityPhaseColumn` menolak baris F7 yang statusnya bukan `LULUS`/`N/A — …` dan `TestF7LedgerClosed` menolak ledger yang masih `BELUM`; selama `PHASE=F7` gate tidak aktif.
+
 ## Metode inventaris
 
 Snapshot sumber: `hermes-agent` commit `868b9f244f` (2026-10-17). Repo hermes hanya dibaca. Semua skrip dijalankan dengan

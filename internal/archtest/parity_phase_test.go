@@ -110,9 +110,14 @@ func TestParityPhaseColumn(t *testing.T) {
 	if !maps.Equal(r.perPhase, want) {
 		t.Errorf("jumlah per fase %v, want %v (ubah lewat ADR + ROADMAP)", r.perPhase, want)
 	}
+	phase := readRepoFile(t, "PHASE")
 	// ADR-323: baris F6 yang masih `planned` menahan penaikan PHASE ke F7.
-	if f6Closed(readRepoFile(t, "PHASE")) {
+	if f6Closed(phase) {
 		report("baris F6 masih `planned` setelah F6 ditutup (ADR-323)", parityPlannedF6(parityText))
+	}
+	// ADR-326: baris F7 wajib `LULUS` atau `N/A — <alasan>` sebelum PHASE melewati F7.
+	if f7Closed(phase) {
+		report("baris F7 belum LULUS/N/A setelah F7 ditutup (ADR-326)", parityOpenF7(parityText))
 	}
 }
 
@@ -172,21 +177,33 @@ func (r *parityScan) row(pfx string, cells []string) {
 	}
 }
 
-// F6 phase gate (ADR-323): setelah PHASE melewati F6 tidak boleh ada baris
-// parity F6 berstatus `planned` dan tidak boleh ada baris ledger F6 `BELUM`.
-// Gate tidak aktif selama PHASE=F6 karena ledger memang hidup di fase itu.
+// F6 phase gate (ADR-323) and F7 phase gate (ADR-326): after PHASE passes a
+// phase there may be no `planned` parity row and no ledger row left open. The
+// gate is inactive while PHASE equals the phase itself, because the ledger is
+// alive then.
 const (
 	f6Phase     = "F6"
 	f6LedgerDoc = "docs/F6-ACCEPTANCE.md"
+	f6LedgerRow = "F6-ACCEPTANCE"
+	f7Phase     = "F7"
+	f7LedgerDoc = "docs/F7-ACCEPTANCE.md"
+	f7LedgerRow = "F7-ACCEPTANCE"
 )
 
-func f6Closed(phase string) bool {
+// phaseClosed reports whether PHASE is past the phase named by done.
+func phaseClosed(phase, done string) bool {
 	order := []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"}
-	return slices.Index(order, strings.TrimSpace(phase)) > slices.Index(order, f6Phase)
+	return slices.Index(order, strings.TrimSpace(phase)) > slices.Index(order, done)
 }
 
-// parityPlannedF6 mengembalikan ID baris fase F6 yang masih `planned`.
-func parityPlannedF6(text string) []string {
+func f6Closed(phase string) bool { return phaseClosed(phase, f6Phase) }
+func f7Closed(phase string) bool { return phaseClosed(phase, f7Phase) }
+
+// parityOpenPhase mengembalikan baris fase yang tidak boleh dibiarkan terbuka
+// setelah fase itu ditutup. F6 (ADR-323) hanya menolak `planned`; fase strict
+// (F7, ADR-326) juga menolak setiap status selain `LULUS`/`N/A — …`, termasuk
+// penanda desain `external-bridge (ADR-034)`.
+func parityOpenPhase(text, phase string, strict bool) []string {
 	var out []string
 	faseIdx, statusIdx := -1, -1
 	for line := range strings.Lines(text) {
@@ -203,12 +220,25 @@ func parityPlannedF6(text string) []string {
 		if m == nil || faseIdx < 0 || statusIdx < 0 || faseIdx >= len(cells) || statusIdx >= len(cells) {
 			continue
 		}
-		if cells[faseIdx] == f6Phase && cells[statusIdx] == "planned" {
+		if cells[faseIdx] != phase {
+			continue
+		}
+		switch st := cells[statusIdx]; {
+		case strict && st != "LULUS" && !strings.HasPrefix(st, "N/A — "):
+			out = append(out, cells[0]+"="+st)
+		case !strict && st == "planned":
 			out = append(out, cells[0])
 		}
 	}
 	return out
 }
+
+// parityPlannedF6 mengembalikan ID baris fase F6 yang masih `planned`.
+func parityPlannedF6(text string) []string { return parityOpenPhase(text, f6Phase, false) }
+
+// parityOpenF7 mengembalikan baris fase F7 yang belum ditutup: status selain
+// `LULUS` atau `N/A — <alasan>`.
+func parityOpenF7(text string) []string { return parityOpenPhase(text, f7Phase, true) }
 
 // ledgerOpenRows mengembalikan ID yang masih `BELUM` dan baris N/A tanpa
 // alasan teknis. Status dibaca dari kolom `Status` pada header tabel, bukan
@@ -249,23 +279,39 @@ func ledgerOpenRows(text string) (open, badNA []string) {
 	return open, badNA
 }
 
-// f6LedgerViolations adalah gate murni agar bisa diuji dengan dokumen sintetis.
-func f6LedgerViolations(phase, parityText, ledgerText string) []string {
-	if !f6Closed(phase) {
+// phaseLedgerViolations adalah gate murni agar bisa diuji dengan dokumen
+// sintetis: `closed` adalah fase yang sudah dilewati PHASE, `ledgerRow` nama
+// tabel yang dilaporkan, dan `strict` memilih aturan status parity F7.
+func phaseLedgerViolations(phase, closed, ledgerRow, parityText, ledgerText string, strict bool) []string {
+	if !phaseClosed(phase, closed) {
 		return nil
 	}
 	var out []string
-	if ids := parityPlannedF6(parityText); len(ids) > 0 {
-		out = append(out, "FEATURE-PARITY: baris F6 masih planned ("+strconv.Itoa(len(ids))+"): "+strings.Join(ids, ", "))
+	if ids := parityOpenPhase(parityText, closed, strict); len(ids) > 0 {
+		rule := "masih planned"
+		if strict {
+			rule = "belum LULUS/N/A"
+		}
+		out = append(out, "FEATURE-PARITY: baris "+closed+" "+rule+" ("+strconv.Itoa(len(ids))+"): "+strings.Join(ids, ", "))
 	}
 	open, badNA := ledgerOpenRows(ledgerText)
 	if len(open) > 0 {
-		out = append(out, "F6-ACCEPTANCE: baris masih BELUM ("+strconv.Itoa(len(open))+"): "+strings.Join(open, ", "))
+		out = append(out, ledgerRow+": baris masih BELUM ("+strconv.Itoa(len(open))+"): "+strings.Join(open, ", "))
 	}
 	if len(badNA) > 0 {
-		out = append(out, "F6-ACCEPTANCE: N/A tanpa alasan teknis ("+strconv.Itoa(len(badNA))+"): "+strings.Join(badNA, ", "))
+		out = append(out, ledgerRow+": N/A tanpa alasan teknis ("+strconv.Itoa(len(badNA))+"): "+strings.Join(badNA, ", "))
 	}
 	return out
+}
+
+// f6LedgerViolations adalah gate ledger F6 (ADR-323).
+func f6LedgerViolations(phase, parityText, ledgerText string) []string {
+	return phaseLedgerViolations(phase, f6Phase, f6LedgerRow, parityText, ledgerText, false)
+}
+
+// f7LedgerViolations adalah gate ledger F7 (ADR-326).
+func f7LedgerViolations(phase, parityText, ledgerText string) []string {
+	return phaseLedgerViolations(phase, f7Phase, f7LedgerRow, parityText, ledgerText, true)
 }
 
 // TestF6LedgerClosed menolak penaikan PHASE ke F7 selama ledger F6 belum
@@ -310,6 +356,59 @@ func TestF6LedgerGateRules(t *testing.T) {
 		}
 	}
 	if got := f6LedgerViolations("F7", strings.Replace(parityOpen, "planned", "LULUS", 1), ledgerClosed); len(got) != 0 {
+		t.Fatalf("ledger tertutup masih ditolak: %v", got)
+	}
+}
+
+// TestF7LedgerClosed menolak penaikan PHASE ke F8 selama ledger F7 belum
+// ditutup. Selama PHASE=F7 gate ini tidak aktif (ledger hidup).
+func TestF7LedgerClosed(t *testing.T) {
+	t.Parallel()
+	phase := readRepoFile(t, "PHASE")
+	for _, v := range f7LedgerViolations(phase, readRepoFile(t, "docs/FEATURE-PARITY.md"), readRepoFile(t, f7LedgerDoc)) {
+		t.Error(v)
+	}
+}
+
+// TestF7LedgerGateRules adalah kontrol negatif gate: fase F7 tidak menuduh,
+// fase F8 menuduh baris parity yang belum LULUS (termasuk penanda
+// `external-bridge`), baris ledger `BELUM`, dan `N/A` telanjang; `LULUS` serta
+// `N/A — <alasan>` bersih.
+func TestF7LedgerGateRules(t *testing.T) {
+	t.Parallel()
+	const parityOpen = `| ID | Fitur | fase | status |
+|---|---|---|---|
+| PLAT-001 | x | F7 | planned |
+| PLAT-025 | x | F7 | external-bridge (ADR-034) |
+| PLAT-002 | x | F7 | LULUS |
+| PLAT-003 | x | F7 | N/A — no test account (nightly smoke) |`
+	const ledgerOpen = `| ID | Fitur | Kriteria | Tes | Status | Catatan |
+|---|---|---|---|---|---|
+| TOOL-055 | x | x | x | BELUM | x |
+| TOOL-056 | x | x | x | LULUS | x |
+| TOOL-057 | x | x | x | N/A | x |`
+	const ledgerClosed = `| ID | Fitur | Kriteria | Tes | Status | Catatan |
+|---|---|---|---|---|---|
+| TOOL-055 | x | x | x | LULUS | x |
+| TOOL-056 | x | x | x | N/A — no test account (nightly smoke) | carryover F8 |`
+
+	if got := f7LedgerViolations("F7", parityOpen, ledgerOpen); len(got) != 0 {
+		t.Fatalf("gate aktif sebelum F7 ditutup: %v", got)
+	}
+	got := f7LedgerViolations("F8", parityOpen, ledgerOpen)
+	if len(got) != 3 {
+		t.Fatalf("pelanggaran = %d, want 3: %v", len(got), got)
+	}
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"PLAT-001=planned", "PLAT-025=external-bridge", "BELUM", "N/A tanpa alasan"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("laporan gate tidak memuat %q: %s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "PLAT-003") {
+		t.Errorf("N/A beralasan ditolak: %s", joined)
+	}
+	if got := f7LedgerViolations("F8", strings.NewReplacer("planned", "LULUS", "external-bridge (ADR-034)", "LULUS").Replace(parityOpen), ledgerClosed); len(got) != 0 {
 		t.Fatalf("ledger tertutup masih ditolak: %v", got)
 	}
 }
