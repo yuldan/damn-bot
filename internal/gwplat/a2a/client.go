@@ -39,10 +39,10 @@ type Peer struct {
 
 // History is one recorded client interaction.
 type History struct {
-	Peer   string
-	TaskID string
-	State  State
-	At     time.Time
+	Peer   string    `json:"peer"`
+	TaskID string    `json:"taskId"`
+	State  State     `json:"state"`
+	At     time.Time `json:"at"`
 }
 
 // ClientConfig configures the outbound A2A client. The zero HTTP field takes

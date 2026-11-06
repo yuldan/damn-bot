@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/gwplat/a2a` tools (F7 P10a-4, TOOL-001..005/TSET-033): lima tool a2a_* + toolset a2a default-off + e2e inbound→prompt/tool outbound; tes TestF7TOOL001..005, TestF7A2AOrchestrateDepth, TestF7TSET033A2A, TestF7A2AInboundPrompt.
+
 - `internal/gwplat/a2a` client (F7 P10a-3, slice persiapan TOOL-001..005): send/get/status/cancel/wait/stream/discover, SSRF pra-dial, retry netx/retry, token tidak dicetak; tes TestF7A2AClient.
 
 - `internal/gwplat/a2a` server (F7 P10a-2, PLAT-001): task/send|get|cancel, SSE, kartu /.well-known/agent.json, bearer dari seam secret, id task idempoten, hasil <untrusted>; tes TestF7PLAT001A2A/TestF7A2AAgentCard/TestF7A2ATaskLifecycle/TestF7A2AIdempotentTaskID/TestF7A2ACancel.

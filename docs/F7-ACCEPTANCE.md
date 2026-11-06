@@ -152,18 +152,18 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| TOOL-001 | `a2a_call` | kirim tugas ke agent remote; timeout + retry berbatas; hasil `<untrusted>` | `TestF7TOOL001A2ACall` | BELUM | — |
-| TOOL-002 | `a2a_discover` | temukan agent + agent card; card invalid ditolak | `TestF7TOOL002A2ADiscover` | BELUM | — |
-| TOOL-003 | `a2a_history` | riwayat interaksi A2A; tanpa entri → kosong | `TestF7TOOL003A2AHistory` | BELUM | — |
-| TOOL-004 | `a2a_list` | daftar agent dikenal/terkonfigurasi; 0 secret di output | `TestF7TOOL004A2AList` | BELUM | — |
-| TOOL-005 | `a2a_orchestrate` | orkestrasi multi-agent; fan-out dibatasi; 0 rekursi tak berujung | `TestF7TOOL005A2AOrchestrate`, `TestF7A2AOrchestrateDepth` | BELUM | — |
+| TOOL-001 | `a2a_call` | kirim tugas ke agent remote; timeout + retry berbatas; hasil `<untrusted>` | `TestF7TOOL001A2ACall` | LULUS | — |
+| TOOL-002 | `a2a_discover` | temukan agent + agent card; card invalid ditolak | `TestF7TOOL002A2ADiscover` | LULUS | — |
+| TOOL-003 | `a2a_history` | riwayat interaksi A2A; tanpa entri → kosong | `TestF7TOOL003A2AHistory` | LULUS | — |
+| TOOL-004 | `a2a_list` | daftar agent dikenal/terkonfigurasi; 0 secret di output | `TestF7TOOL004A2AList` | LULUS | — |
+| TOOL-005 | `a2a_orchestrate` | orkestrasi multi-agent; fan-out dibatasi; 0 rekursi tak berujung | `TestF7TOOL005A2AOrchestrate`, `TestF7A2AOrchestrateDepth` | LULUS | — |
 | TOOL-049 | `yb_query_group_info` | info grup Yuanbao; adapter nonaktif → `module_unavailable` | `TestF7TOOL049YuanbaoGroupInfo` | BELUM | — |
 | TOOL-050 | `yb_query_group_members` | daftar member; paginasi berbatas | `TestF7TOOL050YuanbaoGroupMembers` | BELUM | — |
 | TOOL-051 | `yb_search_sticker` | cari stiker; hasil ≤ batas | `TestF7TOOL051YuanbaoSearchSticker` | BELUM | — |
 | TOOL-052 | `yb_send_dm` | kirim DM; identitas non-allowlist ditolak | `TestF7TOOL052YuanbaoSendDM` | BELUM | — |
 | TOOL-053 | `yb_send_sticker` | kirim stiker valid; stiker asing ditolak | `TestF7TOOL053YuanbaoSendSticker` | BELUM | — |
 | TSET-032 | toolset `hermes-yuanbao` | 5 tool, available saat inventaris=false | `TestF7TSET032Yuanbao` | BELUM | — |
-| TSET-033 | toolset `a2a` | 5 tool, default off, available saat inventaris=false | `TestF7TSET033A2A` | BELUM | — |
+| TSET-033 | toolset `a2a` | 5 tool, default off, available saat inventaris=false | `TestF7TSET033A2A` | LULUS | — |
 
 ## 9. GAP F7 (10) — SPEC §22.1
 
