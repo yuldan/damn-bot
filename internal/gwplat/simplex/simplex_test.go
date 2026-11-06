@@ -112,9 +112,12 @@ func (f *fakeSimplex) push(item map[string]any) error {
 	}
 	raw, err := json.Marshal(map[string]any{"corrId": "x", "resp": map[string]any{"type": "newChatItem", "chatItem": item}})
 	if err != nil {
-		return err
+		return fmt.Errorf("frame: %w", err)
 	}
-	return conn.Write(context.Background(), websocket.MessageText, raw)
+	if err := conn.Write(context.Background(), websocket.MessageText, raw); err != nil {
+		return fmt.Errorf("write frame: %w", err)
+	}
+	return nil
 }
 
 func (f *fakeSimplex) Cmds() []string {
@@ -233,9 +236,7 @@ func TestF7PLAT018Simplex(t *testing.T) {
 		t.Fatal(err)
 	}
 	dm := waitChan(t, handled, "dm")
-	if dm.ChatID != "alice" || dm.UpdateID != "simplex:s1" || dm.Group {
-		t.Fatalf("dm = %+v", dm)
-	}
+	checkSimplexDM(t, dm)
 	if err := daemon.push(chatItem("s1", "secret-plaintext", "alice", "", false)); err != nil {
 		t.Fatal(err)
 	}
@@ -243,9 +244,7 @@ func TestF7PLAT018Simplex(t *testing.T) {
 	if err := daemon.push(chatItem("s2", "group", "alice", "group-1", true)); err != nil {
 		t.Fatal(err)
 	}
-	if group := waitChan(t, handled, "group"); group.ChatID != "group-1" || !group.Group {
-		t.Fatalf("group = %+v", group)
-	}
+	checkSimplexGroup(t, waitChan(t, handled, "group"))
 	replyErr := out.Reply(ctx, gwplat.Reply{
 		Chat: "alice", Markdown: "**pong**",
 		Send: func(ctx context.Context, text string) error { return adapter.Publish(ctx, "alice", text) },
@@ -267,6 +266,20 @@ func TestF7PLAT018Simplex(t *testing.T) {
 	cancel()
 	if stopErr := waitChan(t, runErr, "adapter stop"); stopErr != nil && !errors.Is(stopErr, context.Canceled) {
 		t.Fatalf("run: %v", stopErr)
+	}
+}
+
+func checkSimplexDM(t *testing.T, dm *gateway.Inbound) {
+	t.Helper()
+	if dm.ChatID != "alice" || dm.UpdateID != "simplex:s1" || dm.Group {
+		t.Fatalf("dm = %+v", dm)
+	}
+}
+
+func checkSimplexGroup(t *testing.T, group *gateway.Inbound) {
+	t.Helper()
+	if group.ChatID != "group-1" || !group.Group {
+		t.Fatalf("group = %+v", group)
 	}
 }
 

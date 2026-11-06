@@ -131,7 +131,9 @@ func (f *fakeDaemon) rpc(rw http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.sent = append(f.sent, req)
 	f.mu.Unlock()
-	_, _ = io.WriteString(rw, `{"jsonrpc":"2.0","id":"x","result":{}}`)
+	if _, err := io.WriteString(rw, `{"jsonrpc":"2.0","id":"x","result":{}}`); err != nil {
+		return
+	}
 }
 
 func (f *fakeDaemon) push(data string) { f.events <- data }
@@ -226,16 +228,12 @@ func TestF7PLAT017Signal(t *testing.T) {
 	msg := notification("+15550002", 1_700_000_000_000, "secret-plaintext", "")
 	daemon.push(msg)
 	dm := waitChan(t, handled, "dm")
-	if dm.ChatID != "+15550002" || dm.SenderID != "+15550002" || dm.Group || dm.UpdateID != "signal:+15550002|1700000000000|+15550002" {
-		t.Fatalf("dm = %+v", dm)
-	}
+	checkSignalDM(t, dm)
 	daemon.push(msg)
 	noDispatch(t, handled)
 	daemon.push(notification("+15550002", 1_700_000_000_001, "group-hi", "group-1"))
 	group := waitChan(t, handled, "group")
-	if group.ChatID != "group-1" || !group.Group {
-		t.Fatalf("group = %+v", group)
-	}
+	checkSignalGroup(t, group)
 	replyErr := out.Reply(ctx, gwplat.Reply{
 		Chat: "+15550002", Markdown: "**pong**",
 		Send: func(ctx context.Context, text string) error { return adapter.Publish(ctx, "+15550002", text) },
@@ -245,16 +243,35 @@ func TestF7PLAT017Signal(t *testing.T) {
 	}
 	waitUntil(t, func() bool { return len(daemon.Sent()) > 0 }, "rpc send")
 	sent := daemon.Sent()[0]
-	params, ok := sent.Params.(map[string]any)
-	if !ok || params["message"] != "pong" || params["account"] != "+15550001" {
-		t.Fatalf("rpc params = %#v", sent.Params)
-	}
+	checkSignalRPC(t, sent)
 	if strings.Contains(logs.String(), "secret-plaintext") || strings.Contains(logs.String(), "group-hi") {
 		t.Fatal("plaintext leaked into INFO log")
 	}
 	cancel()
 	if stopErr := waitChan(t, runErr, "adapter stop"); stopErr != nil && !errors.Is(stopErr, context.Canceled) {
 		t.Fatalf("run: %v", stopErr)
+	}
+}
+
+func checkSignalDM(t *testing.T, dm *gateway.Inbound) {
+	t.Helper()
+	if dm.ChatID != "+15550002" || dm.SenderID != "+15550002" || dm.Group || dm.UpdateID != "signal:+15550002|1700000000000|+15550002" {
+		t.Fatalf("dm = %+v", dm)
+	}
+}
+
+func checkSignalGroup(t *testing.T, group *gateway.Inbound) {
+	t.Helper()
+	if group.ChatID != "group-1" || !group.Group {
+		t.Fatalf("group = %+v", group)
+	}
+}
+
+func checkSignalRPC(t *testing.T, sent rpcRequest) {
+	t.Helper()
+	params, ok := sent.Params.(map[string]any)
+	if !ok || params["message"] != "pong" || params["account"] != "+15550001" {
+		t.Fatalf("rpc params = %#v", sent.Params)
 	}
 }
 
