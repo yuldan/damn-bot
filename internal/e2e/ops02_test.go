@@ -110,6 +110,7 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"inference":          {"inference", "enabled"},
 		"refs":               {"tool", "enabled"},
 		"telegram":           {"gateway", "enabled"},
+		"peer-dm":            {"gateway", "enabled"},
 		"update":             {"background", "enabled"},
 		"cron-monitor":       {"tool", "enabled"},
 		"auth":               {"inference", "enabled"},

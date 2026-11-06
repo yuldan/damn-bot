@@ -207,7 +207,7 @@ func peerDM(args []string, stdout, stderr io.Writer) int {
 	}
 	client := &gwpeer.Client{
 		LocalID: *local, Key: key, Tokens: gwpeer.EnvTokens{},
-		HTTP: netx.New(netx.Config{}).Client("peer-dm", netx.Gateway),
+		HTTP: peerDMClient(netx.New(netx.Config{})),
 	}
 	env, err := client.Send(context.Background(), &peer, *chat, *text)
 	if gwpeer.IsDuplicate(err) {
@@ -226,4 +226,10 @@ func peerClose(book *gwpeer.Book, stderr io.Writer) {
 	if err := book.Close(); err != nil {
 		sessionsPrintf(stderr, "peer: close book: %v\n", err)
 	}
+}
+
+// peerDMClient is the egress seam for `damnbot peer dm` (GW-013): a gateway
+// client labelled peer-dm, so the registry and `doctor --network` cover it.
+func peerDMClient(n *netx.Network) *netx.Client {
+	return n.Client("peer-dm", netx.Gateway)
 }

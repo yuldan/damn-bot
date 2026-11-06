@@ -39,25 +39,68 @@ func purposeOf(name string) Purpose {
 // site, and no entry is a placeholder.
 func TestEgressRegistryComplete(t *testing.T) {
 	t.Parallel()
-	reg := Registry()
-	seen := scanClientCalls(t)
+	for _, problem := range registryProblems(Registry(), scanClientCalls(t)) {
+		t.Error(problem)
+	}
+}
+
+// registryProblems reports every production client missing from the registry,
+// registered with another purpose, or left as a stale/placeholder entry. The
+// gate and its negative control share this one rule.
+func registryProblems(reg map[string]Egress, seen map[string]Purpose) []string {
+	var problems []string
 	for _, name := range slices.Sorted(maps.Keys(seen)) {
 		e, ok := reg[name]
 		if !ok {
-			t.Errorf("egress %q has a production call site but no registry entry", name)
+			problems = append(problems, fmt.Sprintf("egress %q has a production call site but no registry entry", name))
 			continue
 		}
 		if e.Purpose != seen[name] {
-			t.Errorf("egress %q registry purpose = %s, call site = %s", name, e.Purpose, seen[name])
+			problems = append(problems, fmt.Sprintf("egress %q registry purpose = %s, call site = %s", name, e.Purpose, seen[name]))
 		}
 	}
-	for name, e := range reg {
+	for _, name := range slices.Sorted(maps.Keys(reg)) {
+		e := reg[name]
 		if _, ok := seen[name]; !ok {
-			t.Errorf("registry entry %q has no production call site", name)
+			problems = append(problems, fmt.Sprintf("registry entry %q has no production call site", name))
 		}
 		if e.Host == "" || e.Trigger == "" {
-			t.Errorf("registry entry %q is missing host or trigger: %+v", name, e)
+			problems = append(problems, fmt.Sprintf("registry entry %q is missing host or trigger: %+v", name, e))
 		}
+	}
+	return problems
+}
+
+// TestEgressRegistryRejectsUnregistered is the negative control for
+// [TestEgressRegistryComplete]: a label used by production code but absent
+// from the registry is an error, not a silent pass.
+func TestEgressRegistryRejectsUnregistered(t *testing.T) {
+	t.Parallel()
+	reg := map[string]Egress{"known": {Purpose: Tool, Host: "h", Trigger: "t"}}
+	seen := map[string]Purpose{"known": Tool, "ghost": Gateway}
+	problems := registryProblems(reg, seen)
+	if !slices.Contains(problems, `egress "ghost" has a production call site but no registry entry`) {
+		t.Fatalf("unregistered label passed the gate: %q", problems)
+	}
+}
+
+// TestPeerDMEgress (GAP-OPS-02, GW-013): the peer DM send path is user
+// initiated gateway egress, so its registry entry carries the same purpose
+// the production call site declares and real, non-placeholder metadata.
+func TestPeerDMEgress(t *testing.T) {
+	t.Parallel()
+	e, ok := Registry()["peer-dm"]
+	if !ok {
+		t.Fatal(`registry has no "peer-dm" entry`)
+	}
+	if e.Purpose != Gateway {
+		t.Fatalf("peer-dm purpose = %s, want gateway", e.Purpose)
+	}
+	if got := scanClientCalls(t)["peer-dm"]; got != Gateway {
+		t.Fatalf("peer-dm call site purpose = %s, want gateway", got)
+	}
+	if e.Host == "" || e.Trigger == "" {
+		t.Fatalf("peer-dm entry is a placeholder: %+v", e)
 	}
 }
 
