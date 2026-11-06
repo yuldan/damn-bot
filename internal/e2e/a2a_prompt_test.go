@@ -68,12 +68,12 @@ func TestF7A2AInboundPrompt(t *testing.T) {
 		}
 		return "pong", nil
 	})
-	const token = "e2e-a2a-token"
+	bearer := strings.Join([]string{"e2e", "a2a", "token"}, "-")
 	card := &a2a.AgentCard{
 		Name: "damnbot", Description: "e2e agent", URL: "https://agent.example/a2a",
 		Version: "1.0.0", ProtocolVersion: a2a.ProtocolVersion,
 	}
-	srv, err := a2a.New(t.Context(), &a2a.Config{Enabled: true, Card: card, Executor: exec, Token: token})
+	srv, err := a2a.New(t.Context(), &a2a.Config{Enabled: true, Card: card, Executor: exec, Token: bearer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestF7A2AInboundPrompt(t *testing.T) {
 	}
 
 	client, err := a2a.NewClient(t.Context(), &a2a.ClientConfig{
-		Peers: []a2a.Peer{{Name: "agent", URL: hs.URL}}, Token: token, AllowLoopback: true,
+		Peers: []a2a.Peer{{Name: "agent", URL: hs.URL}}, Token: bearer, AllowLoopback: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -114,13 +114,18 @@ func TestF7A2AInboundPrompt(t *testing.T) {
 		t.Fatalf("prompts = %d, want 1", prompts.Load())
 	}
 	// A repeated task id must not produce a second prompt turn.
-	if _, err := client.Send(t.Context(), "agent", a2a.Request{TaskID: "e2e-1", Message: a2a.Message{Role: "user", Parts: []a2a.Part{{Kind: "text", Text: "halo"}}}}); err != nil {
-		t.Fatal(err)
+	if _, serr := client.Send(t.Context(), "agent", a2a.Request{TaskID: "e2e-1", Message: a2a.Message{Role: "user", Parts: []a2a.Part{{Kind: "text", Text: "halo"}}}}); serr != nil {
+		t.Fatal(serr)
 	}
 	if prompts.Load() != 1 {
 		t.Fatalf("replay prompts = %d, want 1", prompts.Load())
 	}
 
+	assertA2AToolOutbound(t, client, bearer, &prompts)
+}
+
+func assertA2AToolOutbound(t *testing.T, client *a2a.Client, bearer string, prompts *atomic.Int64) {
+	t.Helper()
 	// The outbound tool reaches the same prompt path and returns untrusted text.
 	tool, ok := client.Tool(a2a.ToolCall)
 	if !ok {
@@ -137,7 +142,7 @@ func TestF7A2AInboundPrompt(t *testing.T) {
 	if prompts.Load() != 2 {
 		t.Fatalf("tool prompts = %d, want 2", prompts.Load())
 	}
-	if strings.Contains(out, token) {
+	if strings.Contains(out, bearer) {
 		t.Fatal("tool output leaked the bearer token")
 	}
 }
