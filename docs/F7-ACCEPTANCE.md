@@ -9,7 +9,7 @@ Aturan gate:
 - **Penutupan (ADR-326, ADR-323).** Baris hanya `LULUS` bila PR yang sama menambah tes bernama, mengubah baris parity F7 menjadi `LULUS`, dan mengubah baris ledger `BELUM`→`LULUS`. Baris yang tidak dapat dibuktikan ditulis `N/A — <alasan teknis> (carryover F8)`, bukan `BELUM`. Baris agregat hanya `LULUS` setelah semua anggota tertutup.
 - **Gate mesin.** Selama `PHASE=F7` gate tidak aktif (ledger hidup). Begitu `PHASE` > F7, `TestF7LedgerClosed` menolak `BELUM`, `N/A` telanjang (< 8 karakter alasan), dan baris parity F7 yang bukan `LULUS`/`N/A — …`; `TestParityPhaseColumn` memeriksa hal yang sama dari sisi parity. `TestF7LedgerGateRules` adalah kontrol negatifnya.
 - **Status parity `external-bridge (ADR-034)` (PLAT-025) bukan penutupan.** Gate F7 memperlakukannya sebagai belum tertutup; PR yang membuktikan adapter bridge (fake bridge server, inbound-only, cold outbound ditolak) me-flip baris itu menjadi `LULUS` dengan catatan ADR-034 tetap.
-- Tidak ada `t.Skip` runtime (REL-15). Setiap adapter/HTTP surface diuji dengan **fake server** (HTTP/WS/IMAP/SMTP) di `internal/gateway/platformtest`; binary nyata hanya dipakai harness `internal/e2e` yang sudah ada. Smoke akun nyata berjalan nightly dan tidak menggantikan fake server.
+- Tidak ada `t.Skip` runtime (REL-15). Setiap adapter/HTTP surface diuji dengan **fake server** (HTTP/WS/IMAP/SMTP) di `internal/gwplat/platformtest`; binary nyata hanya dipakai harness `internal/e2e` yang sudah ada. Smoke akun nyata berjalan nightly dan tidak menggantikan fake server.
 - Nama tes bersifat target, bukan implementasi. Nama yang sudah diwajibkan SPEC dipertahankan apa adanya: `TestIRCAccountAuth`, `TestIdentityStrengthTable`, `TestWhatsAppWebGuards`, `TestSetupNoWebWithoutAck`, `TestBridgeProtocolConformance`, `TestGroupMentionPolicy`, `FuzzRenderTelegram`, `TestKnownDefect*` (internal/gateway/render/known_defects_test.go:12-83).
 
 ## 1. Acceptance ROADMAP F7
@@ -33,7 +33,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 |---|---|---|---|---|---|
 | PLAT-001 | A2A | server inbound A2A v1.0 (task/send, task/get) + agent card; adapter default-off; card absen → error typed | `TestF7PLAT001A2A`, `TestF7A2AAgentCard` | BELUM | §8 tools |
 | PLAT-002 | BlueBubbles | kirim REST + terima webhook; password hanya dari secret; URL wajib https atau loopback | `TestF7PLAT002BlueBubbles` | BELUM | server macOS, fake HTTP |
-| PLAT-003 | Buzz (Nostr relay) | subscribe/publish relay WS; private key hanya dari secret; 0 key di log/error | `TestF7PLAT003Buzz` | BELUM | — |
+| PLAT-003 | Buzz (Nostr relay) | subscribe/publish relay WS; private key hanya dari secret; 0 key di log/error | `TestF7PLAT003Buzz` | LULUS | — |
 | PLAT-004 | DingTalk Stream | WS client id/secret; ack ≤ 3 s; dedupe `msgId` (replay 2× → 1 turn) | `TestF7PLAT004DingTalk`, `TestF7DingTalkDedupe` | BELUM | — |
 | PLAT-005 | Discord | Gateway WS + REST; intents minimal; thread/DM mapping; slash command; 4004 → needs_attention (GW-11) | `TestF7PLAT005Discord`, `TestF7DiscordIntents` | BELUM | voice MEDIA-029 |
 | PLAT-006 | Email | IMAP polling + SMTP reply; MIME multipart; dedupe `Message-ID`; BODY.PEEK (GW-08) | `TestF7PLAT006Email` | BELUM | GAP-GW-08 |
