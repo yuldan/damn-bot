@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/gwplat/irc` (F7 P3c-1, slice persiapan, ADR-326): **parser baris IRCv3**. `parseLine` menangani tag `@key=value` dengan escape set IRCv3 (`\s \: \\ \r \n`), prefix nick/server, command, dan trailing parameter; `lastParam` dipakai adapter. Slice ini tidak menutup baris ledger; adapter SASL yang memakainya ada di P3c-2 pada stack yang sama. Tes: `TestParseLine`.
+
 - `internal/gwplat/buzz` (F7 P3b, PLAT-003, ADR-326): **adapter relay Buzz/Nostr**. Langganan dan publish relay WS NIP-01 dengan tanda tangan BIP340 (vektor referensi BIP340 diuji), kunci privat hanya dari seam `secret.Store` dan tidak pernah masuk log/error, dedupe id event yang bertahan lintas reconnect, backoff reconnect ctx-aware tanpa `time.Sleep`, dan outbound lewat `gwplat.Outbox` (render plain → outq). Endpoint `ws://` hanya diterima untuk loopback; URL bertoken ditolak. Tes: `TestF7PLAT003Buzz`, `TestSchnorrBIP340Vectors`, `TestBuzzActivationGate`, `TestBuzzPublishWithoutConnection`. Baris `PLAT-003` menjadi `LULUS`.
 
 - `internal/gateway/render` (F7 follow-up, ADR-326): **hapus API `Card` yang tidak terpakai**. Approval/preview Telegram sudah memakai `RenderTelegram`; `Card` tidak punya pemanggil produksi dan memicu `deadcode` pada tier full. Tidak ada perubahan perilaku atau baris ledger.
