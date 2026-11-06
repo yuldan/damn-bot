@@ -7,10 +7,14 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/gwpeer"
 )
@@ -35,6 +39,7 @@ func TestF7CLI027Peer(t *testing.T) {
 	peerKey := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
 	fake := fakePeerServer(t)
 	testPeerRegistry(t, dir, fake, peerKey)
+	testPeerRunStop(t, dir)
 }
 
 // fakePeerServer accepts one DM addressed to peer b.
@@ -89,5 +94,65 @@ func testPeerRegistry(t *testing.T, dir string, fake *httptest.Server, peerKey e
 	code, out, _ = runPeerCLI("list", "--data-dir", dir)
 	if code != 0 || strings.TrimSpace(out) != "" {
 		t.Fatalf("peer list after remove = %d %q", code, out)
+	}
+}
+
+func testPeerRunStop(t *testing.T, dir string) {
+	t.Helper()
+	done := make(chan int, 1)
+	go func() {
+		var out, errb bytes.Buffer
+		done <- runPeer([]string{"run", "--data-dir", dir, "--id", "a", "--listen", "127.0.0.1:0"}, &out, &errb)
+	}()
+	state := waitPeerState(t, dir)
+	if state.ID != "a" || !strings.HasPrefix(state.URL, "http://127.0.0.1:") {
+		t.Fatalf("run state = %+v", state)
+	}
+	code, out, _ := runPeerCLI("status", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "running yes") {
+		t.Fatalf("peer status = %d %q", code, out)
+	}
+	stopPeerEventually(t, dir)
+	select {
+	case rc := <-done:
+		if rc != 0 {
+			t.Fatalf("peer run exit = %d", rc)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("peer run did not stop")
+	}
+	_, _, statePath := peerPaths(dir)
+	if _, err := os.Stat(statePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("run state not removed: %v", err)
+	}
+}
+
+func waitPeerState(t *testing.T, dir string) peerRunState {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		if state, err := readPeerState(filepath.Join(dir, "peer", "run.json")); err == nil && state.URL != "" {
+			return state
+		}
+		select {
+		case <-deadline:
+			t.Fatal("run state was not written")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func stopPeerEventually(t *testing.T, dir string) {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		if code, _, _ := runPeerCLI("stop", "--data-dir", dir); code == 0 {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatal("peer stop did not succeed")
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 }

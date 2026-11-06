@@ -37,6 +37,12 @@ func runPeer(args []string, stdout, stderr io.Writer) int {
 		return peerRemove(args[1:], stdout, stderr)
 	case "dm":
 		return peerDM(args[1:], stdout, stderr)
+	case "run":
+		return peerRun(args[1:], stdout, stderr)
+	case "status":
+		return peerStatus(args[1:], stdout, stderr)
+	case "stop":
+		return peerStop(args[1:], stdout, stderr)
 	}
 	sessionsPrintf(stderr, "peer: unknown subcommand %q\n", cleanArg(args[0]))
 	peerUsage(stderr)
@@ -48,6 +54,9 @@ func peerUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot peer list [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot peer remove ID [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot peer dm --id LOCAL --peer ID --text TEXT [--chat ID] [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot peer run --id ID [--listen 127.0.0.1:8788] [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot peer status [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot peer stop [--data-dir DIR]\n")
 	sessionsPrintf(w, "tokens: the referenced environment variable holds the peer bearer token.\n")
 }
 

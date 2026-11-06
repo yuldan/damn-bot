@@ -4,8 +4,9 @@ package main
 
 import (
 	"errors"
-	configos "github.com/damnbot/damnbot/internal/config"
 	"sync"
+
+	configos "github.com/damnbot/damnbot/internal/config"
 
 	"github.com/damnbot/damnbot/internal/secret"
 	"github.com/zalando/go-keyring"

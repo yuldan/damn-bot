@@ -108,7 +108,7 @@ Deskripsi = teks `help` hermes (verbatim, dipotong 15 kata) agar dapat dicocokka
 | CLI-024 | `hermes resume` | Lift the emergency stop set by `hermes pause` | `hermes_cli/subcommands/pause.py:53` | tersedia | — |  | F4 | planned |
 | CLI-025 | `hermes cron` | Cron job management | `hermes_cli/subcommands/cron.py:16` | tersedia | — | 13 sub: list, create, edit, pause, resume, run, remove, status, runs, incidents, notepad, doctor, tick | F4 | planned |
 | CLI-026 | `hermes webhook` | Manage dynamic webhook subscriptions | `hermes_cli/subcommands/webhook.py:10` | tersedia | — | 4 sub: subscribe, list, remove, test | F7 | planned |
-| CLI-027 | `hermes peer` | Bot-to-bot DMs across machines (peer Hermes gateways) | `hermes_cli/subcommands/peer.py:425` | tersedia | Network | 7 sub: add, list, remove, dm, run, status, stop | F7 | planned |
+| CLI-027 | `hermes peer` | Bot-to-bot DMs across machines (peer Hermes gateways) | `hermes_cli/subcommands/peer.py:425` | tersedia | Network | 7 sub: add, list, remove, dm, run, status, stop | F7 | LULUS |
 | CLI-028 | `hermes portal` | Set up Nous Portal (login, model pick, Tool Gateway); see also `portal info` | `hermes_cli/portal_cli.py:178` | tersedia | Nous Portal | 5 sub: login, info, status, open, tools | — | dropped-with-approval (NP-19) |
 | CLI-029 | `hermes kanban` | Multi-profile collaboration board (tasks, links, comments) | `hermes_cli/kanban_parser.py:459` | tersedia | — | 45 sub: init, boards, create, swarm, list, show, assign, set-model, reclaim, reassign, diagnostics, link, unlink, claim, comment, attach, attachments, attach-rm, complete, edit, block, schedule, unblock, request-review, request-changes, reopen-review, promote, archive, tail, dispatch, daemon, watch, stats, notify-subscribe, notify-list, notify-unsubscribe, log, runs, heartbeat, assignees, context, specify, decompose, gc, repair | F7 | planned |
 | CLI-030 | `hermes project` | Manage projects (named, multi-folder workspaces) | `hermes_cli/projects_cmd.py:14` | tersedia | — | 11 sub: create, list, show, add-folder, remove-folder, rename, set-primary, use, archive, restore, bind-board | F8 | planned |
@@ -398,7 +398,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TSET-033 | toolset `a2a` | 5 tool | `plugins/platforms/a2a/tools.py` (registry) | off (default-off) | — | tools: a2a_discover, a2a_call, a2a_list, a2a_history, a2a_orchestrate; available saat inventaris=False | F7 | planned |
 | TSET-034 | toolset `search` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:77` | sesuai platform/posture | — |  | F6 | LULUS |
 | TSET-035 | toolset `context_engine` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:130` | sesuai platform/posture | — | tanpa tool registry sendiri | F2 | planned |
-| TSET-036 | toolset `bot_room` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:134` | sesuai platform/posture | — | tanpa tool registry sendiri | F7 | planned |
+| TSET-036 | toolset `bot_room` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:134` | sesuai platform/posture | — | tanpa tool registry sendiri | F7 | LULUS |
 | TSET-037 | toolset `yuanbao` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:169` | sesuai platform/posture | — |  | — | dropped-with-approval (NP-07) |
 | TSET-038 | toolset `debugging` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:174` | sesuai platform/posture | — |  | F2 | planned |
 | TSET-039 | toolset `safe` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:175` | sesuai platform/posture | — |  | F2 | planned |
@@ -973,8 +973,8 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | GW-011 | Webhook platform & subscriptions | Terima webhook (toolset aman) + subscription dinamis | `gateway/platforms/webhook.py`, `hermes_cli/webhook.py` | opt-in | — | toolset `hermes-webhook` | F7 | planned |
 | GW-012 | MS Graph webhook | Webhook Microsoft Graph | `gateway/platforms/msgraph_webhook.py` | opt-in | MS Graph |  | F7 | planned |
 | GW-013 | Peer gateways (bot-to-bot DM) | DM antar gateway Hermes lintas mesin | `gateway/hosted_room_peer.py`, `hermes_cli/subcommands/peer.py` | opt-in | Network | `hermes peer` | F7 | LULUS |
-| GW-014 | Hosted rooms / group chat | Ruang multi-agent terhost | `gateway/hosted_rooms.py` | opt-in | — | toolset `bot_room` | F7 | planned |
-| GW-015 | Bot mode / relay | Mode bot DM dan relay antar profil | `tools/bot_relay.py`, `tools/bot_mode_dm.py` | opt-in | — |  | F7 | planned |
+| GW-014 | Hosted rooms / group chat | Ruang multi-agent terhost | `gateway/hosted_rooms.py` | opt-in | — | toolset `bot_room` | F7 | LULUS |
+| GW-015 | Bot mode / relay | Mode bot DM dan relay antar profil | `tools/bot_relay.py`, `tools/bot_mode_dm.py` | opt-in | — |  | F7 | LULUS |
 | GW-016 | Profile routing / multiplex | Satu gateway melayani banyak profil | `gateway/profile_routing.py`, `hermes_cli/gateway_multiplex_mode.py` | on (`gateway.auto_multiplex_migration`) | s6 (opsional) |  | F7 | planned |
 | GW-017 | Gateway restart/drain | Restart anggun setelah drain run aktif | `gateway/restart.py`, `gateway/drain_control.py` | opt-in | — | `/restart` | F4 | planned |
 | GW-018 | Platform pause/resume | Pause platform yang gagal | `hermes_cli/commands.py:330` | opt-in | — | `/platform` | F4 | planned |
