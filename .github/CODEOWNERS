@@ -55,11 +55,9 @@
 /internal/cron/ @yuldan
 /internal/computeruse/ @yuldan
 /internal/gateway/ @yuldan
-/internal/gwpeer/ @yuldan
 /internal/gwplat/ @yuldan
-/internal/kanban/ @yuldan
-/internal/gwwa/ @yuldan
 /internal/hooks/ @yuldan
 /internal/obs/ @yuldan
 /internal/scorecard/ @yuldan
-/internal/gwapi/ @yuldan
+
+/internal/gwmatrix/ @yuldan
