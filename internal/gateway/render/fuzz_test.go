@@ -3,6 +3,7 @@ package render
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // fuzzFragments are the fragments of the corpus: block and inline markers,
@@ -63,4 +64,49 @@ func FuzzRenderTelegram(f *testing.F) {
 			t.Fatalf("render tidak deterministik: %d vs %d pesan", len(msgs), len(again))
 		}
 	})
+}
+
+// FuzzRenderAST proves every platform renderer consumes the same AST without
+// panicking, never exceeds the chunk limit, keeps UTF-8 valid and reopens a
+// split fence. Telegram has its entity-specific fuzz target above.
+func FuzzRenderAST(f *testing.F) {
+	for _, src := range append(fallbackCorpus(), "```go\nx\n```", "| a | b |\n| --- | --- |\n| 1 | 2 |", "- a\n  - b") {
+		f.Add(src)
+	}
+	f.Fuzz(func(t *testing.T, src string) {
+		if len(src) > 1<<18 {
+			t.Skip("input besar; corpus 10k mencakup ukuran nyata")
+		}
+		for _, platform := range []Platform{PlatformSlack, PlatformWhatsApp, PlatformDiscord, PlatformMatrix, PlatformPlain} {
+			checkPlatformRender(t, platform, src)
+		}
+	})
+}
+
+func checkPlatformRender(t *testing.T, platform Platform, src string) {
+	t.Helper()
+	lim := Limits{MaxLen: 300, MaxChunks: 100}
+	msgs := Format(platform, src, lim)
+	for i, m := range msgs {
+		checkPlatformMessage(t, platform, i, lim, m)
+	}
+	if again := Format(platform, src, lim); len(again) != len(msgs) {
+		t.Fatalf("%s render not deterministic: %d vs %d", platform, len(msgs), len(again))
+	}
+}
+
+func checkPlatformMessage(t *testing.T, platform Platform, i int, lim Limits, m Message) {
+	t.Helper()
+	if !utf8.ValidString(m.Text) {
+		t.Fatalf("%s message %d is not UTF-8: %q", platform, i, m.Text)
+	}
+	if n := Units(m.Text); n > lim.MaxLen {
+		t.Fatalf("%s message %d = %d units > %d", platform, i, n, lim.MaxLen)
+	}
+	if platform == PlatformMatrix && m.HTML == "" {
+		t.Fatalf("matrix message %d has no HTML", i)
+	}
+	if strings.Contains(strings.ToLower(m.HTML), "<script") {
+		t.Fatalf("matrix message %d leaked a script tag", i)
+	}
 }
