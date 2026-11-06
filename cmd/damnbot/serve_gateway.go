@@ -54,6 +54,8 @@ type serveGateway struct {
 	stderr              io.Writer
 	inbound             chan telegram.Inbound
 	webhook             *gatewayWebhook
+	webhookSrv          *http.Server
+	webhookCtx          context.Context
 	cancel              context.CancelFunc
 	pollCancel          context.CancelFunc
 	wg                  sync.WaitGroup
@@ -269,10 +271,14 @@ func (g *serveGateway) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	pollCtx, pollCancel := context.WithCancel(runCtx)
 	g.cancel, g.pollCancel, g.runDone = cancel, pollCancel, runCtx.Done()
+	g.webhookCtx = runCtx
 	if err := g.registry.Start(pollCtx); err != nil {
 		return fmt.Errorf("gateway: registry start: %w", err)
 	}
 	g.writePlatforms()
+	if err := g.startGenericWebhook(runCtx); err != nil {
+		return err
+	}
 	g.wg.Add(2)
 	go func() {
 		defer g.wg.Done()
@@ -304,6 +310,7 @@ func (g *serveGateway) Stop(ctx context.Context) {
 		g.cancel()
 	}
 	g.chats.Close()
+	g.stopGenericWebhook(ctx)
 	if g.registry != nil {
 		if err := g.registry.Stop(ctx); err != nil {
 			sessionsPrintf(g.stderr, "gateway: stop adapters: %s\n", cleanLine(err.Error()))
@@ -615,17 +622,6 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 		return fmt.Errorf("gateway: turn failed: %s", res.Detail)
 	}
 	return nil
-}
-
-func waitReply(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return fmt.Errorf("gateway: final reply wait: %w", ctx.Err())
-	case <-t.C:
-		return nil
-	}
 }
 
 // typingEvery repeats the chat action while a turn waits for its first visible
