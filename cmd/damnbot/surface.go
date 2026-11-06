@@ -71,6 +71,7 @@ func surface() []surfaceEntry {
 		{Name: "gateway", Summary: "Messaging gateway", Phase: phaseF4, Run: runGateway, Usage: gatewayUsage},
 		{Name: "send", Summary: "Send one message to a configured platform", Phase: phaseF4, Run: runSend, Usage: sendUsage},
 		{Name: "cron", Summary: "Scheduler", Phase: phaseF4, Run: runCron, Usage: cronUsage},
+		{Name: "webhook", Summary: "Webhook subscriptions: add, list, remove, test", Phase: phaseF7, Run: runWebhook, Usage: webhookUsage},
 		{Name: "kanban", Summary: "Collaboration board", Phase: phaseF7},
 		{Name: "usage", Summary: "Ledger, budget guard, insights", Phase: phaseF3, Run: runUsageCommand, Usage: usageUsage},
 		{Name: "eval", Summary: "Batch runs, evals, trajectory, scorecard", Phase: phaseF8},

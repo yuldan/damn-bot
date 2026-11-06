@@ -18,6 +18,18 @@ const (
 	humanDelayMax  = 1500 * time.Millisecond
 )
 
+// waitReply bounds the wait for the final reply update of one turn.
+func waitReply(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("gateway: final reply wait: %w", ctx.Err())
+	case <-t.C:
+		return nil
+	}
+}
+
 type replyMeta struct {
 	Iterations int
 	CostUSD    float64
