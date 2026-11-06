@@ -162,6 +162,25 @@ func TestEnvelopeRejectsStaleAndMalformed(t *testing.T) {
 	}
 }
 
+// TestEnvTokens keeps the transport token out of the config: only a real
+// environment variable name resolves, and a missing value is an error rather
+// than an empty token.
+func TestEnvTokens(t *testing.T) {
+	t.Setenv("PEER_TEST_TOKEN", "s3cret")
+	got, err := EnvTokens{}.Token(t.Context(), "PEER_TEST_TOKEN")
+	if err != nil || got != "s3cret" {
+		t.Fatalf("Token = %q, %v", got, err)
+	}
+	if _, err := (EnvTokens{}).Token(t.Context(), "PEER_TEST_MISSING"); !errors.Is(err, ErrTokenMissing) {
+		t.Fatalf("missing token = %v, want ErrTokenMissing", err)
+	}
+	for _, ref := range []string{"", "not a name", "1BAD", "bad-name"} {
+		if _, err := (EnvTokens{}).Token(t.Context(), ref); !errors.Is(err, ErrTokenMissing) {
+			t.Errorf("Token(%q) = %v, want ErrTokenMissing", ref, err)
+		}
+	}
+}
+
 // TestPeerValidateURL keeps the registry entry fail-closed: HTTPS anywhere,
 // plaintext HTTP only on loopback, and never credentials in the URL.
 func TestPeerValidateURL(t *testing.T) {
