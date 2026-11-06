@@ -191,6 +191,11 @@ func CapsFor(platform string) (Caps, bool) {
 		caps := DefaultCaps()
 		caps.MinEditInterval = 0
 		caps.MaxEditsPerMessage = 0
+		if platform == "whatsapp_web" {
+			// ADR-034/GAP-GW-01: the bridge is paced at ≤ 1 message per 3 s
+			// per chat; 100 sends therefore take ≥ 297 s.
+			caps.Rate.PerChat = Rate{PerSecond: 1.0 / 3.0, Burst: 1}
+		}
 		return caps, true
 	case "sms":
 		caps := DefaultCaps()

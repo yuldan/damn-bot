@@ -196,6 +196,14 @@ func Descriptors() []Descriptor {
 			DefaultOff: true,
 		},
 		{
+			Name:       "whatsapp_web",
+			Transport:  TransportJSONRPC,
+			Caps:       capsOf("whatsapp_web"),
+			Render:     render.PlatformWhatsApp,
+			Secrets:    []string{"whatsapp_web_bridge_token"},
+			DefaultOff: true,
+		},
+		{
 			Name:       "signal",
 			Transport:  TransportJSONRPC,
 			Caps:       capsOf("signal"),
