@@ -459,7 +459,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | PLAT-027 | Yuanbao (`yuanbao`) | Tencent Yuanbao IM Bot via WebSocket | `plugins/platforms/yuanbao/plugin.yaml`, `plugins/platforms/yuanbao/adapter.py` | opt-in (aktif bila env wajib diisi) | YUANBAO_APP_ID, YUANBAO_APP_SECRET; — |  | F7 | planned |
 | PLAT-028 | `api_server` (core gateway) | OpenAI-compatible HTTP API (chat completions, responses, runs) | `gateway/platforms/api_server.py` | opt-in | extra `web`/aiohttp [INFERENCE] | toolset `hermes-api-server` | F7 | planned |
 | PLAT-029 | `webhook` (core gateway) | Penerima webhook generik (toolset aman) | `gateway/platforms/webhook.py` | opt-in | — | toolset `hermes-webhook` | F7 | LULUS |
-| PLAT-030 | `msgraph_webhook` (core gateway) | Webhook Microsoft Graph (notifikasi Teams/Outlook) | `gateway/platforms/msgraph_webhook.py` | opt-in | Microsoft Graph | dipakai teams_pipeline [INFERENCE] | F7 | planned |
+| PLAT-030 | `msgraph_webhook` (core gateway) | Webhook Microsoft Graph (notifikasi Teams/Outlook) | `gateway/platforms/msgraph_webhook.py` | opt-in | Microsoft Graph | dipakai teams_pipeline [INFERENCE] | F7 | LULUS |
 
 ## 4. PROV — provider/model backend
 50 profil provider unik dari `providers.list_providers()` + `unlisted_provider_names()` (41 direktori `plugins/model-providers/`; beberapa direktori mendaftarkan >1 profil). Diikuti adapter/transport, credential pool, OAuth. Default `model.provider` di config = kosong/`auto` (dipilih lewat `hermes setup`/`hermes model`).
@@ -971,7 +971,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | GW-009 | Delivery ledger / queue | Pengiriman andal + dedupe | `gateway/delivery.py`, `gateway/delivery_ledger.py` | on | — |  | F4 | planned |
 | GW-010 | Send CLI `hermes send` | Kirim pesan ke platform dari skrip/CI | `hermes_cli/send_cmd.py` | opt-in | Platform terkonfigurasi |  | F4 | planned |
 | GW-011 | Webhook platform & subscriptions | Terima webhook (toolset aman) + subscription dinamis | `gateway/platforms/webhook.py`, `hermes_cli/webhook.py` | opt-in | — | toolset `hermes-webhook` | F7 | planned |
-| GW-012 | MS Graph webhook | Webhook Microsoft Graph | `gateway/platforms/msgraph_webhook.py` | opt-in | MS Graph |  | F7 | planned |
+| GW-012 | MS Graph webhook | Webhook Microsoft Graph | `gateway/platforms/msgraph_webhook.py` | opt-in | MS Graph |  | F7 | LULUS |
 | GW-013 | Peer gateways (bot-to-bot DM) | DM antar gateway Hermes lintas mesin | `gateway/hosted_room_peer.py`, `hermes_cli/subcommands/peer.py` | opt-in | Network | `hermes peer` | F7 | planned |
 | GW-014 | Hosted rooms / group chat | Ruang multi-agent terhost | `gateway/hosted_rooms.py` | opt-in | — | toolset `bot_room` | F7 | planned |
 | GW-015 | Bot mode / relay | Mode bot DM dan relay antar profil | `tools/bot_relay.py`, `tools/bot_mode_dm.py` | opt-in | — |  | F7 | planned |
