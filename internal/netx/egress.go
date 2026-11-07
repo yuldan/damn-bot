@@ -77,6 +77,7 @@ func Registry() map[string]Egress {
 			Host:    "api.telegram.org",
 			Trigger: "gateway long polling and message delivery for a user turn",
 		},
+		"webhook-delivery": {Purpose: Tool, Host: "target url of a stored webhook subscription (loopback http uses the loopback client)", Trigger: "damnbot webhook test delivery (GW-011)"},
 		"peer-dm": {
 			Purpose: Gateway,
 			Host:    "peer url from the local peer book (<data-dir>/peer/peers.json)",

@@ -107,7 +107,7 @@ Deskripsi = teks `help` hermes (verbatim, dipotong 15 kata) agar dapat dicocokka
 | CLI-023 | `hermes pause` | Emergency stop: pause cron/kanban dispatch and new gateway turns | `hermes_cli/subcommands/pause.py:44` | tersedia | — |  | F4 | planned |
 | CLI-024 | `hermes resume` | Lift the emergency stop set by `hermes pause` | `hermes_cli/subcommands/pause.py:53` | tersedia | — |  | F4 | planned |
 | CLI-025 | `hermes cron` | Cron job management | `hermes_cli/subcommands/cron.py:16` | tersedia | — | 13 sub: list, create, edit, pause, resume, run, remove, status, runs, incidents, notepad, doctor, tick | F4 | planned |
-| CLI-026 | `hermes webhook` | Manage dynamic webhook subscriptions | `hermes_cli/subcommands/webhook.py:10` | tersedia | — | 4 sub: subscribe, list, remove, test | F7 | planned |
+| CLI-026 | `hermes webhook` | Manage dynamic webhook subscriptions | `hermes_cli/subcommands/webhook.py:10` | tersedia | — | 4 sub: subscribe, list, remove, test | F7 | LULUS |
 | CLI-027 | `hermes peer` | Bot-to-bot DMs across machines (peer Hermes gateways) | `hermes_cli/subcommands/peer.py:425` | tersedia | Network | 7 sub: add, list, remove, dm, run, status, stop | F7 | LULUS |
 | CLI-028 | `hermes portal` | Set up Nous Portal (login, model pick, Tool Gateway); see also `portal info` | `hermes_cli/portal_cli.py:178` | tersedia | Nous Portal | 5 sub: login, info, status, open, tools | — | dropped-with-approval (NP-19) |
 | CLI-029 | `hermes kanban` | Multi-profile collaboration board (tasks, links, comments) | `hermes_cli/kanban_parser.py:459` | tersedia | — | 45 sub: init, boards, create, swarm, list, show, assign, set-model, reclaim, reassign, diagnostics, link, unlink, claim, comment, attach, attachments, attach-rm, complete, edit, block, schedule, unblock, request-review, request-changes, reopen-review, promote, archive, tail, dispatch, daemon, watch, stats, notify-subscribe, notify-list, notify-unsubscribe, log, runs, heartbeat, assignees, context, specify, decompose, gc, repair | F7 | LULUS |
@@ -970,7 +970,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | GW-008 | Bot loop guard | Cegah loop bot-ke-bot | `gateway/bot_loop_guard.py` | on | — |  | F4 | planned |
 | GW-009 | Delivery ledger / queue | Pengiriman andal + dedupe | `gateway/delivery.py`, `gateway/delivery_ledger.py` | on | — |  | F4 | planned |
 | GW-010 | Send CLI `hermes send` | Kirim pesan ke platform dari skrip/CI | `hermes_cli/send_cmd.py` | opt-in | Platform terkonfigurasi |  | F4 | planned |
-| GW-011 | Webhook platform & subscriptions | Terima webhook (toolset aman) + subscription dinamis | `gateway/platforms/webhook.py`, `hermes_cli/webhook.py` | opt-in | — | toolset `hermes-webhook` | F7 | planned |
+| GW-011 | Webhook platform & subscriptions | Terima webhook (toolset aman) + subscription dinamis | `gateway/platforms/webhook.py`, `hermes_cli/webhook.py` | opt-in | — | toolset `hermes-webhook` | F7 | LULUS |
 | GW-012 | MS Graph webhook | Webhook Microsoft Graph | `gateway/platforms/msgraph_webhook.py` | opt-in | MS Graph |  | F7 | LULUS |
 | GW-013 | Peer gateways (bot-to-bot DM) | DM antar gateway Hermes lintas mesin | `gateway/hosted_room_peer.py`, `hermes_cli/subcommands/peer.py` | opt-in | Network | `hermes peer` | F7 | LULUS |
 | GW-014 | Hosted rooms / group chat | Ruang multi-agent terhost | `gateway/hosted_rooms.py` | opt-in | — | toolset `bot_room` | F7 | LULUS |

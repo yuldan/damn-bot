@@ -111,12 +111,15 @@ func checkStoreValidation(t *testing.T) {
 
 func checkStorePersistence(t *testing.T, path string, sub *Subscription) {
 	t.Helper()
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
+	// Windows reports 0666 for every writable file: Mode().Perm() only mirrors
+	// FILE_ATTRIBUTE_READONLY (os/types_windows.go), so chmod(0600) cannot
+	// round-trip there. The production path still chmods 0600 before the
+	// rename; this assertion is meaningful only on platforms with POSIX bits.
+	if perm := statPerm(t, path); posixModes() && perm != 0o600 {
 		t.Fatalf("store mode = %o, want 600", perm)
+	}
+	if perm := statPerm(t, filepath.Dir(path)); posixModes() && perm != 0o700 {
+		t.Fatalf("store dir mode = %o, want 700", perm)
 	}
 	reopened, err := OpenStore(path, nil)
 	if err != nil {
@@ -151,6 +154,92 @@ func checkStoreRemove(t *testing.T, store *Store, id string) {
 	}
 	if err := store.Remove(id); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second Remove = %v, want ErrNotFound", err)
+	}
+}
+
+// posixModes reports whether the platform keeps POSIX permission bits. Windows
+// only keeps FILE_ATTRIBUTE_READONLY, so os.Stat reports 0666 for any writable
+// file and 0444 for a read-only one; chmod(0600) is not observable there.
+func posixModes() bool { return runtime.GOOS != "windows" }
+
+func statPerm(t *testing.T, path string) os.FileMode {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode().Perm()
+}
+
+// TestF7WebhookStoreRepairsLooseTable: a table and directory left with
+// group/other access by an older release are repaired to 0600/0700 on open,
+// and the existing rows are kept rather than rejected.
+func TestF7WebhookStoreRepairsLooseTable(t *testing.T) {
+	t.Parallel()
+	if !posixModes() {
+		t.Skip("POSIX permission bits")
+	}
+	store, path := testStore(t)
+	sub, _, err := store.Add(&Subscription{
+		Provider: "generic", URL: "https://hooks.example.test/legacy",
+		Events: []string{"message.created"}, SecretRef: "webhook_secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(path)
+	if cerr := os.Chmod(path, 0o644); cerr != nil { // #nosec G302 -- repair fixture.
+		t.Fatal(cerr)
+	}
+	if cerr := os.Chmod(dir, 0o755); cerr != nil { // #nosec G302 -- repair fixture.
+		t.Fatal(cerr)
+	}
+	reopened, err := OpenStore(path, nil)
+	if err != nil {
+		t.Fatalf("OpenStore on a loose table: %v", err)
+	}
+	if _, ok := reopened.Get(sub.ID); !ok {
+		t.Fatal("loose table lost its rows")
+	}
+	if perm := statPerm(t, path); perm != 0o600 {
+		t.Fatalf("repaired store mode = %o, want 600", perm)
+	}
+	if perm := statPerm(t, dir); perm != 0o700 {
+		t.Fatalf("repaired store dir mode = %o, want 700", perm)
+	}
+}
+
+// TestF7WebhookStoreRepairsLooseDirOnSave: a fresh table written into a
+// directory that already exists with group/other access still ends up 0600
+// inside a 0700 directory.
+func TestF7WebhookStoreRepairsLooseDirOnSave(t *testing.T) {
+	t.Parallel()
+	if !posixModes() {
+		t.Skip("POSIX permission bits")
+	}
+	dir := filepath.Join(t.TempDir(), "webhook")
+	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- repair fixture.
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil { // #nosec G302 -- repair fixture.
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "subscriptions.json")
+	store, err := OpenStore(path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Add(&Subscription{
+		Provider: "generic", URL: "https://hooks.example.test/dir",
+		Events: []string{"message.created"}, SecretRef: "webhook_secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if perm := statPerm(t, dir); perm != 0o700 {
+		t.Fatalf("store dir mode = %o, want 700", perm)
+	}
+	if perm := statPerm(t, path); perm != 0o600 {
+		t.Fatalf("store mode = %o, want 600", perm)
 	}
 }
 

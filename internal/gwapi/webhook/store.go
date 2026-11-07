@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -106,13 +107,20 @@ type storeFile struct {
 	Subscriptions []Subscription `json:"subscriptions"`
 }
 
-// OpenStore loads path, or starts empty when the file does not exist.
+// OpenStore loads path, or starts empty when the file does not exist. A table
+// or directory left group/other-accessible is repaired before its rows are read.
 func OpenStore(path string, now func() time.Time) (*Store, error) {
 	if path == "" {
 		return nil, fmt.Errorf("%w: empty store path", ErrSubscription)
 	}
 	if now == nil {
 		now = time.Now
+	}
+	if err := tightenMode(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("webhook: tighten store dir: %w", err)
+	}
+	if err := tightenMode(path, 0o600); err != nil {
+		return nil, fmt.Errorf("webhook: tighten store: %w", err)
 	}
 	s := &Store{path: path, now: now}
 	data, err := os.ReadFile(path) // #nosec G304 -- operator-configured subscription file, not request input.
@@ -128,6 +136,28 @@ func OpenStore(path string, now func() time.Time) (*Store, error) {
 	}
 	s.subs = file.Subscriptions
 	return s, nil
+}
+
+// tightenMode repairs a table or directory that an older release left with
+// group/other access: rows are kept, only the extra access is dropped, and a
+// path that cannot be made private fails the open. Windows has no POSIX bits
+// (os.Stat reports 0666 for any writable file), so chmod is not observable.
+// A missing path is left for its writer, and "." is never chmodded.
+func tightenMode(path string, mode os.FileMode) error {
+	if runtime.GOOS == "windows" || path == "." {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) || (err == nil && info.Mode().Perm()&0o077 == 0) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("webhook: stat %s: %w", filepath.Base(path), err)
+	}
+	if cerr := os.Chmod(path, mode); cerr != nil {
+		return fmt.Errorf("webhook: chmod %s: %w", filepath.Base(path), cerr)
+	}
+	return nil
 }
 
 // Add inserts sub, or returns the existing row when provider, URL, events and
@@ -258,6 +288,9 @@ func (s *Store) Due(now time.Time, lead time.Duration) []Subscription {
 func (s *Store) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return fmt.Errorf("webhook: store dir: %w", err)
+	}
+	if err := tightenMode(filepath.Dir(s.path), 0o700); err != nil {
+		return fmt.Errorf("webhook: tighten store dir: %w", err)
 	}
 	data, err := json.MarshalIndent(storeFile{Version: 1, Subscriptions: s.subs}, "", "  ")
 	if err != nil {
