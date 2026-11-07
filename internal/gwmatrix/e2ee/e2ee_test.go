@@ -136,3 +136,43 @@ func TestE2EECorruptPayload(t *testing.T) {
 		t.Fatalf("corrupt to-device = %v, want ErrBadPayload", err)
 	}
 }
+
+// TestE2EERoomKeyOverOlm covers HandleToDevice: an Olm-sealed m.room_key
+// installs the Megolm session and the room event decrypts.
+func TestE2EERoomKeyOverOlm(t *testing.T) {
+	alice := newCrypto(t, "@alice:example.test", "ALICE", &memStore{})
+	bob := newCrypto(t, "@bob:example.test", "BOB", &memStore{})
+	device, _ := deviceOf(t, bob, "@bob:example.test", "BOB")
+	room := "!room:example.test"
+	key, err := alice.NewOutboundRoom(t.Context(), room)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := json.Marshal(map[string]any{
+		"type": "m.room_key",
+		"content": map[string]string{
+			"algorithm": AlgorithmMegolm, "room_id": room,
+			"session_id": key.SessionID, "session_key": key.SessionKey,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := alice.EncryptToDevice(t.Context(), device, envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handled, err := bob.HandleToDevice(t.Context(), "@alice:example.test", sealed)
+	if err != nil || !handled {
+		t.Fatalf("handle = %v/%v", handled, err)
+	}
+	event := []byte(`{"type":"m.room.message","content":{"body":"hello"}}`)
+	content, err := alice.EncryptRoom(t.Context(), room, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := bob.DecryptRoom(t.Context(), room, content)
+	if err != nil || !bytes.Equal(plain, event) {
+		t.Fatalf("decrypt = %q err %v", plain, err)
+	}
+}
