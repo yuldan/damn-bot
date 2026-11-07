@@ -4,6 +4,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/kanban` (F7 P9 slice 8, ADR-326): **handler 45 subcommand**. Semua sub inti (board, task, komentar, lampiran, review, dispatch, daemon, notifier, decompose, gc/repair, swarm) terhubung ke `Store` yang sama; surface CLI/chat menyusul di slice penutup.
 - `internal/kanban` (F7 P9 slice 7, ADR-326): **permukaan perintah bersama**. `Invocation`/`Run`/`Subcommands` (45 nama) dan parser flag/ringkasan teks yang dipakai CLI dan `/kanban`; handler dan surface CLI menyusul di slice stacked berikutnya.
 - `internal/kanban` (F7 P9 slice 6, ADR-326): **dispatcher, auto-decompose, notifier**. Dispatcher klaim satu worker per task dengan lease dan dependency gating; decompose lewat seam LLM auxiliary tervalidasi skema dan biaya run dicatat 1×; notifier merender markdown lewat renderer platform (rate-limit 1/menit/task) dengan subscription persisten tanpa path rahasia.
 - `internal/kanban` (F7 P9 slice 5, ADR-326): **query, dashboard, dan swarm**. `stats`/`diagnostics`/`tail`/`runs`/`context`, GC/repair idempoten tanpa menghapus event, data dashboard read-only plus generator unit systemd tanpa path rahasia, dan fan-out swarm/workflow/PR acceptance yang menolak merge tanpa bukti verify.

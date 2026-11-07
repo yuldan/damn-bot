@@ -3,7 +3,9 @@ package kanban
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 )
@@ -59,7 +61,76 @@ func (iv *Invocation) Run(ctx context.Context, sub string, args []string) (any, 
 	return h(iv, ctx, sub, args)
 }
 
-func commandHandlers() map[string]handler { return nil }
+func commandHandlers() map[string]handler {
+	return map[string]handler{
+		"init": (*Invocation).cmdBoard, "boards": (*Invocation).cmdBoard,
+		"create": (*Invocation).cmdCreate, "swarm": (*Invocation).cmdSwarm,
+		"list": (*Invocation).cmdList, "ls": (*Invocation).cmdList,
+		"show":   (*Invocation).cmdShow,
+		"assign": (*Invocation).cmdAssign, "reassign": (*Invocation).cmdAssign,
+		"set-model": (*Invocation).cmdAssign, "reclaim": (*Invocation).cmdAssign,
+		"diagnostics": (*Invocation).cmdDiagnostics, "diag": (*Invocation).cmdDiagnostics,
+		"link": (*Invocation).cmdLink, "unlink": (*Invocation).cmdLink,
+		"claim": (*Invocation).cmdClaim, "comment": (*Invocation).cmdComment,
+		"attach": (*Invocation).cmdAttach, "attachments": (*Invocation).cmdAttach,
+		"attach-rm": (*Invocation).cmdAttach,
+		"complete":  (*Invocation).cmdComplete, "edit": (*Invocation).cmdEdit,
+		"block": (*Invocation).cmdBlock, "schedule": (*Invocation).cmdSchedule,
+		"unblock": (*Invocation).cmdReview, "request-review": (*Invocation).cmdReview,
+		"reopen-review": (*Invocation).cmdReview, "promote": (*Invocation).cmdReview,
+		"archive": (*Invocation).cmdReview, "request-changes": (*Invocation).cmdRequestChanges,
+		"tail": (*Invocation).cmdTail, "watch": (*Invocation).cmdTail, "log": (*Invocation).cmdLog,
+		"dispatch": (*Invocation).cmdDispatch, "daemon": (*Invocation).cmdDaemon,
+		"stats": (*Invocation).cmdStats, "runs": (*Invocation).cmdRuns,
+		"notify-subscribe": (*Invocation).cmdNotify, "notify-list": (*Invocation).cmdNotify,
+		"notify-unsubscribe": (*Invocation).cmdNotify,
+		"heartbeat":          (*Invocation).cmdHeartbeat, "assignees": (*Invocation).cmdAssignees,
+		"context": (*Invocation).cmdContext, "specify": (*Invocation).cmdSpecify,
+		"decompose": (*Invocation).cmdDecompose, "gc": (*Invocation).cmdGC, "repair": (*Invocation).cmdRepair,
+	}
+}
+
+func (iv *Invocation) flags(name string) *flag.FlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	return fs
+}
+
+func (iv *Invocation) taskArg(args []string) (string, error) {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		return "", fmt.Errorf("%w: exactly one task id is required", ErrInvalid)
+	}
+	return args[0], nil
+}
+
+func (iv *Invocation) oneTaskArg(sub string, args []string) (string, error) {
+	fs := iv.flags(sub)
+	if err := parse(fs, args); err != nil {
+		return "", err
+	}
+	return iv.taskArg(fs.Args())
+}
+
+// multi is a repeatable string flag.
+type multi []string
+
+func (m *multi) String() string { return strings.Join(*m, ",") }
+
+// Set implements flag.Value.
+func (m *multi) Set(v string) error {
+	*m = append(*m, v)
+	return nil
+}
+
+// parse consumes the subcommand flags. Flags precede positional arguments,
+// matching the rest of the CLI surface; a parse failure is ErrInvalid (the
+// CLI answers exit 2).
+func parse(fs *flag.FlagSet, args []string) error {
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
+	}
+	return nil
+}
 
 // Summary renders a short, renderer-safe text answer for the chat surface.
 func Summary(v any) string {
