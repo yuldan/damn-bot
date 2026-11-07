@@ -199,9 +199,6 @@ func (a *Adapter) Intents() int {
 	return intents
 }
 
-// Outbox exposes the shared outbound seam to the wiring.
-func (a *Adapter) Outbox() *gwplat.Outbox { return a.out }
-
 func (a *Adapter) baseURL() string {
 	if a.cfg.BaseURL != "" {
 		return strings.TrimRight(a.cfg.BaseURL, "/")
