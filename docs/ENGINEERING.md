@@ -199,6 +199,8 @@ flowchart TD
         MCP["mcp"]
         CI["codeintel"]
         GWP["gateway/telegram, gateway/*"]
+        PLA["gwplat (kontrak adapter F7)"]
+        PLAIO["gwplat/ntfy, gwplat/raft (adapter F7)"]
     end
     subgraph CORE["Core"]
         LOOP["loop"]
@@ -248,6 +250,9 @@ flowchart TD
     CI --> NET
     GWP --> HOST
     GWP --> NET
+    PLA --> GW
+    PLAIO --> PLA
+    PLAIO --> NET
     LOOP --> EV
     LOOP --> BND
     PLAN --> EV

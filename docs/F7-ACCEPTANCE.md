@@ -43,10 +43,10 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-010 | LINE | webhook HMAC-SHA256 constant-time; reply token sekali pakai | `TestF7PLAT010LINE`, `TestF7LINEHMAC` | BELUM | — |
 | PLAT-011 | Matrix | homeserver + access token; E2EE pure Go (`goolm`); edit-stream default mati (GW-10) | `TestF7PLAT011Matrix`, `TestF7MatrixNoEditStream` | BELUM | budget `gwmatrix` |
 | PLAT-012 | Mattermost | REST v4 + WebSocket; token dari secret; reconnect backoff netx | `TestF7PLAT012Mattermost` | BELUM | — |
-| PLAT-013 | ntfy | subscribe topic + publish; topic dari config; isi pesan tidak masuk log INFO | `TestF7PLAT013Ntfy` | BELUM | — |
+| PLAT-013 | ntfy | subscribe topic + publish; topic dari config; isi pesan tidak masuk log INFO | `TestF7PLAT013Ntfy` | LULUS | — |
 | PLAT-014 | Photon (iMessage) | sidecar HTTP; project id/secret; sidecar absen → `module_unavailable` 0 network | `TestF7PLAT014Photon` | BELUM | — |
 | PLAT-015 | QQ Bot | API v2 WS + REST; refresh token; dedupe event | `TestF7PLAT015QQBot` | BELUM | — |
-| PLAT-016 | Raft | wake-channel bridge lokal; `RAFT_PROFILE`; bridge absen → pesan instalasi | `TestF7PLAT016Raft` | BELUM | — |
+| PLAT-016 | Raft | wake-channel bridge lokal; `RAFT_PROFILE`; bridge absen → pesan instalasi | `TestF7PLAT016Raft` | LULUS | — |
 | PLAT-017 | Signal | daemon signal-cli (SSE + JSON-RPC); account → session key; plaintext tidak dipersist | `TestF7PLAT017Signal` | BELUM | — |
 | PLAT-018 | SimpleX | daemon WS lokal; reconnect; 0 tulis plaintext | `TestF7PLAT018Simplex` | BELUM | — |
 | PLAT-019 | Slack | Socket Mode; ack < 3 s; retry envelope didedupe; mrkdwn renderer | `TestF7PLAT019Slack`, `TestF7SlackAck` | BELUM | renderer GW-04 |
