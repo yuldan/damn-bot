@@ -148,7 +148,15 @@ func runScheduler(t *testing.T, s *outq.Scheduler) {
 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	waitForWithin(t, 3*time.Second, what, cond)
+}
+
+// waitForWithin polls cond until it holds or timeout elapses. The timeout is a
+// hang guard, never a throughput budget: callers assert progress through
+// signals, so a slow runner costs latency instead of a failure.
+func waitForWithin(t *testing.T, timeout time.Duration, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if cond() {
 			return
@@ -166,9 +174,73 @@ func parts(n int) []outq.Part {
 	return out
 }
 
+// replayHangGuard bounds the replay test only to fail a deadlock; it is far
+// above any expected runtime, including a Windows -race runner, and no
+// assertion depends on how fast the 200 sends complete.
+const replayHangGuard = 60 * time.Second
+
+// replayLog collects the per-send handshake of the replay test and the reply
+// text of every send, so exactly-once delivery can be asserted without a
+// throughput deadline.
+type replayLog struct {
+	mu   sync.Mutex
+	seen map[string]int
+	sent chan struct{}
+}
+
+func newReplayLog(total int) *replayLog {
+	return &replayLog{seen: make(map[string]int, total), sent: make(chan struct{}, total)}
+}
+
+// record is the adapter-facing Send: it forwards to the recorder and signals
+// the test. The signal is non-blocking so a duplicate can never wedge a worker.
+func (l *replayLog) record(ctx context.Context, rec *recorder, part outq.Part) error {
+	if err := rec.send(ctx, "-100", part); err != nil {
+		return err
+	}
+	l.mu.Lock()
+	l.seen[part.Text]++
+	l.mu.Unlock()
+	select {
+	case l.sent <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// await blocks until every expected send has handshaked. The timer is a hang
+// guard, not a budget: progress is signalled, so a slow runner only adds
+// latency.
+func (l *replayLog) await(t *testing.T, total int) {
+	t.Helper()
+	guard := time.NewTimer(replayHangGuard)
+	defer guard.Stop()
+	for range total {
+		select {
+		case <-l.sent:
+		case <-guard.C:
+			t.Fatalf("hang guard %s: %d of %d replies sent", replayHangGuard, total-len(l.sent), total)
+		}
+	}
+}
+
+// duplicated reports how many distinct replies were sent and how many sends
+// repeated an already-sent reply.
+func (l *replayLog) duplicated() (unique, dup int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	unique = len(l.seen)
+	for _, n := range l.seen {
+		dup += n - 1
+	}
+	return unique, dup
+}
+
 // TestF7GAPGW03OutqReplay replays 200 replies to one group under the official
 // Telegram structure (one token per part, group bucket first) and asserts the
 // fake server never answers 429: the scheduler, not the adapter, paces.
+// Completion is signalled per send, so replay is asserted exactly-once instead
+// of racing a fixed deadline.
 func TestF7GAPGW03OutqReplay(t *testing.T) {
 	pacer := newFakePacer(time.Millisecond)
 	rec := newRecorder()
@@ -178,11 +250,13 @@ func TestF7GAPGW03OutqReplay(t *testing.T) {
 	}
 	runScheduler(t, s)
 	const total = 200
+	log := newReplayLog(total)
 	for i := range total {
+		text := fmt.Sprintf("replay-%03d", i)
 		msg := &outq.Message{
-			Platform: "telegram", Chat: "-100", Group: true, Key: "reply:" + string(rune(i)),
-			Parts: parts(1),
-			Send:  func(ctx context.Context, p outq.Part) error { return rec.send(ctx, "-100", p) },
+			Platform: "telegram", Chat: "-100", Group: true, Key: text,
+			Parts: []outq.Part{{Text: text}},
+			Send:  func(ctx context.Context, p outq.Part) error { return log.record(ctx, rec, p) },
 			Overflow: func(context.Context, string) error {
 				t.Error("unexpected overflow for a one-part reply")
 				return nil
@@ -193,10 +267,17 @@ func TestF7GAPGW03OutqReplay(t *testing.T) {
 			t.Fatalf("enqueue %d: %v", i, err)
 		}
 	}
-	waitFor(t, "200 sends", func() bool {
-		_, sends := rec.snapshot()
-		return len(sends["-100"]) == total
+	log.await(t, total)
+	waitForWithin(t, replayHangGuard, "scheduler to drain", func() bool {
+		st := s.Stats()
+		return st.Sent == total && st.Queued == 0 && st.InFlight == 0
 	})
+	if unique, dup := log.duplicated(); unique != total || dup != 0 {
+		t.Fatalf("replay sent %d unique replies (%d duplicated), want %d unique and none repeated", unique, dup, total)
+	}
+	if _, sends := rec.snapshot(); len(sends["-100"]) != total {
+		t.Fatalf("recorded sends = %d, want %d", len(sends["-100"]), total)
+	}
 	if st := s.Stats(); st.Failed != 0 || st.Throttled == 0 {
 		t.Fatalf("stats = %+v, want 0 failed and observed throttling", st)
 	}
