@@ -177,8 +177,15 @@ func (rs *runState) emit(st *resourceStore, ev RunEvent) {
 func (rs *runState) finish(st *resourceStore, obj *RunObject) {
 	st.mu.Lock()
 	rs.obj = *obj
-	close(rs.done)
 	st.mu.Unlock()
+	close(rs.done)
+}
+
+// status reads the terminal state under the store lock.
+func (rs *runState) status(st *resourceStore) string {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return rs.obj.Status
 }
 
 func (rs *runState) subscribe(st *resourceStore) ([]RunEvent, chan RunEvent, <-chan struct{}) {
@@ -347,11 +354,12 @@ func (s *Server) executeRun(ctx context.Context, rs *runState, req *RespRequest,
 	ch, err := s.engine.Run(ctx, turn)
 	if err != nil {
 		aerr := asAPIError(err)
-		rs.finish(s.store, &RunObject{
+		failed := &RunObject{
 			ID: id, Object: "run", Status: "failed", Model: req.Model,
 			Error: &ErrorBody{Message: s.cfg.Scrub(aerr.message), Type: aerr.typ, Code: aerr.code},
-		})
-		rs.emit(s.store, RunEvent{Name: "run.failed", Data: map[string]any{"id": id, "status": "failed"}})
+		}
+		rs.emit(s.store, RunEvent{Name: "run.failed", Data: failed})
+		rs.finish(s.store, failed)
 		return
 	}
 	text, usage, finish, errText := collectText(ctx, ch)
@@ -362,8 +370,8 @@ func (s *Server) executeRun(ctx context.Context, rs *runState, req *RespRequest,
 	if errText != "" {
 		final.Error = &ErrorBody{Message: s.cfg.Scrub(errText), Type: TypeServer, Code: "engine_error"}
 	}
-	rs.finish(s.store, &final)
 	rs.emit(s.store, RunEvent{Name: "run." + final.Status, Data: final})
+	rs.finish(s.store, &final)
 }
 
 func (s *Server) handleRunsGet(w http.ResponseWriter, r *http.Request) {
@@ -414,7 +422,7 @@ func (s *Server) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 	for _, ev := range events {
 		sw.event(ev.Name, ev.Data)
 	}
-	if terminalRun(rs.obj.Status) {
+	if terminalRun(rs.status(s.store)) {
 		sw.done()
 		return
 	}
