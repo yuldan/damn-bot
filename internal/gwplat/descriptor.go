@@ -231,26 +231,19 @@ func platformDescriptors() []Descriptor {
 			Secrets:    []string{"msgraph_client_state"},
 			DefaultOff: true,
 		},
-		{
-			Name:       "photon",
-			Transport:  TransportLongPoll,
-			Caps:       capsOf("photon"),
-			Render:     render.PlatformPlain,
-			Secrets:    []string{"photon_project_secret"},
-			DefaultOff: true,
-		},
-		{
-			Name:       "weixin",
-			Transport:  TransportLongPoll,
-			Caps:       capsOf("weixin"),
-			Render:     render.PlatformPlain,
-			Secrets:    []string{"weixin_token"},
-			DefaultOff: true,
-		},
+		plainSecret("photon", TransportLongPoll, "photon_project_secret"),
+		plainSecret("weixin", TransportLongPoll, "weixin_token"),
 	}
 }
 
 // simple is the descriptor of a plain-text adapter without secrets.
+// plainSecret is the descriptor of a plain-text adapter with one secret.
+func plainSecret(name string, transport Transport, secret string) Descriptor {
+	d := simple(name, transport)
+	d.Secrets = []string{secret}
+	return d
+}
+
 func simple(name string, transport Transport) Descriptor {
 	return Descriptor{Name: name, Transport: transport, Caps: capsOf(name), Render: render.PlatformPlain, DefaultOff: true}
 }
