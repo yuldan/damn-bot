@@ -98,13 +98,13 @@ func TestSurfaceStatus(t *testing.T) {
 		"acp":      surfaceAvailable,
 		"serve":    surfaceAvailable,
 		"mcp":      surfaceAvailable,
-		"kanban":   "pending:F7",
-		"eval":     "pending:F8",
-		"doctor":   surfaceAvailable,
-		"usage":    surfaceAvailable,
-		"config":   surfaceAvailable,
-		"update":   surfaceAvailable,
-		"setup":    surfaceAvailable,
+
+		"eval":   "pending:F8",
+		"doctor": surfaceAvailable,
+		"usage":  surfaceAvailable,
+		"config": surfaceAvailable,
+		"update": surfaceAvailable,
+		"setup":  surfaceAvailable,
 	}
 	for name, want := range cases {
 		e, ok := lookupSurface(name)
