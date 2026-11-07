@@ -213,7 +213,16 @@ type Gateway struct {
 
 // ModulesGateway holds the gateway adapter configuration.
 type ModulesGateway struct {
-	Telegram ModulesTelegram `toml:"telegram"`
+	Telegram    ModulesTelegram    `toml:"telegram"`
+	WhatsAppWeb ModulesWhatsAppWeb `toml:"whatsapp_web"`
+}
+
+// ModulesWhatsAppWeb is [modules.gateway.whatsapp_web] (SPEC §9.7.1): the
+// external bridge stays disabled until `damnbot gateway whatsapp-web enable
+// --accept-ban-risk` records the single acknowledgement timestamp.
+type ModulesWhatsAppWeb struct {
+	Enabled      bool   `toml:"enabled"`
+	AckBanRiskAt string `toml:"ack_ban_risk_at"`
 }
 
 // ModulesTelegram is [modules.gateway.telegram]: thread_fallback is "fail"
