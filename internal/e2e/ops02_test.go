@@ -111,6 +111,7 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"refs":               {"tool", "enabled"},
 		"telegram":           {"gateway", "enabled"},
 		"peer-dm":            {"gateway", "enabled"},
+		"whatsapp-cloud":     {"gateway", "enabled"},
 		"update":             {"background", "enabled"},
 		"cron-monitor":       {"tool", "enabled"},
 		"auth":               {"inference", "enabled"},

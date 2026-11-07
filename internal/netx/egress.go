@@ -25,7 +25,8 @@ func Registry() map[string]Egress {
 			Host:    "host of the referenced URL",
 			Trigger: "an @url reference in the user prompt",
 		},
-		"kanban-attach": {Purpose: Tool, Host: "https URL attached to a kanban task", Trigger: "kanban AttachURL"},
+		"kanban-attach":  {Purpose: Tool, Host: "https URL attached to a kanban task", Trigger: "kanban AttachURL"},
+		"whatsapp-cloud": {Purpose: Gateway, Host: "WhatsApp Cloud API base URL", Trigger: "WhatsApp Cloud outbound send"},
 		"update": {
 			Purpose: Background,
 			Host:    "[update].feed_url (default https://api.github.com/repos/yuldan/damn-bot/releases)",
