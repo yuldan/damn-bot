@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -114,7 +115,7 @@ func checkStorePersistence(t *testing.T, path string, sub *Subscription) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
+	if perm := info.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Fatalf("store mode = %o, want 600", perm)
 	}
 	reopened, err := OpenStore(path, nil)
