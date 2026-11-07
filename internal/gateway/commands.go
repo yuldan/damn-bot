@@ -37,6 +37,8 @@ type CommandOptions struct {
 	Browser BrowserControl
 	// Voice backs "/voice" and "/wake"; nil answers module_unavailable.
 	Voice Voice
+	// Kanban backs "/kanban"; nil answers module_unavailable.
+	Kanban Kanban
 	// Now is the pairing attempt clock and redemption timestamp; nil is time.Now.
 	Now func() time.Time
 }
@@ -72,6 +74,7 @@ type Commands struct {
 	mcp       MCPReloader
 	browser   BrowserControl
 	voice     Voice
+	kanban    Kanban
 	now       func() time.Time
 	specs     map[string]commandSpec
 
@@ -90,7 +93,7 @@ func NewCommands(opts *CommandOptions) *Commands {
 		runtime: opts.Runtime, settings: opts.Settings, control: opts.Control, estop: opts.Estop, mcp: opts.MCP,
 		browser: opts.Browser,
 		now:     now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
-		voice: opts.Voice,
+		voice: opts.Voice, kanban: opts.Kanban,
 	}
 }
 
@@ -105,7 +108,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [off|help|session-id] /tz [zone|off] /restart /platforms /platform list|pause|resume [name] /reload-mcp /voice [on|off|tts <text>|status] /wake [on|off|status] /paste /image"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [off|help|session-id] /tz [zone|off] /restart /platforms /platform list|pause|resume [name] /reload-mcp /voice [on|off|tts <text>|status] /wake [on|off|status] /kanban <sub> /paste /image"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -160,6 +163,7 @@ func commandRegistry() map[string]commandSpec {
 		"browser":    {owner: true, run: (*Commands).browserCommand},
 		"voice":      {owner: true, run: (*Commands).voiceCommand},
 		"wake":       {owner: true, run: (*Commands).wakeCommand},
+		"kanban":     {run: (*Commands).kanbanCommand},
 
 		"sethome":    {owner: true, run: (*Commands).sethome},
 		"topic":      {owner: true, run: (*Commands).topic},

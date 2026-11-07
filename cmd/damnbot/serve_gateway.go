@@ -169,7 +169,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	}
 	commands := gateway.NewCommands(&gateway.CommandOptions{
 		Runtime: g, Settings: store, Control: g, Estop: &g.estop, Approvals: g.approvals.Approvals, Resolver: g,
-		MCP: mcpReg, Browser: newBrowserControl(cfg, nil), Voice: newGatewayVoice(cfg),
+		MCP: mcpReg, Browser: newBrowserControl(cfg, nil), Voice: newGatewayVoice(cfg), Kanban: newGatewayKanban(db),
 	})
 	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands, &g.estop)
 	if err != nil {
