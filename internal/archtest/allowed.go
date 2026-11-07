@@ -112,7 +112,7 @@ func allowedImports() map[string][]string {
 		"internal/config":              {"internal/schema", "internal/toolset", "internal/update"},
 		"internal/update":              {"internal/netx"},
 		"internal/toolset":             nil, // pure composition data (ADR-139): no internal deps
-		"internal/kanban":              {"internal/ctxdb", "internal/netx"},
+		"internal/kanban":              {"internal/ctxdb", "internal/netx", "internal/gateway/render"},
 		"internal/netx":                {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
 		"internal/netx/jsonrpc":        {"internal/netx", "internal/netx/retry", "internal/redact"},
 		"internal/netx/retry":          nil,
