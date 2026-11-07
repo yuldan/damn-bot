@@ -54,6 +54,9 @@ type ModulesMedia struct {
 	VideoCreate   string `toml:"video_create_url"`
 	VideoStatus   string `toml:"video_status_url"`
 	VideoKeyEnv   string `toml:"video_key_env"`
+	// SilkDecoder is the external SILK/SILKv3 decoder path (ADR-001); empty
+	// means voice messages fail closed with module_unavailable.
+	SilkDecoder string `toml:"silk_decoder"`
 }
 
 // ModulesVoice is [modules.voice]: the F6 STT/TTS/voice-mode module
@@ -251,6 +254,11 @@ func (m *Modules) validateMedia() error {
 	}
 	if md.VideoBackend != "" && (!isEnvName(md.VideoKeyEnv) || md.VideoCreate == "" || md.VideoStatus == "" || !strings.Contains(md.VideoStatus, "%s")) {
 		return invalid("modules.media.video_key_env", "video backend needs a key env and create/status URLs with a %%s id")
+	}
+	if md.SilkDecoder != "" {
+		if !filepath.IsAbs(md.SilkDecoder) || strings.ContainsRune(md.SilkDecoder, 0) {
+			return invalid("modules.media.silk_decoder", "must be an absolute path")
+		}
 	}
 	return nil
 }

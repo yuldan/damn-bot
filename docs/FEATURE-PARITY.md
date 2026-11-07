@@ -865,7 +865,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | MEDIA-028 | Video backend: DeepInfra | text/image-to-video | `plugins/video_gen/deepinfra/plugin.yaml` | opt-in | DEEPINFRA_API_KEY |  | F6 | LULUS |
 | MEDIA-029 | Discord voice channel | Join voice channel Discord, STT/TTS, voice mixer | `plugins/platforms/discord/voice_mixer.py`, `gateway/run_voice.py` | opt-in | discord.py[voice], ffmpeg, opus |  | F7 | LULUS |
 | MEDIA-030 | Media cache & repair gateway | Unduh/cache/perbaiki media inbound | `gateway/platforms/media_cache.py`, `gateway/media_repair.py` | on | ffmpeg [INFERENCE] |  | F6 | LULUS |
-| MEDIA-031 | Silk audio (WeChat/QQ) | Dekode audio SILK | `pyproject.toml:342` | opt-in | extra `silk` (pilk) |  | F7 | planned |
+| MEDIA-031 | Silk audio (WeChat/QQ) | Dekode audio SILK | `pyproject.toml:342` | opt-in | extra `silk` (pilk) |  | F7 | LULUS |
 
 ## 11. EXEC — eksekusi, sandbox, approval, secret
 | ID | Fitur | Deskripsi singkat (≤15 kata) | Sumber hermes | Default di hermes | Dependensi eksternal | Catatan | fase | status |

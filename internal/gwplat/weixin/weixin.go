@@ -5,6 +5,7 @@ package weixin
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,8 +38,11 @@ type Config struct {
 	HTTPClient *http.Client
 	Backoff    gwplat.Backoff
 	Cursor     CursorStore
-	Log        *slog.Logger
-	Now        func() time.Time
+	// VoiceToText decodes one voice payload (SILK/SILKv3 → PCM16) and runs
+	// STT; nil keeps voice messages undecoded (module_unavailable upstream).
+	VoiceToText func(ctx context.Context, payload []byte) (string, error)
+	Log         *slog.Logger
+	Now         func() time.Time
 }
 
 // Adapter long-polls one iLink account.
@@ -162,6 +166,7 @@ type message struct {
 	Chat      string `json:"chat_id"`
 	From      string `json:"from"`
 	Text      string `json:"text"`
+	VoiceB64  string `json:"voice_b64"`
 	Type      string `json:"msg_type"`
 	Group     bool   `json:"group"`
 	Mentioned bool   `json:"mentioned"`
@@ -201,12 +206,50 @@ func (a *Adapter) saveCursor(ctx context.Context) error {
 }
 
 func (a *Adapter) dispatch(ctx context.Context, msg *message) error {
-	if msg.ID == "" || strings.TrimSpace(msg.Text) == "" || !a.dedupe.Claim("weixin:"+msg.ID, a.now()) {
+	if msg.ID == "" || !a.dedupe.Claim("weixin:"+msg.ID, a.now()) {
+		return nil
+	}
+	if msg.Type == "voice" {
+		return a.dispatchVoice(ctx, msg)
+	}
+	if strings.TrimSpace(msg.Text) == "" {
 		return nil
 	}
 	in := &gateway.Inbound{
 		Platform: "weixin", Account: a.cfg.Account, ChatID: msg.Chat, SenderID: msg.From,
 		UpdateID: "weixin:" + msg.ID, Text: msg.Text, Group: msg.Group, Mentioned: msg.Mentioned,
+	}
+	if err := gwplat.Dispatch(ctx, a.handler, in); err != nil {
+		return fmt.Errorf("weixin: dispatch: %w", err)
+	}
+	return nil
+}
+
+// dispatchVoice decodes one voice message through the injected seam and
+// dispatches the transcript. Errors are typed and never crash the poller.
+func (a *Adapter) dispatchVoice(ctx context.Context, msg *message) error {
+	if a.cfg.VoiceToText == nil {
+		return nil
+	}
+	payload, derr := base64.StdEncoding.DecodeString(msg.VoiceB64)
+	if derr == nil && len(payload) > 0 {
+		return a.transcribeVoice(ctx, msg, payload)
+	}
+	return nil
+}
+
+func (a *Adapter) transcribeVoice(ctx context.Context, msg *message, payload []byte) error {
+	text, err := a.cfg.VoiceToText(ctx, payload)
+	if err != nil {
+		a.log.WarnContext(ctx, "weixin: voice decode failed", "err", err)
+		return nil
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	in := &gateway.Inbound{
+		Platform: "weixin", Account: a.cfg.Account, ChatID: msg.Chat, SenderID: msg.From,
+		UpdateID: "weixin:" + msg.ID, Text: text, Group: msg.Group, Mentioned: msg.Mentioned,
 	}
 	if err := gwplat.Dispatch(ctx, a.handler, in); err != nil {
 		return fmt.Errorf("weixin: dispatch: %w", err)

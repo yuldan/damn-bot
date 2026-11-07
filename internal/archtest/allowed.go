@@ -169,7 +169,7 @@ func f7ModuleImports(m map[string][]string) {
 	m["internal/gwmatrix/e2ee"] = nil // pure-Go Matrix E2EE leaf
 	m["internal/gwplat/discord"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...)
 	m["internal/gwplat/photon"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
-	m["internal/gwplat/weixin"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
+	m["internal/gwplat/weixin"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/media/silk"}, groupNetx()...)
 }
 
 // f6ModuleImports mendaftarkan baris modul F6 (ADR-310). SPEC §3.2.4 `web`

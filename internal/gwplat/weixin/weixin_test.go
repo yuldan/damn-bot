@@ -1,12 +1,17 @@
 package weixin
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +20,7 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/outq"
 	"github.com/damnbot/damnbot/internal/gwplat"
+	"github.com/damnbot/damnbot/internal/media/silk"
 	"github.com/damnbot/damnbot/internal/netx"
 )
 
@@ -98,12 +104,22 @@ func newScheduler(t *testing.T) *outq.Scheduler {
 	return sched
 }
 
+func newFakeILinkBatch(t *testing.T, body string) *fakeILink {
+	t.Helper()
+	f := newFakeILink(t)
+	f.mu.Lock()
+	f.batch = body
+	f.mu.Unlock()
+	return f
+}
+
 type fakeILink struct {
 	srv      *httptest.Server
 	mu       sync.Mutex
 	cursors  []string
 	requests int
 	sent     []map[string]string
+	batch    string
 }
 
 func newFakeILink(t *testing.T) *fakeILink {
@@ -118,7 +134,12 @@ func newFakeILink(t *testing.T) *fakeILink {
 			cursor := r.URL.Query().Get("cursor")
 			f.mu.Lock()
 			f.cursors = append(f.cursors, cursor)
+			batch := f.batch
 			f.mu.Unlock()
+			if batch != "" {
+				writeJSON(t, rw, batch)
+				return
+			}
 			if cursor == "" {
 				writeJSON(t, rw, `{"next_cursor":"c1","messages":[{"msg_id":"w1","chat_id":"chat1","from":"u1","text":"hi"},{"msg_id":"w1","chat_id":"chat1","from":"u1","text":"hi"}]}`)
 				return
@@ -283,5 +304,93 @@ func TestWeixinRunStopsOnContext(t *testing.T) {
 	}
 	if _, requests, _ := srv.snapshot(); requests != 0 {
 		t.Fatalf("cancelled run made %d requests", requests)
+	}
+}
+
+// voiceSeam returns a VoiceToText seam that decodes through the real SILK
+// subprocess helper and then "runs STT" by hex-encoding the PCM.
+func voiceSeam(t *testing.T, mode string) func(context.Context, []byte) (string, error) {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "silk-decoder")
+	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./testdata/decoder") // #nosec G204 -- fixed go tool
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("build decoder: %v", err)
+	}
+	return func(ctx context.Context, payload []byte) (string, error) {
+		var pcm bytes.Buffer
+		if err := silk.Decode(ctx, payload, &pcm, &silk.Config{Argv: []string{bin, mode}}); err != nil {
+			return "", fmt.Errorf("decode: %w", err)
+		}
+		return "stt:" + hex.EncodeToString(pcm.Bytes()), nil
+	}
+}
+
+func voiceMessage(t *testing.T) string {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"next_cursor": "c1", "messages": []map[string]any{{
+		"msg_id": "w-voice", "chat_id": "chat1", "from": "u1", "msg_type": "voice",
+		"voice_b64": base64.StdEncoding.EncodeToString([]byte("silk-bytes")),
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// TestWeixinVoiceToSTT proves a voice message is decoded via internal/media/silk
+// and dispatched as the STT transcript.
+func TestWeixinVoiceToSTT(t *testing.T) {
+	srv := newFakeILinkBatch(t, voiceMessage(t))
+	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(), VoiceToText: voiceSeam(t, "ok")}
+	rec := newRecorder()
+	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ad.poll(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case in := <-rec.seen:
+		if in.Text != "stt:01000200" {
+			t.Fatalf("voice transcript = %q", in.Text)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no voice turn")
+	}
+}
+
+// TestWeixinVoiceInactive proves a nil seam dispatches nothing.
+func TestWeixinVoiceInactive(t *testing.T) {
+	srv := newFakeILinkBatch(t, voiceMessage(t))
+	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient()}
+	rec := newRecorder()
+	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ad.poll(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if rec.count() != 0 {
+		t.Fatalf("inactive voice seam dispatched %d turns", rec.count())
+	}
+}
+
+// TestWeixinVoiceCorrupt proves a typed decode error is swallowed without a
+// turn or a panic.
+func TestWeixinVoiceCorrupt(t *testing.T) {
+	srv := newFakeILinkBatch(t, voiceMessage(t))
+	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(), VoiceToText: voiceSeam(t, "fail")}
+	rec := newRecorder()
+	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ad.poll(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if rec.count() != 0 {
+		t.Fatalf("corrupt voice dispatched %d turns", rec.count())
 	}
 }

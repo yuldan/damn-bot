@@ -31,8 +31,8 @@ func helperConfig(t *testing.T, mode string) *Config {
 	return &Config{Argv: []string{helperBinary(t), mode}}
 }
 
-// TestSilkDecode proves the success path and the exact PCM16 golden.
-func TestSilkDecode(t *testing.T) {
+// TestF7MEDIA031Silk proves the success path and the exact PCM16 golden.
+func TestF7MEDIA031Silk(t *testing.T) {
 	var out bytes.Buffer
 	if err := Decode(t.Context(), []byte("silk-payload"), &out, helperConfig(t, "ok")); err != nil {
 		t.Fatal(err)
@@ -42,8 +42,8 @@ func TestSilkDecode(t *testing.T) {
 	}
 }
 
-// TestSilkCorruptPayload proves failures are typed and write 0 bytes.
-func TestSilkCorruptPayload(t *testing.T) {
+// TestF7SilkCorruptPayload proves failures are typed and write 0 bytes.
+func TestF7SilkCorruptPayload(t *testing.T) {
 	dir := t.TempDir()
 	cases := []string{"fail", "empty", "huge"}
 	for _, mode := range cases {
