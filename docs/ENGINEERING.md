@@ -202,6 +202,7 @@ flowchart TD
         PLA["gwplat (kontrak adapter F7)"]
         PLAIO["gwplat/ntfy, gwplat/raft (adapter F7)"]
         PLAS["gwplat/signal (adapter F7)"]
+        GWM["gwmatrix (klien Matrix F7)"]
     end
     subgraph CORE["Core"]
         LOOP["loop"]
@@ -256,6 +257,9 @@ flowchart TD
     PLAIO --> NET
     PLAS --> PLA
     PLAS --> NET
+    GWM --> PLA
+    GWM --> GW
+    GWM --> NET
     LOOP --> EV
     LOOP --> BND
     PLAN --> EV
