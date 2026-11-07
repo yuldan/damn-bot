@@ -127,13 +127,15 @@ func validateBase(raw string) error {
 	return fmt.Errorf("%w: base URL must be https or loopback http", ErrConfig)
 }
 
-// Outbox exposes the shared outbound seam to the wiring.
-func (a *Adapter) Outbox() *gwplat.Outbox { return a.out }
-
 // Run long-polls until ctx ends; transport failures back off.
 func (a *Adapter) Run(ctx context.Context) error {
 	backoff := gwplat.Backoff{}
 	for attempt := 1; ; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
 		err := a.poll(ctx)
 		select {
 		case <-ctx.Done():

@@ -130,13 +130,15 @@ func validateLoopback(raw string) error {
 	return nil
 }
 
-// Outbox exposes the shared outbound seam to the wiring.
-func (a *Adapter) Outbox() *gwplat.Outbox { return a.out }
-
 // Run polls the sidecar; the adapter never reconnects to a missing sidecar.
 func (a *Adapter) Run(ctx context.Context) error {
 	backoff := gwplat.Backoff{}
 	for attempt := 1; ; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
 		err := a.poll(ctx)
 		select {
 		case <-ctx.Done():

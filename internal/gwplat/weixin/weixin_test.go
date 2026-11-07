@@ -266,3 +266,22 @@ func assertWeixinSend(t *testing.T, ad *Adapter, srv *fakeILink) {
 		t.Fatalf("sent = %v", sent)
 	}
 }
+
+// TestWeixinRunStopsOnContext exercises Run: a cancelled context ends the
+// loop before any iLink request.
+func TestWeixinRunStopsOnContext(t *testing.T) {
+	srv := newFakeILink(t)
+	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient()}
+	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, newRecorder(), newScheduler(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := ad.Run(ctx); err != nil {
+		t.Fatalf("run with cancelled context = %v", err)
+	}
+	if _, requests, _ := srv.snapshot(); requests != 0 {
+		t.Fatalf("cancelled run made %d requests", requests)
+	}
+}

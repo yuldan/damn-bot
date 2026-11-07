@@ -208,3 +208,22 @@ func assertPhotonSend(t *testing.T, ad *Adapter, sidecar *fakeSidecar) {
 		t.Fatalf("sent = %v auth = %v", sent, auth)
 	}
 }
+
+// TestPhotonRunStopsOnContext exercises Run: a cancelled context ends the
+// loop before any sidecar request.
+func TestPhotonRunStopsOnContext(t *testing.T) {
+	sidecar := newFakeSidecar(t, `{"messages":[]}`)
+	cfg := &Config{Enabled: true, BaseURL: sidecar.srv.URL, ProjectID: "proj", Present: func() error { return nil }}
+	ad, err := buildAdapter(t, cfg, secrets{"photon_project_secret": "s"}, newRecorder(), newScheduler(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := ad.Run(ctx); err != nil {
+		t.Fatalf("run with cancelled context = %v", err)
+	}
+	if requests, _, _ := sidecar.snapshot(); requests != 0 {
+		t.Fatalf("cancelled run made %d requests", requests)
+	}
+}
