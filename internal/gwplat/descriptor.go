@@ -150,6 +150,14 @@ func Descriptors() []Descriptor {
 			DefaultOff: true,
 		},
 		{
+			Name:       "discord",
+			Transport:  TransportWS,
+			Caps:       capsOf("discord"),
+			Render:     render.PlatformDiscord,
+			Secrets:    []string{"discord_bot_token"},
+			DefaultOff: true,
+		},
+		{
 			Name:       "irc",
 			Transport:  TransportWS,
 			Caps:       gateway.IRCCaps(true),
