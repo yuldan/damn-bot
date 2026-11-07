@@ -166,6 +166,7 @@ func f7ModuleImports(m map[string][]string) {
 	m["internal/gwplat/raft"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
 	m["internal/gwplat/signal"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
 	m["internal/gwmatrix"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...)
+	m["internal/gwmatrix/e2ee"] = nil // pure-Go Matrix E2EE leaf
 	m["internal/gwplat/discord"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...)
 	m["internal/gwplat/photon"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
 	m["internal/gwplat/weixin"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
