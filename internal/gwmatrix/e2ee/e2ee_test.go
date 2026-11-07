@@ -30,7 +30,7 @@ func newCrypto(t *testing.T, user, device string, store Store) *Crypto {
 	return c
 }
 
-func deviceOf(t *testing.T, c *Crypto, user, device string) (*Device, string) {
+func deviceOf(t *testing.T, c *Crypto, user, device string) *Device {
 	t.Helper()
 	raw, otks, err := c.DeviceKeys(t.Context())
 	if err != nil {
@@ -47,10 +47,10 @@ func deviceOf(t *testing.T, c *Crypto, user, device string) (*Device, string) {
 			UserID: user, DeviceID: device,
 			Curve25519: payload.Keys["curve25519:"+device], Ed25519: payload.Keys["ed25519:"+device],
 			OneTimeKey: key,
-		}, key
+		}
 	}
 	t.Fatal("no one-time key")
-	return nil, ""
+	return nil
 }
 
 // TestE2EEOlmMegolmRoundTrip proves the pure-Go path: one Olm to-device
@@ -58,7 +58,7 @@ func deviceOf(t *testing.T, c *Crypto, user, device string) (*Device, string) {
 func TestE2EEOlmMegolmRoundTrip(t *testing.T) {
 	alice := newCrypto(t, "@alice:example.test", "ALICE", &memStore{})
 	bob := newCrypto(t, "@bob:example.test", "BOB", &memStore{})
-	device, _ := deviceOf(t, bob, "@bob:example.test", "BOB")
+	device := deviceOf(t, bob, "@bob:example.test", "BOB")
 
 	envelope := []byte(`{"type":"m.room_key","content":{"algorithm":"m.megolm.v1.aes-sha2"}}`)
 	sealed, err := alice.EncryptToDevice(t.Context(), device, envelope)
@@ -142,7 +142,7 @@ func TestE2EECorruptPayload(t *testing.T) {
 func TestE2EERoomKeyOverOlm(t *testing.T) {
 	alice := newCrypto(t, "@alice:example.test", "ALICE", &memStore{})
 	bob := newCrypto(t, "@bob:example.test", "BOB", &memStore{})
-	device, _ := deviceOf(t, bob, "@bob:example.test", "BOB")
+	device := deviceOf(t, bob, "@bob:example.test", "BOB")
 	alice.MarkPublished()
 	room := "!room:example.test"
 	key, err := alice.NewOutboundRoom(t.Context(), room)
