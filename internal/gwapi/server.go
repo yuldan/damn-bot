@@ -43,6 +43,7 @@ type Server struct {
 	engine Engine
 	tools  map[string]ToolSpec
 	rl     *rateLimiter
+	store  *resourceStore
 }
 
 // NewServer validates the envelope and returns the handler source.
@@ -77,7 +78,7 @@ func NewServer(cfg *Config, engine Engine, toolbox Toolbox) (*Server, error) {
 			}
 		}
 	}
-	return &Server{cfg: c, engine: engine, tools: tools, rl: newRateLimiter(c.RequestsPerMinute)}, nil
+	return &Server{cfg: c, engine: engine, tools: tools, rl: newRateLimiter(c.RequestsPerMinute), store: newResourceStore()}, nil
 }
 
 // Handler returns the HTTP handler. CORS is off by default: no
@@ -86,6 +87,13 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/chat/completions", s.handleChat)
 	mux.HandleFunc("GET /v1/models", s.handleModels)
+	mux.HandleFunc("POST /v1/responses", s.handleResponsesCreate)
+	mux.HandleFunc("GET /v1/responses/{id}", s.handleResponsesGet)
+	mux.HandleFunc("POST /v1/responses/{id}/cancel", s.handleResponsesCancel)
+	mux.HandleFunc("POST /v1/runs", s.handleRunsCreate)
+	mux.HandleFunc("GET /v1/runs/{id}", s.handleRunsGet)
+	mux.HandleFunc("POST /v1/runs/{id}/cancel", s.handleRunsCancel)
+	mux.HandleFunc("GET /v1/runs/{id}/events", s.handleRunEvents)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleHealthz)
 	return mux
