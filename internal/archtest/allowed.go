@@ -159,7 +159,7 @@ func allowedImports() map[string][]string {
 // route gateway dan identitas token membaca config.OS.
 func f7ModuleImports(m map[string][]string) {
 	m["internal/gwpeer"] = []string{"internal/config", "internal/gateway"}
-	m["internal/gwplat"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render"}
+	m["internal/gwplat"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/toolset"}
 	m["internal/gwplat"+moduleWildcard] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}
 	// ntfy/raft memakai klien netx; edge eksplisit agar wildcard gwplat tetap sempit.
 	m["internal/gwplat/ntfy"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
