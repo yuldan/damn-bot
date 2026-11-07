@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -21,15 +22,50 @@ type fakePacer struct {
 	next     map[string]time.Time
 	penalty  map[string]time.Time
 	taken    map[string]int
+	held     bool
+	asked    chan struct{}
 }
 
 func newFakePacer(interval time.Duration) *fakePacer {
-	return &fakePacer{interval: interval, next: map[string]time.Time{}, penalty: map[string]time.Time{}, taken: map[string]int{}}
+	return &fakePacer{interval: interval, next: map[string]time.Time{}, penalty: map[string]time.Time{}, taken: map[string]int{}, asked: make(chan struct{}, 1)}
+}
+
+// hold closes the permit gate: TakeChat keeps refusing, so the dispatcher can
+// never hand a part to a worker. release opens it. The gate is the test's only
+// ordering control, which keeps the assertions independent of goroutine timing.
+func (p *fakePacer) hold() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.held = true
+}
+
+func (p *fakePacer) release() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.held = false
+}
+
+// waitAsk blocks until the dispatcher has consulted the pacer at least once.
+// It reports a control signal, not elapsed time.
+func (p *fakePacer) waitAsk(t *testing.T) {
+	t.Helper()
+	select {
+	case <-p.asked:
+	case <-time.After(3 * time.Second):
+		t.Fatal("dispatcher never asked the pacer")
+	}
 }
 
 func (p *fakePacer) TakeChat(_, chat string, _ bool, at time.Time) (bool, time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	select {
+	case p.asked <- struct{}{}:
+	default:
+	}
+	if p.held {
+		return false, 10 * time.Millisecond
+	}
 	if until := p.penalty[chat]; until.After(at) {
 		return false, until.Sub(at)
 	}
@@ -211,57 +247,114 @@ func TestF7GAPGW03OverflowRequired(t *testing.T) {
 	}
 }
 
-// TestF7GAPGW03Fairness interleaves two chats instead of draining one.
+// TestF7GAPGW03Fairness pins the round-robin invariant: while two chats of
+// equal priority stay backlogged, parts alternate in chat-activation order
+// (a,b,a,b,...). Every part is enqueued before Run starts, so the dispatcher
+// sees a fixed ready set and the assertion cannot depend on goroutine timing.
 func TestF7GAPGW03Fairness(t *testing.T) {
-	rec := newRecorder()
-	s, err := outq.New(&outq.Options{Pacer: newFakePacer(0), Workers: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-	runScheduler(t, s)
-	for _, chat := range []string{"a", "b"} {
-		for range 3 {
-			chat := chat
-			if err := s.Enqueue(t.Context(), &outq.Message{
-				Platform: "telegram", Chat: chat, Parts: parts(1),
-				Send: func(ctx context.Context, p outq.Part) error { return rec.send(ctx, chat, p) },
-			}); err != nil {
+	for _, tc := range []struct {
+		name  string
+		chats []string
+		parts []int
+		want  []string
+	}{
+		{"ab", []string{"a", "b"}, []int{3, 3}, []string{"a", "b", "a", "b", "a", "b"}},
+		{"ba", []string{"b", "a"}, []int{3, 3}, []string{"b", "a", "b", "a", "b", "a"}},
+		{"uneven", []string{"a", "b"}, []int{4, 2}, []string{"a", "b", "a", "b", "a", "a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := newRecorder()
+			s, err := outq.New(&outq.Options{Pacer: newFakePacer(0), Workers: 1})
+			if err != nil {
 				t.Fatal(err)
 			}
-		}
-	}
-	waitFor(t, "six sends", func() bool { order, _ := rec.snapshot(); return len(order) == 6 })
-	order, _ := rec.snapshot()
-	if order[0] == order[1] && order[1] == order[2] {
-		t.Fatalf("order = %v, want interleaved chats", order)
+			for i, chat := range tc.chats {
+				for range tc.parts[i] {
+					if err := s.Enqueue(t.Context(), &outq.Message{
+						Platform: "telegram", Chat: chat, Parts: parts(1),
+						Send: func(ctx context.Context, p outq.Part) error { return rec.send(ctx, chat, p) },
+					}); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			runScheduler(t, s)
+			waitFor(t, "all sends", func() bool { order, _ := rec.snapshot(); return len(order) == len(tc.want) })
+			order, _ := rec.snapshot()
+			if !slices.Equal(order, tc.want) {
+				t.Fatalf("order = %v, want %v", order, tc.want)
+			}
+		})
 	}
 }
 
 // TestF7GAPGW03Priority serves a high-priority approval before queued chat
-// traffic without starving it.
+// traffic. Both replies are enqueued before Run starts, so priority describes
+// a ready pair; the negative control is the reversed enqueue order, which must
+// yield the same dispatch order.
 func TestF7GAPGW03Priority(t *testing.T) {
+	for _, enqueue := range [][]string{{"low", "high"}, {"high", "low"}} {
+		t.Run(strings.Join(enqueue, "-"), func(t *testing.T) {
+			rec := newRecorder()
+			s, err := outq.New(&outq.Options{Pacer: newFakePacer(0), Workers: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			priority := map[string]outq.Priority{"low": outq.PriorityLow, "high": outq.PriorityHigh}
+			for _, chat := range enqueue {
+				pri := priority[chat]
+				if err := s.Enqueue(t.Context(), &outq.Message{
+					Platform: "telegram", Chat: chat, Priority: pri, Parts: parts(1),
+					Send: func(ctx context.Context, p outq.Part) error { return rec.send(ctx, chat, p) },
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runScheduler(t, s)
+			waitFor(t, "two sends", func() bool { order, _ := rec.snapshot(); return len(order) == 2 })
+			order, _ := rec.snapshot()
+			if want := []string{"high", "low"}; !slices.Equal(order, want) {
+				t.Fatalf("order = %v, want %v", order, want)
+			}
+		})
+	}
+}
+
+// TestF7GAPGW03PermitGate is the negative control for pacing: while the pacer
+// refuses, the dispatcher may ask but nothing is transmitted; the first send
+// happens only after the gate opens.
+func TestF7GAPGW03PermitGate(t *testing.T) {
+	pacer := newFakePacer(0)
+	pacer.hold()
 	rec := newRecorder()
-	s, err := outq.New(&outq.Options{Pacer: newFakePacer(0), Workers: 1})
+	s, err := outq.New(&outq.Options{Pacer: pacer, Workers: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	runScheduler(t, s)
-	private := func(chat string, pri outq.Priority) *outq.Message {
-		return &outq.Message{
-			Platform: "telegram", Chat: chat, Priority: pri, Parts: parts(1),
+	for _, chat := range []string{"high", "a", "b"} {
+		if err := s.Enqueue(t.Context(), &outq.Message{
+			Platform: "telegram", Chat: chat, Priority: outq.PriorityHigh, Parts: parts(1),
 			Send: func(ctx context.Context, p outq.Part) error { return rec.send(ctx, chat, p) },
+		}); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if err := s.Enqueue(t.Context(), private("low", outq.PriorityLow)); err != nil {
-		t.Fatal(err)
+	runScheduler(t, s)
+	for range 3 {
+		pacer.waitAsk(t)
 	}
-	if err := s.Enqueue(t.Context(), private("high", outq.PriorityHigh)); err != nil {
-		t.Fatal(err)
+	if order, _ := rec.snapshot(); len(order) != 0 {
+		t.Fatalf("order = %v, want no dispatch while the permit is refused", order)
 	}
-	waitFor(t, "two sends", func() bool { order, _ := rec.snapshot(); return len(order) == 2 })
+	pacer.release()
+	waitFor(t, "sends after release", func() bool { order, _ := rec.snapshot(); return len(order) == 3 })
 	order, _ := rec.snapshot()
-	if order[0] != "high" {
-		t.Fatalf("order = %v, want high priority first", order)
+	// Order is pinned by the Priority and Fairness tests, which enqueue with
+	// the permit open; a mid-round release may start the ring at any chat, so
+	// this control asserts only that nothing was lost or duplicated.
+	slices.Sort(order)
+	if want := []string{"a", "b", "high"}; !slices.Equal(order, want) {
+		t.Fatalf("sent = %v, want each queued part exactly once: %v", order, want)
 	}
 }
 
