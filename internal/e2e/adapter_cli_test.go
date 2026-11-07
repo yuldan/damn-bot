@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,19 +8,11 @@ import (
 	"testing"
 )
 
-// whatsappCloudRecord mirrors the CLI-016 setup record, decoded here without
-// importing the adapter package (the e2e harness stays on the binary surface).
-type whatsappCloudRecord struct {
-	PhoneNumberID     string `json:"phone_number_id"`
-	AccessTokenSecret string `json:"access_token_secret"`
-	AppSecretSecret   string `json:"app_secret_secret"`
-	VerifyTokenSecret string `json:"verify_token_secret"`
-}
-
 // TestF7E2EAdapterCLI drives the three adapter setup surfaces on the real
 // binary (CLI-015/016/017): the Cloud API is the only offered mode, the Web
-// bridge needs `--accept-ban-risk`, the Cloud setup writes secret names only,
-// and the Slack manifest is deterministic and credential-free.
+// bridge needs `--accept-ban-risk`, the Cloud setup writes secret names into
+// config and the config loader reads them back, and the Slack manifest is
+// deterministic and credential-free.
 func TestF7E2EAdapterCLI(t *testing.T) {
 	t.Parallel()
 	e := New(t)
@@ -61,13 +52,12 @@ func TestF7E2EAdapterCLI(t *testing.T) {
 		t.Fatalf("config after web setup:\n%s", cfg)
 	}
 
-	cloudDir := filepath.Join(t.TempDir(), "cloud")
-	cloud := e.Exec("whatsapp-cloud", "setup", "--phone-number-id", "123456789012345", "--data-dir", cloudDir)
+	cloud := e.Exec("whatsapp-cloud", "setup", "--phone-number-id", "123456789012345")
 	cloud.RequireOK(t)
 	if !strings.Contains(cloud.Stdout, "hub.verify_token") || !strings.Contains(cloud.Stdout, "X-Hub-Signature-256") {
 		t.Fatalf("webhook verification missing: %s", cloud.Stdout)
 	}
-	checkCloudRecord(t, filepath.Join(cloudDir, "gateway", "whatsapp_cloud.json"))
+	checkCloudConfig(t, file, e)
 
 	first := e.Exec("slack", "manifest")
 	first.RequireOK(t)
@@ -81,25 +71,32 @@ func TestF7E2EAdapterCLI(t *testing.T) {
 	}
 }
 
-func checkCloudRecord(t *testing.T, path string) {
+// checkCloudConfig proves the setup section is read back by the same config
+// loader the runtime uses, and that no token value reached the file.
+func checkCloudConfig(t *testing.T, file string, e *Env) {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Clean(path))
+	cfg, err := fs.ReadFile(os.DirFS(filepath.Dir(file)), filepath.Base(file))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var record whatsappCloudRecord
-	if err := json.Unmarshal(data, &record); err != nil {
-		t.Fatal(err)
+	text := string(cfg)
+	for _, want := range []string{
+		"[modules.gateway.whatsapp_cloud]",
+		"phone_number_id = \"123456789012345\"",
+		"access_token_secret = \"whatsapp_cloud_access_token\"",
+		"app_secret_secret = \"whatsapp_cloud_app_secret\"",
+		"verify_token_secret = \"whatsapp_cloud_verify_token\"",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("config misses %q:\n%s", want, text)
+		}
 	}
-	if record.PhoneNumberID != "123456789012345" {
-		t.Errorf("phone-number id = %q", record.PhoneNumberID)
+	if strings.Contains(text, "EAAG") {
+		t.Fatalf("config carries a token value:\n%s", text)
 	}
-	if record.AccessTokenSecret != "whatsapp_cloud_access_token" ||
-		record.AppSecretSecret != "whatsapp_cloud_app_secret" ||
-		record.VerifyTokenSecret != "whatsapp_cloud_verify_token" {
-		t.Errorf("secret refs = %+v", record)
-	}
-	if strings.Contains(string(data), "EAAG") {
-		t.Fatalf("setup record carries a token: %s", data)
+	got := e.Exec("config", "get", "modules.gateway.whatsapp_cloud.phone_number_id")
+	got.RequireOK(t)
+	if !strings.Contains(got.Stdout, "123456789012345") {
+		t.Fatalf("config get did not read the setup back: %s", got.Stdout)
 	}
 }

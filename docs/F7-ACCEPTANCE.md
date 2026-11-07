@@ -95,7 +95,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
 | CLI-015 | `damnbot whatsapp` | setup hanya menawarkan Cloud API; mode Web ditolak tanpa `--accept-ban-risk`; ack ditulis sekali + `system_notice{wa_ban_risk_ack}` | `TestSetupNoWebWithoutAck`, `TestF7CLI015WhatsApp`, `TestF7E2EAdapterCLI` | LULUS | GAP-GW-01; satu jalur tulis `enableWhatsAppWeb` |
-| CLI-016 | `damnbot whatsapp-cloud` | setup phone-number id + access token dari secret; verifikasi webhook ditampilkan | `TestF7CLI016WhatsAppCloud`, `TestF7WhatsAppCloudSetup`, `TestF7E2EAdapterCLI` | LULUS | record 0600 `<data-dir>/gateway/whatsapp_cloud.json`; hanya nama secret |
+| CLI-016 | `damnbot whatsapp-cloud` | setup phone-number id + access token dari secret; verifikasi webhook ditampilkan | `TestF7CLI016WhatsAppCloud`, `TestF7WhatsAppCloudConfig`, `TestF7E2EAdapterCLI` | LULUS | section `[modules.gateway.whatsapp_cloud]` dibaca `config.Load`; hanya nama secret (ADR-328) |
 | CLI-017 | `damnbot slack` | helper manifest (scopes/events) dihasilkan; manifest tidak memuat token | `TestF7CLI017SlackManifest`, `TestF7E2EAdapterCLI` | LULUS | JSON deterministik; 0 field kredensial |
 | TSET-046 | `hermes-discord` | komposit platform Discord; 0 tool registry sendiri; hanya aktif bila adapter aktif | `TestF7TSET046DiscordBundle` | BELUM | — |
 | TSET-047 | `hermes-whatsapp` | komposit; memuat toolset aman; tidak mengaktifkan cold outbound | `TestF7TSET047WhatsAppBundle` | BELUM | — |

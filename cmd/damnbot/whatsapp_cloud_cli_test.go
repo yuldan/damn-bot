@@ -4,25 +4,25 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/gwplat/whatsapp_cloud"
 )
 
 // TestF7CLI016WhatsAppCloud proves the Cloud API setup (CLI-016): the
-// phone-number id and the three keychain names are written to the setup record,
-// the token is only ever named, and the Meta webhook verification contract is
+// phone-number id and the three keychain names are written to
+// [modules.gateway.whatsapp_cloud], the token is only ever named, the config
+// loader reads the section back, and the Meta webhook verification contract is
 // printed without a credential.
 func TestF7CLI016WhatsAppCloud(t *testing.T) {
-	configTestHome(t, "[provider]\nmodel = \"openai/gpt-test\"\n")
-	dataDir := t.TempDir()
+	file, _ := configTestHome(t, "[provider]\nmodel = \"openai/gpt-test\"\n")
 
 	code, stdout, stderr := runArgs(t, "whatsapp-cloud", "setup",
-		"--phone-number-id", "123456789012345", "--data-dir", dataDir)
+		"--phone-number-id", "123456789012345")
 	if code != 0 {
 		t.Fatalf("setup = %d (%s)", code, stderr)
 	}
@@ -35,80 +35,86 @@ func TestF7CLI016WhatsAppCloud(t *testing.T) {
 		t.Fatalf("setup output looks like a token: %s", stdout)
 	}
 
-	path := filepath.Join(dataDir, "gateway", whatsapp_cloud.SetupFile)
-	first := checkWhatsAppCloudRecord(t, path)
-	if first.APIVersion != "" {
-		t.Errorf("api version = %q, want the adapter default", first.APIVersion)
+	text := readText(t, file)
+	if !strings.Contains(text, waCloudSection) {
+		t.Fatalf("config has no %s:\n%s", waCloudSection, text)
+	}
+	if strings.Contains(text, "EAAG") {
+		t.Fatalf("config carries a token value:\n%s", text)
+	}
+	loaded := checkWhatsAppCloudLoad(t, file)
+	if loaded.APIVersion != "" {
+		t.Errorf("api version = %q, want the adapter default", loaded.APIVersion)
 	}
 
-	// A second setup is idempotent and leaves the record byte-identical.
-	staged, err := os.ReadFile(filepath.Clean(path))
+	// A second setup is idempotent and leaves the file byte-identical.
+	staged, err := os.ReadFile(filepath.Clean(file))
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, _, stderr = runArgs(t, "whatsapp-cloud", "setup",
-		"--phone-number-id", first.PhoneNumberID, "--data-dir", dataDir)
-	if code != 0 {
+	if code, _, stderr := runArgs(t, "whatsapp-cloud", "setup", "--phone-number-id", "123456789012345"); code != 0 {
 		t.Fatalf("second setup = %d (%s)", code, stderr)
 	}
-	again, err := os.ReadFile(filepath.Clean(path))
+	again, err := os.ReadFile(filepath.Clean(file))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(again, staged) {
-		t.Fatalf("second setup changed the record:\n%s\n---\n%s", staged, again)
+		t.Fatalf("second setup changed the config:\n%s\n---\n%s", staged, again)
 	}
 
-	checkWhatsAppCloudRejectsPlaintext(t, dataDir)
-	checkWhatsAppCloudRejectsBadID(t, dataDir)
+	checkWhatsAppCloudRejects(t, file, staged)
 }
 
-// checkWhatsAppCloudRecord decodes and validates the written setup.
-func checkWhatsAppCloudRecord(t *testing.T, path string) whatsapp_cloud.Setup {
+// checkWhatsAppCloudLoad reads the written section through the production
+// config loader (not the CLI's in-memory copy): the reader is config.Load.
+func checkWhatsAppCloudLoad(t *testing.T, file string) config.ModulesWhatsAppCloud {
 	t.Helper()
-	fi, err := os.Stat(path)
+	loader, err := config.New(config.OS())
 	if err != nil {
-		t.Fatalf("setup record: %v", err)
+		t.Fatal(err)
 	}
-	if mode := fi.Mode().Perm(); mode != 0o600 {
-		t.Errorf("setup record mode = %o, want 600", mode)
-	}
-	data, err := os.ReadFile(filepath.Clean(path))
+	cfg, err := loader.Load(file)
 	if err != nil {
-		t.Fatalf("read setup record: %v", err)
+		t.Fatalf("config loader rejected the setup: %v", err)
 	}
-	var setup whatsapp_cloud.Setup
-	if err := json.Unmarshal(data, &setup); err != nil {
-		t.Fatalf("decode setup record: %v", err)
+	cloud := cfg.Modules.Gateway.WhatsAppCloud
+	if !cloud.Enabled || cloud.PhoneNumberID != "123456789012345" {
+		t.Fatalf("loaded section = %+v", cloud)
 	}
-	if setup.PhoneNumberID != "123456789012345" {
-		t.Errorf("phone-number id = %q", setup.PhoneNumberID)
+	if cloud.AccessTokenSecret != whatsapp_cloud.AccessTokenSecret ||
+		cloud.AppSecretSecret != whatsapp_cloud.AppSecretSecret ||
+		cloud.VerifyTokenSecret != whatsapp_cloud.VerifyTokenSecret {
+		t.Fatalf("loaded secret refs = %+v", cloud)
 	}
-	if setup.AccessTokenSecret != whatsapp_cloud.AccessTokenSecret ||
-		setup.AppSecretSecret != whatsapp_cloud.AppSecretSecret ||
-		setup.VerifyTokenSecret != whatsapp_cloud.VerifyTokenSecret {
-		t.Errorf("secret refs = %+v", setup)
-	}
-	if err := setup.Validate(); err != nil {
-		t.Errorf("written setup does not validate: %v", err)
-	}
-	return setup
+	return cloud
 }
 
-func checkWhatsAppCloudRejectsPlaintext(t *testing.T, dataDir string) {
+func checkWhatsAppCloudRejects(t *testing.T, file string, before []byte) {
 	t.Helper()
-	code, _, _ := runArgs(t, "whatsapp-cloud", "setup",
-		"--phone-number-id", "123456789012345", "--access-token", "EAAG-plaintext", "--data-dir", dataDir)
-	if code == 0 {
+	unchanged := func(name string) {
+		t.Helper()
+		now, err := os.ReadFile(filepath.Clean(file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(now, before) {
+			t.Fatalf("%s wrote the config:\n%s", name, now)
+		}
+	}
+	if code, _, _ := runArgs(t, "whatsapp-cloud", "setup",
+		"--phone-number-id", "123456789012345", "--access-token", "EAAG-plaintext"); code == 0 {
 		t.Fatal("setup accepted a plaintext --access-token flag")
 	}
-}
-
-func checkWhatsAppCloudRejectsBadID(t *testing.T, dataDir string) {
-	t.Helper()
-	code, _, stderr := runArgs(t, "whatsapp-cloud", "setup",
-		"--phone-number-id", "not-a-number", "--data-dir", dataDir)
-	if code == 0 || !strings.Contains(stderr, "phone-number id") {
+	unchanged("plaintext flag")
+	if code, _, stderr := runArgs(t, "whatsapp-cloud", "setup", "--phone-number-id", "not-a-number"); code == 0 ||
+		!strings.Contains(stderr, "phone_number_id") {
 		t.Fatalf("bad phone-number id = %d (%s)", code, stderr)
 	}
+	unchanged("bad phone-number id")
+	if code, _, _ := runArgs(t, "whatsapp-cloud", "setup",
+		"--phone-number-id", "123456789012345", "--access-token-secret", "Bad Name"); code == 0 {
+		t.Fatal("setup accepted an invalid secret name")
+	}
+	unchanged("invalid secret name")
 }

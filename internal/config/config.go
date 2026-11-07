@@ -213,8 +213,22 @@ type Gateway struct {
 
 // ModulesGateway holds the gateway adapter configuration.
 type ModulesGateway struct {
-	Telegram    ModulesTelegram    `toml:"telegram"`
-	WhatsAppWeb ModulesWhatsAppWeb `toml:"whatsapp_web"`
+	Telegram      ModulesTelegram      `toml:"telegram"`
+	WhatsAppCloud ModulesWhatsAppCloud `toml:"whatsapp_cloud"`
+	WhatsAppWeb   ModulesWhatsAppWeb   `toml:"whatsapp_web"`
+}
+
+// ModulesWhatsAppCloud is [modules.gateway.whatsapp_cloud] (PLAT-026,
+// CLI-016): the phone-number id and the keychain names of the three Cloud API
+// credentials. `damnbot whatsapp-cloud setup` writes it; the config loader is
+// the reader, and no secret value ever appears here.
+type ModulesWhatsAppCloud struct {
+	Enabled           bool   `toml:"enabled"`
+	PhoneNumberID     string `toml:"phone_number_id"`
+	APIVersion        string `toml:"api_version"`
+	AccessTokenSecret string `toml:"access_token_secret"`
+	AppSecretSecret   string `toml:"app_secret_secret"`
+	VerifyTokenSecret string `toml:"verify_token_secret"`
 }
 
 // ModulesWhatsAppWeb is [modules.gateway.whatsapp_web] (SPEC §9.7.1): the
