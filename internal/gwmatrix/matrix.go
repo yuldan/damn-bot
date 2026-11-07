@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/gateway"
+	"github.com/damnbot/damnbot/internal/gwmatrix/e2ee"
 	"github.com/damnbot/damnbot/internal/gwplat"
 )
 
@@ -43,16 +44,22 @@ func (e *AttentionError) Unwrap() []error {
 	return []error{ErrNeedsAttention, gwplat.Unavailablef("matrix", "matrix_%s", e.Reason)}
 }
 
-// Encrypted is the seam of the pure-Go E2EE layer. A nil implementation keeps
-// the adapter to unencrypted rooms; encrypted events are then skipped instead
-// of being sent to the model.
+// Encrypted is the seam of the pure-Go E2EE layer (internal/gwmatrix/e2ee).
+// A nil implementation keeps the adapter to unencrypted rooms; encrypted events
+// are then skipped instead of being sent to the model.
 type Encrypted interface {
-	// DecryptRoom returns the plaintext event JSON of a room event.
 	DecryptRoom(ctx context.Context, roomID string, content json.RawMessage) ([]byte, error)
-	// EncryptRoom returns the m.room.encrypted content for plaintext event JSON.
 	EncryptRoom(ctx context.Context, roomID string, plaintext []byte) (json.RawMessage, error)
-	// HandleToDevice consumes one to-device event (room keys, olm messages).
 	HandleToDevice(ctx context.Context, sender string, content json.RawMessage) (bool, error)
+}
+
+// Keyring is the device/key-sharing half of the E2EE layer.
+type Keyring interface {
+	DeviceKeys(ctx context.Context) (json.RawMessage, map[string]string, error)
+	MarkPublished()
+	NewOutboundRoom(ctx context.Context, roomID string) (*e2ee.RoomKey, error)
+	AddRoomKey(ctx context.Context, roomID string, key *e2ee.RoomKey) error
+	EncryptToDevice(ctx context.Context, device *e2ee.Device, plaintext []byte) (json.RawMessage, error)
 }
 
 // Config is the explicit activation of the adapter; the zero value is dormant.
@@ -65,6 +72,7 @@ type Config struct {
 	SyncTimeout time.Duration
 	Backoff     gwplat.Backoff
 	Crypto      Encrypted
+	Keys        Keyring
 	Log         *slog.Logger
 	Now         func() time.Time
 }
@@ -83,8 +91,11 @@ type Adapter struct {
 	now     func() time.Time
 	client  *http.Client
 
-	mu     sync.Mutex
-	direct map[string]bool
+	mu        sync.Mutex
+	direct    map[string]bool
+	encrypted map[string]bool
+	roomKeys  map[string]*e2ee.RoomKey
+	keysDone  bool
 }
 
 // New validates the explicit config and loads the access token from the secret
@@ -127,6 +138,7 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 		cfg: local, out: out, handler: h, token: values["matrix_access_token"],
 		userID: local.UserID, dedupe: gwplat.NewDedupe(8192, 30*time.Minute),
 		log: logger, now: now, client: client, direct: map[string]bool{},
+		encrypted: map[string]bool{}, roomKeys: map[string]*e2ee.RoomKey{},
 	}, nil
 }
 
@@ -152,11 +164,6 @@ func validateHomeserver(raw string) error {
 func (a *Adapter) Run(ctx context.Context) error {
 	backoff := a.cfg.Backoff
 	for attempt := 1; ; attempt++ {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
 		err := a.Sync(ctx)
 		select {
 		case <-ctx.Done():
@@ -199,6 +206,13 @@ func (a *Adapter) Sync(ctx context.Context) error {
 		a.handleToDevice(ctx, &resp.ToDevice.Events[i])
 	}
 	for roomID, joined := range resp.Rooms.Join {
+		for i := range joined.State.Events {
+			if joined.State.Events[i].Type == "m.room.encryption" {
+				a.mu.Lock()
+				a.encrypted[roomID] = true
+				a.mu.Unlock()
+			}
+		}
 		for i := range joined.Timeline.Events {
 			a.handleEvent(ctx, roomID, &joined.Timeline.Events[i])
 		}
@@ -225,7 +239,29 @@ func (a *Adapter) identify(ctx context.Context) error {
 	if a.cfg.DeviceID == "" {
 		a.cfg.DeviceID = who.DeviceID
 	}
-	return a.loadDirect(ctx)
+	if err := a.loadDirect(ctx); err != nil {
+		return err
+	}
+	return a.uploadKeys(ctx)
+}
+
+// uploadKeys publishes the device and one-time keys once per process.
+func (a *Adapter) uploadKeys(ctx context.Context) error {
+	if a.cfg.Keys == nil || a.keysDone {
+		return nil
+	}
+	deviceKeys, oneTime, err := a.cfg.Keys.DeviceKeys(ctx)
+	if err != nil {
+		return fmt.Errorf("gwmatrix: device keys: %w", err)
+	}
+	body := map[string]any{"device_keys": deviceKeys, "one_time_keys": oneTime}
+	var out map[string]any
+	if err := a.do(ctx, http.MethodPost, "/_matrix/client/v3/keys/upload", body, &out); err != nil {
+		return err
+	}
+	a.cfg.Keys.MarkPublished()
+	a.keysDone = true
+	return nil
 }
 
 func (a *Adapter) loadDirect(ctx context.Context) error {
@@ -265,7 +301,11 @@ func (a *Adapter) handleEvent(ctx context.Context, roomID string, ev *event) {
 		return
 	}
 	content, err := a.plaintext(ctx, roomID, ev)
-	if err != nil || content == nil {
+	if err != nil {
+		a.log.WarnContext(ctx, "gwmatrix: event decrypt failed", "room", roomID, "err", err)
+		return
+	}
+	if content == nil {
 		return
 	}
 	msg := messageContent(content)
@@ -337,13 +377,164 @@ func (a *Adapter) Send(ctx context.Context, roomID, markdown string) error {
 
 func (a *Adapter) sendText(roomID string) gwplat.SendFunc {
 	return func(ctx context.Context, text string) error {
-		a.txn++
-		txn := fmt.Sprintf("damnbot%d", a.txn)
-		path := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/send/m.room.message/" + txn
-		body := map[string]string{"msgtype": "m.text", "body": text}
-		var out map[string]string
-		return a.do(ctx, http.MethodPut, path, body, &out)
+		message := map[string]string{"msgtype": "m.text", "body": text}
+		eventType := "m.room.message"
+		if a.isEncrypted(roomID) {
+			sealed, err := a.seal(ctx, roomID, message)
+			if err != nil {
+				return err
+			}
+			return a.sendEvent(ctx, roomID, "m.room.encrypted", sealed)
+		}
+		return a.sendEvent(ctx, roomID, eventType, message)
 	}
+}
+
+func (a *Adapter) isEncrypted(roomID string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.encrypted[roomID]
+}
+
+// seal shares the room key with the member devices once, then encrypts the
+// event with the Megolm session.
+func (a *Adapter) seal(ctx context.Context, roomID string, message map[string]string) (json.RawMessage, error) {
+	if a.cfg.Crypto == nil || a.cfg.Keys == nil {
+		return nil, fmt.Errorf("gwmatrix: encrypted room without E2EE")
+	}
+	a.mu.Lock()
+	key := a.roomKeys[roomID]
+	a.mu.Unlock()
+	if key == nil {
+		created, err := a.cfg.Keys.NewOutboundRoom(ctx, roomID)
+		if err != nil {
+			return nil, fmt.Errorf("gwmatrix: room key: %w", err)
+		}
+		if err := a.shareRoomKey(ctx, roomID, created); err != nil {
+			return nil, err
+		}
+		key = created
+		a.mu.Lock()
+		a.roomKeys[roomID] = key
+		a.mu.Unlock()
+	}
+	plaintext, err := json.Marshal(map[string]any{"type": "m.room.message", "room_id": roomID, "content": message})
+	if err != nil {
+		return nil, fmt.Errorf("gwmatrix: encode event: %w", err)
+	}
+	sealed, err := a.cfg.Crypto.EncryptRoom(ctx, roomID, plaintext)
+	if err != nil {
+		return nil, fmt.Errorf("gwmatrix: encrypt event: %w", err)
+	}
+	return sealed, nil
+}
+
+func (a *Adapter) sendEvent(ctx context.Context, roomID, eventType string, content any) error {
+	a.txn++
+	txn := fmt.Sprintf("damnbot%d", a.txn)
+	path := "/_matrix/client/v3/rooms/" + url.PathEscape(roomID) + "/send/" + url.PathEscape(eventType) + "/" + txn
+	var out map[string]string
+	if err := a.do(ctx, http.MethodPut, path, content, &out); err != nil {
+		return err
+	}
+	return nil
+}
+
+// shareRoomKey sends the Megolm key to every joined member device through
+// to-device Olm messages.
+func (a *Adapter) shareRoomKey(ctx context.Context, roomID string, key *e2ee.RoomKey) error {
+	var members struct {
+		Joined map[string]json.RawMessage `json:"joined"`
+	}
+	if err := a.do(ctx, http.MethodGet, "/_matrix/client/v3/rooms/"+url.PathEscape(roomID)+"/joined_members", nil, &members); err != nil {
+		return err
+	}
+	var query struct {
+		DeviceKeys map[string]map[string]struct {
+			Keys map[string]string `json:"keys"`
+		} `json:"device_keys"`
+	}
+	requested := map[string][]string{}
+	for user := range members.Joined {
+		if user != a.userID {
+			requested[user] = []string{}
+		}
+	}
+	if err := a.do(ctx, http.MethodPost, "/_matrix/client/v3/keys/query", map[string]any{"device_keys": requested}, &query); err != nil {
+		return err
+	}
+	messages, err := a.sealForDevices(ctx, roomID, key, query.DeviceKeys)
+	if err != nil {
+		return err
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	a.txn++
+	path := "/_matrix/client/v3/sendToDevice/m.room.encrypted/damnbot" + fmt.Sprint(a.txn)
+	var out map[string]any
+	return a.do(ctx, http.MethodPut, path, map[string]any{"messages": messages}, &out)
+}
+
+// sealForDevices wraps the room key for every device of the queried users.
+func (a *Adapter) sealForDevices(ctx context.Context, roomID string, key *e2ee.RoomKey, devices map[string]map[string]struct {
+	Keys map[string]string `json:"keys"`
+},
+) (map[string]map[string]json.RawMessage, error) {
+	messages := map[string]map[string]json.RawMessage{}
+	for user, deviceSet := range devices {
+		for deviceID, device := range deviceSet {
+			curve := device.Keys["curve25519:"+deviceID]
+			if curve == "" {
+				continue
+			}
+			otk, err := a.claimKey(ctx, user, deviceID)
+			if err != nil {
+				return nil, err
+			}
+			plaintext, err := json.Marshal(map[string]any{
+				"type":   "m.room_key",
+				"sender": a.userID,
+				"content": map[string]string{
+					"algorithm": e2ee.AlgorithmMegolm, "room_id": roomID,
+					"session_id": key.SessionID, "session_key": key.SessionKey,
+				},
+			})
+			if err != nil {
+				return nil, fmt.Errorf("gwmatrix: encode room key: %w", err)
+			}
+			sealed, err := a.cfg.Keys.EncryptToDevice(ctx, &e2ee.Device{
+				UserID: user, DeviceID: deviceID, Curve25519: curve,
+				Ed25519: device.Keys["ed25519:"+deviceID], OneTimeKey: otk,
+			}, plaintext)
+			if err != nil {
+				return nil, fmt.Errorf("gwmatrix: seal room key: %w", err)
+			}
+			if messages[user] == nil {
+				messages[user] = map[string]json.RawMessage{}
+			}
+			messages[user][deviceID] = sealed
+		}
+	}
+	return messages, nil
+}
+
+func (a *Adapter) claimKey(ctx context.Context, userID, deviceID string) (string, error) {
+	body := map[string]any{"one_time_keys": map[string]map[string]string{userID: {deviceID: "signed_curve25519"}}}
+	var resp struct {
+		OneTimeKeys map[string]map[string]map[string]struct {
+			Key string `json:"key"`
+		} `json:"one_time_keys"`
+	}
+	if err := a.do(ctx, http.MethodPost, "/_matrix/client/v3/keys/claim", body, &resp); err != nil {
+		return "", err
+	}
+	for _, entry := range resp.OneTimeKeys[userID][deviceID] {
+		if entry.Key != "" {
+			return entry.Key, nil
+		}
+	}
+	return "", nil
 }
 
 // do performs one authenticated client-server request.
@@ -398,6 +589,9 @@ type syncResponse struct {
 	} `json:"to_device"`
 	Rooms struct {
 		Join map[string]struct {
+			State struct {
+				Events []event `json:"events"`
+			} `json:"state"`
 			Timeline struct {
 				Events []event `json:"events"`
 			} `json:"timeline"`
