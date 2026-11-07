@@ -181,7 +181,6 @@ config_version = 1
     video_create_url = ""
     video_status_url = ""
     video_key_env = ""
-    silk_decoder = ""
   [modules.voice]
     enabled = false
     stt_backend = ""

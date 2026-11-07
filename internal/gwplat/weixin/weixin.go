@@ -1,6 +1,6 @@
 // Package weixin implements the PLAT-024 adapter: the iLink Bot API long-poll
 // with a persisted cursor, and voice messages decoded through the external SILK
-// decoder (MEDIA-031, ADR-329/ADR-001) before STT.
+// decoder (MEDIA-031, ADR-001) before STT.
 package weixin
 
 import (
@@ -46,9 +46,10 @@ type Config struct {
 	HTTPClient *http.Client
 	Backoff    gwplat.Backoff
 	Cursor     CursorStore
-	// SilkDecoder is the absolute external decoder path (modules.media.silk_decoder).
-	// When set together with STT it composes VoiceToText in New; a missing
-	// decoder surfaces module_unavailable{silk_decoder_missing} on poll.
+	// SilkDecoder is the absolute external decoder path (ADR-001, adapter
+	// seam like the other F7 adapters). When set together with STT it composes
+	// VoiceToText in New; a missing decoder surfaces
+	// module_unavailable{silk_decoder_missing} on poll.
 	SilkDecoder string
 	// STT transcribes decoded PCM16; nil leaves voice messages undecoded.
 	STT VoiceSTT
@@ -270,11 +271,11 @@ func (a *Adapter) dispatchVoice(ctx context.Context, msg *message) error {
 	if a.cfg.VoiceToText == nil {
 		return nil
 	}
-	payload, derr := base64.StdEncoding.DecodeString(msg.VoiceB64)
-	if derr == nil && len(payload) > 0 {
-		return a.transcribeVoice(ctx, msg, payload)
+	payload, err := base64.StdEncoding.DecodeString(msg.VoiceB64)
+	if err != nil || len(payload) == 0 {
+		return fmt.Errorf("%w: base64 voice payload", silk.ErrSilkCorrupt)
 	}
-	return nil
+	return a.transcribeVoice(ctx, msg, payload)
 }
 
 func (a *Adapter) transcribeVoice(ctx context.Context, msg *message, payload []byte) error {

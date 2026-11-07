@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -361,10 +362,15 @@ func TestWeixinVoiceToSTT(t *testing.T) {
 	}
 }
 
-// TestWeixinVoiceInactive proves a nil seam dispatches nothing.
+// TestWeixinVoiceInactive proves a nil seam dispatches nothing, never runs the
+// configured decoder, and makes no network request beyond the poll.
 func TestWeixinVoiceInactive(t *testing.T) {
 	srv := newFakeILinkBatch(t, voiceMessage(t))
-	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient()}
+	decoder := decoderBinary(t)
+	cfg := &Config{
+		Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
+		SilkDecoder: decoder, // STT nil: prepare leaves the seam nil
+	}
 	rec := newRecorder()
 	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
 	if err != nil {
@@ -376,10 +382,16 @@ func TestWeixinVoiceInactive(t *testing.T) {
 	if rec.count() != 0 {
 		t.Fatalf("inactive voice seam dispatched %d turns", rec.count())
 	}
+	if decoderRan(t, decoder) {
+		t.Fatal("inactive voice seam ran the decoder")
+	}
+	if _, requests, _ := srv.snapshot(); requests != 1 {
+		t.Fatalf("inactive voice seam made %d network requests, want the one poll", requests)
+	}
 }
 
-// TestWeixinVoiceCorrupt proves a typed decode error is swallowed without a
-// turn or a panic.
+// TestWeixinVoiceCorrupt proves a typed decode error reaches the caller without
+// a turn or a panic.
 func TestWeixinVoiceCorrupt(t *testing.T) {
 	srv := newFakeILinkBatch(t, voiceMessage(t))
 	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(), VoiceToText: voiceSeam(t, "fail")}
@@ -393,6 +405,51 @@ func TestWeixinVoiceCorrupt(t *testing.T) {
 	}
 	if rec.count() != 0 {
 		t.Fatalf("corrupt voice dispatched %d turns", rec.count())
+	}
+}
+
+// TestWeixinComposedSilkCorrupt proves the composed decoder rejects a corrupt
+// payload with ErrSilkCorrupt, 0 STT calls and 0 dispatch.
+func TestWeixinComposedSilkCorrupt(t *testing.T) {
+	srv := newFakeILinkBatch(t, voiceMessage(t))
+	stt := &fakeSTT{}
+	cfg := &Config{
+		Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
+		SilkDecoder: failingDecoderBinary(t), STT: stt,
+	}
+	rec := newRecorder()
+	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ad.poll(t.Context()); !errors.Is(err, silk.ErrSilkCorrupt) {
+		t.Fatalf("poll = %v, want ErrSilkCorrupt", err)
+	}
+	if rec.count() != 0 || stt.calls != 0 {
+		t.Fatalf("corrupt voice dispatched %d turns, stt %d", rec.count(), stt.calls)
+	}
+}
+
+// TestWeixinVoicePayloadCorrupt proves a non-base64 voice item is a typed
+// ErrSilkCorrupt, not a silent drop.
+func TestWeixinVoicePayloadCorrupt(t *testing.T) {
+	batch := strings.Replace(voiceMessage(t), base64.StdEncoding.EncodeToString([]byte("silk-bytes")), "!!not-base64!!", 1)
+	srv := newFakeILinkBatch(t, batch)
+	stt := &fakeSTT{}
+	cfg := &Config{
+		Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
+		SilkDecoder: decoderBinary(t), STT: stt,
+	}
+	rec := newRecorder()
+	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ad.poll(t.Context()); !errors.Is(err, silk.ErrSilkCorrupt) {
+		t.Fatalf("poll = %v, want ErrSilkCorrupt", err)
+	}
+	if rec.count() != 0 || stt.calls != 0 {
+		t.Fatalf("bad payload dispatched %d turns, stt %d", rec.count(), stt.calls)
 	}
 }
 
@@ -410,7 +467,19 @@ func (f *fakeSTT) Transcribe(_ context.Context, pcm io.Reader) (string, error) {
 
 func decoderBinary(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "silk-decoder")
+	return buildDecoder(t, "silk-decoder")
+}
+
+// failingDecoderBinary is the same helper under a name the helper treats as a
+// rejected payload (no argv seam involved).
+func failingDecoderBinary(t *testing.T) string {
+	t.Helper()
+	return buildDecoder(t, "silk-fail")
+}
+
+func buildDecoder(t *testing.T, name string) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), name)
 	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./testdata/decoder") // #nosec G204 -- fixed go tool
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("build decoder: %v", err)
@@ -418,14 +487,22 @@ func decoderBinary(t *testing.T) string {
 	return bin
 }
 
+// decoderRan reports whether the helper recorded an invocation.
+func decoderRan(t *testing.T, bin string) bool {
+	t.Helper()
+	_, err := os.Stat(bin + ".ran")
+	return err == nil
+}
+
 // TestWeixinComposedSilkSTT proves the production composition: SilkDecoder+STT
 // in Config decodes voice and dispatches the transcript without VoiceToText.
 func TestWeixinComposedSilkSTT(t *testing.T) {
 	srv := newFakeILinkBatch(t, voiceMessage(t))
 	stt := &fakeSTT{}
+	decoder := decoderBinary(t)
 	cfg := &Config{
 		Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
-		SilkDecoder: decoderBinary(t), STT: stt,
+		SilkDecoder: decoder, STT: stt,
 	}
 	rec := newRecorder()
 	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
@@ -434,6 +511,9 @@ func TestWeixinComposedSilkSTT(t *testing.T) {
 	}
 	if err := ad.poll(t.Context()); err != nil {
 		t.Fatal(err)
+	}
+	if !decoderRan(t, decoder) {
+		t.Fatal("composed decoder did not run")
 	}
 	select {
 	case in := <-rec.seen:
