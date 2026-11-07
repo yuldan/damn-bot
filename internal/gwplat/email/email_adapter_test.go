@@ -531,3 +531,15 @@ func containsCommand(cmds []string, want string) bool {
 	}
 	return false
 }
+
+// TestEmailRunStopsOnContext exercises the Run entry point: a cancelled
+// context ends the loop without touching the mailbox.
+func TestEmailRunStopsOnContext(t *testing.T) {
+	mb := newFakeMailbox(t, 7)
+	ad := mustAdapter(t, mailConfig(mb), newRecorder())
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := ad.Run(ctx); err != nil {
+		t.Fatalf("run with cancelled context = %v", err)
+	}
+}
