@@ -142,6 +142,13 @@ config_version = 1
   [modules.gateway]
     [modules.gateway.telegram]
       thread_fallback = "fail"
+    [modules.gateway.whatsapp_cloud]
+      enabled = false
+      phone_number_id = ""
+      api_version = ""
+      access_token_secret = ""
+      app_secret_secret = ""
+      verify_token_secret = ""
     [modules.gateway.whatsapp_web]
       enabled = false
       ack_ban_risk_at = ""

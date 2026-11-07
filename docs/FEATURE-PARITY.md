@@ -96,9 +96,9 @@ Deskripsi = teks `help` hermes (verbatim, dipotong 15 kata) agar dapat dicocokka
 | CLI-012 | `hermes proxy` | Local OpenAI-compatible proxy to OAuth providers | `hermes_cli/subcommands/gateway.py:237` | tersedia | — | 3 sub: start, status, providers | F8 | planned |
 | CLI-013 | `hermes lsp` | Language Server Protocol management | `agent/lsp/cli.py:33` | tersedia | language servers | 6 sub: status, list, install, install-all, restart, which | F5 | planned |
 | CLI-014 | `hermes setup` | Interactive setup wizard | `hermes_cli/subcommands/setup.py:10` | tersedia | — |  | F3 | planned |
-| CLI-015 | `hermes whatsapp` | Set up WhatsApp integration | `hermes_cli/subcommands/whatsapp.py:10` | tersedia | Node.js bridge |  | F7 | planned |
-| CLI-016 | `hermes whatsapp-cloud` | Set up WhatsApp Business Cloud API integration | `hermes_cli/subcommands/whatsapp.py:18` | tersedia | Meta Cloud API |  | F7 | planned |
-| CLI-017 | `hermes slack` | Slack integration helpers (manifest generation, etc.) | `hermes_cli/subcommands/slack.py:10` | tersedia | Slack app | 1 sub: manifest | F7 | planned |
+| CLI-015 | `hermes whatsapp` | Set up WhatsApp integration | `hermes_cli/subcommands/whatsapp.py:10` | tersedia | Node.js bridge |  | F7 | LULUS |
+| CLI-016 | `hermes whatsapp-cloud` | Set up WhatsApp Business Cloud API integration | `hermes_cli/subcommands/whatsapp.py:18` | tersedia | Meta Cloud API |  | F7 | LULUS |
+| CLI-017 | `hermes slack` | Slack integration helpers (manifest generation, etc.) | `hermes_cli/subcommands/slack.py:10` | tersedia | Slack app | 1 sub: manifest | F7 | LULUS |
 | CLI-018 | `hermes send` | Send a message to a configured platform (scripts, cron jobs, CI). | `hermes_cli/send_cmd.py:269` | tersedia | platform terkonfigurasi |  | F4 | planned |
 | CLI-019 | `hermes login` | Deprecated. Use `hermes auth` to manage credentials, `hermes model` to select a provider, or `hermes … | `hermes_cli/subcommands/login.py:19` | tersedia (deprecated; redirect) | — |  | — | dropped-with-approval (NP-02) |
 | CLI-020 | `hermes logout` | Clear authentication for an inference provider | `hermes_cli/subcommands/logout.py:10` | tersedia | — |  | F5 | planned |

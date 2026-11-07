@@ -308,6 +308,9 @@ func (c *Config) validateModules() error {
 	if err := c.Modules.Gateway.WhatsAppWeb.validate(); err != nil {
 		return err
 	}
+	if err := c.Modules.Gateway.WhatsAppCloud.validate(); err != nil {
+		return err
+	}
 	switch c.Modules.Gateway.Telegram.ThreadFallback {
 	case "fail", "parent":
 		return nil
@@ -329,6 +332,51 @@ func (w ModulesWhatsAppWeb) validate() error {
 		return invalid("modules.gateway.whatsapp_web.ack_ban_risk_at", "must be RFC 3339")
 	}
 	return nil
+}
+
+// validate enforces explicit activation for the Cloud API adapter: an enabled
+// section carries a numeric phone-number id, every credential is a keychain
+// name (never a value) and the Graph version looks like v21.0.
+func (w *ModulesWhatsAppCloud) validate() error {
+	if w.Enabled && !digitsOnly(w.PhoneNumberID) {
+		return invalid("modules.gateway.whatsapp_cloud.phone_number_id", "must be numeric when enabled")
+	}
+	for _, ref := range []struct{ key, name string }{
+		{"access_token_secret", w.AccessTokenSecret},
+		{"app_secret_secret", w.AppSecretSecret},
+		{"verify_token_secret", w.VerifyTokenSecret},
+	} {
+		if ref.name != "" && !validCloudSecretName(ref.name) {
+			return invalid("modules.gateway.whatsapp_cloud."+ref.key, "must be a lowercase secret name")
+		}
+	}
+	if w.APIVersion != "" && !validGraphVersion(w.APIVersion) {
+		return invalid("modules.gateway.whatsapp_cloud.api_version", "must look like v21.0")
+	}
+	return nil
+}
+
+// digitsOnly reports a non-empty decimal string (a Meta phone-number id).
+func digitsOnly(s string) bool {
+	return s != "" && strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
+}
+
+// validCloudSecretName mirrors the adapter secret-name grammar: lowercase,
+// digits and underscore, at most 64 bytes.
+func validCloudSecretName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	return strings.IndexFunc(name, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_'
+	}) < 0
+}
+
+// validGraphVersion accepts the pinned Graph form v<major>.<minor>.
+func validGraphVersion(v string) bool {
+	rest, ok := strings.CutPrefix(v, "v")
+	major, minor, pair := strings.Cut(rest, ".")
+	return ok && pair && digitsOnly(major) && digitsOnly(minor)
 }
 
 func (c *Config) validateProviders() error {
