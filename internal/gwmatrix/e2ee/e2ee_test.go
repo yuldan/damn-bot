@@ -143,6 +143,7 @@ func TestE2EERoomKeyOverOlm(t *testing.T) {
 	alice := newCrypto(t, "@alice:example.test", "ALICE", &memStore{})
 	bob := newCrypto(t, "@bob:example.test", "BOB", &memStore{})
 	device, _ := deviceOf(t, bob, "@bob:example.test", "BOB")
+	alice.MarkPublished()
 	room := "!room:example.test"
 	key, err := alice.NewOutboundRoom(t.Context(), room)
 	if err != nil {
