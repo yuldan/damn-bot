@@ -87,10 +87,7 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 	if err != nil {
 		return nil, fmt.Errorf("weixin: secret: %w", err)
 	}
-	local := *cfg
-	if local.VoiceToText == nil && local.SilkDecoder != "" && local.STT != nil {
-		local.VoiceToText = composeVoice(local.SilkDecoder, local.STT)
-	}
+	local := prepare(cfg)
 	logger := local.Log
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
@@ -240,6 +237,15 @@ func (a *Adapter) dispatch(ctx context.Context, msg *message) error {
 		return fmt.Errorf("weixin: dispatch: %w", err)
 	}
 	return nil
+}
+
+// prepare copies cfg and composes the decoder+STT seam when both are set.
+func prepare(cfg *Config) Config {
+	local := *cfg
+	if local.VoiceToText == nil && local.SilkDecoder != "" && local.STT != nil {
+		local.VoiceToText = composeVoice(local.SilkDecoder, local.STT)
+	}
+	return local
 }
 
 // composeVoice wires the external SILK decoder to STT: a missing decoder is

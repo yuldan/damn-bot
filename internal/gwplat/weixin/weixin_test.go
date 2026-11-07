@@ -403,7 +403,7 @@ func (f *fakeSTT) Transcribe(_ context.Context, pcm io.Reader) (string, error) {
 	f.calls++
 	data, err := io.ReadAll(pcm)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read pcm: %w", err)
 	}
 	return "stt:" + hex.EncodeToString(data), nil
 }
@@ -423,8 +423,10 @@ func decoderBinary(t *testing.T) string {
 func TestWeixinComposedSilkSTT(t *testing.T) {
 	srv := newFakeILinkBatch(t, voiceMessage(t))
 	stt := &fakeSTT{}
-	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
-		SilkDecoder: decoderBinary(t), STT: stt}
+	cfg := &Config{
+		Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
+		SilkDecoder: decoderBinary(t), STT: stt,
+	}
 	rec := newRecorder()
 	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
 	if err != nil {
@@ -448,8 +450,10 @@ func TestWeixinComposedSilkSTT(t *testing.T) {
 func TestWeixinDecoderMissing(t *testing.T) {
 	srv := newFakeILinkBatch(t, voiceMessage(t))
 	stt := &fakeSTT{}
-	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
-		SilkDecoder: filepath.Join(t.TempDir(), "absent-decoder"), STT: stt}
+	cfg := &Config{
+		Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
+		SilkDecoder: filepath.Join(t.TempDir(), "absent-decoder"), STT: stt,
+	}
 	rec := newRecorder()
 	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
 	if err != nil {
