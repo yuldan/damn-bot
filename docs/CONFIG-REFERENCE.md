@@ -142,6 +142,9 @@ config_version = 1
   [modules.gateway]
     [modules.gateway.telegram]
       thread_fallback = "fail"
+    [modules.gateway.whatsapp_web]
+      enabled = false
+      ack_ban_risk_at = ""
   [modules.mcp]
     allow_sampling = false
   [modules.web]
