@@ -305,12 +305,30 @@ func (c *Config) validateModules() error {
 	if err := c.Modules.validateF6(); err != nil {
 		return err
 	}
+	if err := c.Modules.Gateway.WhatsAppWeb.validate(); err != nil {
+		return err
+	}
 	switch c.Modules.Gateway.Telegram.ThreadFallback {
 	case "fail", "parent":
 		return nil
 	default:
 		return invalid("modules.gateway.telegram.thread_fallback", "must be fail or parent")
 	}
+}
+
+// validate enforces the GAP-GW-01 consent record: a timestamp is RFC 3339 and
+// an enabled bridge always carries one.
+func (w ModulesWhatsAppWeb) validate() error {
+	if w.AckBanRiskAt == "" {
+		if w.Enabled {
+			return invalid("modules.gateway.whatsapp_web.enabled", "requires ack_ban_risk_at")
+		}
+		return nil
+	}
+	if _, err := time.Parse(time.RFC3339, w.AckBanRiskAt); err != nil {
+		return invalid("modules.gateway.whatsapp_web.ack_ban_risk_at", "must be RFC 3339")
+	}
+	return nil
 }
 
 func (c *Config) validateProviders() error {

@@ -6507,6 +6507,8 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 - Amandemen (ADR-326, aturan slice persiapan): slice persiapan tanpa flip (PR #732) diizinkan bila tidak ada baris yang dapat dibuktikan secara lengkap pada slice itu dan slice berikutnya pada stack yang sama menutupnya; slice tersebut wajib menyatakan "tidak ada baris ledger yang diklaim" di badan PR. P8 memakai aturan ini untuk P8a → `GW-013` di #733.
 
+- Amandemen (ADR-326, PR #775): `cmd/damnbot gateway whatsapp-web enable --accept-ban-risk|disable|status` menulis `modules.gateway.whatsapp_web.enabled` + `ack_ban_risk_at` (RFC 3339) sekali dan satu `system_notice{wa_ban_risk_ack}`, menolak Web tanpa flag (0 tulis, 0 event), dan wizard hanya menawarkan `whatsapp_cloud` sampai ack ada; `[modules.gateway.whatsapp_web]` divalidasi fail-closed. Bukti `TestSetupNoWebWithoutAck`, `TestF7GAPGW01WizardModes`, `TestF7E2EWhatsAppWebCLI`, `TestWhatsAppWebGuards`, `TestBridgeProtocolConformance`, `TestF7PLAT025WABridge`, `TestF7GAPGW11Breaker`; baris parity + ledger `PLAT-025` menjadi `LULUS` (catatan ADR-034 tetap) dan baris ledger `GAP-GW-01`, `GAP-GW-11` menjadi `LULUS`. Angka budget mengikuti ADR-327/main apa adanya.
+
 ## ADR-327 — Egress registry `netx` untuk adapter P6 (wa-bridge, whatsapp-cloud)
 
 **Konteks.** Dua adapter F7 P6 membangun `http.Client` sendiri: `internal/gwwa/http.go` (transport loopback JSON-RPC ke bridge WhatsApp Web) dan `internal/gwplat/whatsapp_cloud/send.go` (kirim pesan Cloud API ke Graph). Keduanya melanggar E-05 (`nohttpclient`): transport HTTP hanya boleh dari `internal/netx`, supaya kebijakan offline/proxy/DLP dan check alamat berlaku di satu tempat.
