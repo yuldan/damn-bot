@@ -22,6 +22,7 @@
 /internal/compaction/ @yuldan
 /internal/delegate/ @yuldan
 /internal/config/ @yuldan
+/internal/codetools/ @yuldan
 /internal/ctxdb/ @yuldan
 /internal/e2e/ @yuldan
 /internal/heal/ @yuldan
@@ -45,6 +46,7 @@
 /internal/testutil/ @yuldan
 /internal/update/ @yuldan
 /internal/integration/ @yuldan
+/internal/e2e/ @yuldan
 /internal/tools/ @yuldan
 /internal/toolset/ @yuldan
 /internal/voice/ @yuldan
@@ -53,9 +55,12 @@
 /internal/cron/ @yuldan
 /internal/computeruse/ @yuldan
 /internal/gateway/ @yuldan
+/internal/gwpeer/ @yuldan
 /internal/gwplat/ @yuldan
+/internal/kanban/ @yuldan
+/internal/gwwa/ @yuldan
 /internal/hooks/ @yuldan
 /internal/obs/ @yuldan
 /internal/scorecard/ @yuldan
-
+/internal/gwapi/ @yuldan
 /internal/gwmatrix/ @yuldan
