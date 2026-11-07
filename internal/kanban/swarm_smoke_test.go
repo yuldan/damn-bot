@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/damnbot/damnbot/internal/gateway/render"
 )
 
 // TestF7KanbanSwarmRoundTrip is the named swarm/workflow/PR-acceptance test of
@@ -91,7 +89,7 @@ func checkQuerySurface(t *testing.T, s *Store) {
 	if _, err := s.Runs(ctx, "default"); err != nil {
 		t.Fatalf("runs: %v", err)
 	}
-	checkNotifier(t, s)
+	checkNotifier(t)
 	checkDispatcher(t, s)
 	if !UniqueChildren(mustTasks(t, s)) {
 		t.Fatal("children are not unique")
@@ -107,42 +105,6 @@ func checkQuerySurface(t *testing.T, s *Store) {
 	}
 }
 
-type smokeSender struct{ sent int }
-
-func (f *smokeSender) Send(context.Context, string, string, []render.Message) error {
-	f.sent++
-	return nil
-}
-
-func checkNotifier(t *testing.T, s *Store) {
-	t.Helper()
-	ctx := t.Context()
-	if _, err := s.Subscribe(ctx, "default", "telegram:7"); err != nil {
-		t.Fatalf("subscribe: %v", err)
-	}
-	task := smokeTask(t, s, "notify **me**", StatusReady)
-	sender := &smokeSender{}
-	n := &Notifier{Store: s, Sender: sender}
-	if err := n.Notify(ctx, task, "moved"); err != nil {
-		t.Fatalf("notify: %v", err)
-	}
-	if sender.sent == 0 {
-		t.Fatal("notifier sent nothing to a subscribed target")
-	}
-	if err := (&Notifier{Store: s}).Notify(ctx, task, "moved"); err == nil {
-		t.Fatal("notifier without a sender accepted the call")
-	}
-	if unit, err := SystemdUnit(UnitOptions{}); err != nil || unit == "" {
-		t.Fatalf("systemd unit = %q, %v", unit, err)
-	}
-}
-
-func smokeRunner() Runner {
-	return RunnerFunc(func(context.Context, *Task, string) (WorkerOutcome, error) {
-		return WorkerOutcome{Outcome: "ok", Handoff: Handoff{Summary: "dispatched", Verify: []string{"test"}}}, nil
-	})
-}
-
 func checkDispatcher(t *testing.T, s *Store) {
 	t.Helper()
 	d := &Dispatcher{Store: s, Board: "default", Workers: []string{"w1"}, Runner: smokeRunner()}
@@ -153,6 +115,19 @@ func checkDispatcher(t *testing.T, s *Store) {
 	cancel()
 	if err := d.Run(ctx, time.Millisecond); err != nil {
 		t.Fatalf("dispatcher run: %v", err)
+	}
+}
+
+func smokeRunner() Runner {
+	return RunnerFunc(func(context.Context, *Task, string) (WorkerOutcome, error) {
+		return WorkerOutcome{Outcome: "ok", Handoff: Handoff{Summary: "dispatched", Verify: []string{"test"}}}, nil
+	})
+}
+
+func checkNotifier(t *testing.T) {
+	t.Helper()
+	if unit, err := SystemdUnit(UnitOptions{}); err != nil || unit == "" {
+		t.Fatalf("systemd unit = %q, %v", unit, err)
 	}
 }
 

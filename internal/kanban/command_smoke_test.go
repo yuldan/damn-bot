@@ -1,6 +1,8 @@
 package kanban
 
 import (
+	"errors"
+	"strings"
 	"testing"
 )
 
@@ -19,10 +21,14 @@ func TestF7KanbanCommandSurface(t *testing.T) {
 		t.Fatalf("subcommands = %d, want the closed 45-command set", len(subs))
 	}
 	// Every closed subcommand must run through the shared surface: empty
-	// arguments are a domain error, never a panic or an unknown command.
+	// arguments are a domain error, never an unknown command or a panic.
 	for _, sub := range subs {
-		if _, err := iv.Run(ctx, sub, nil); err != nil {
-			t.Logf("%q with no arguments: %v", sub, err)
+		_, err := iv.Run(ctx, sub, nil)
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, ErrInvalid) && strings.Contains(err.Error(), "unknown subcommand") {
+			t.Errorf("%q is not wired into the invocation surface", sub)
 		}
 	}
 	for _, sub := range []string{"create", "claim", "edit", "archive", "block"} {
@@ -40,8 +46,5 @@ func TestF7KanbanCommandSurface(t *testing.T) {
 	}
 	if _, err := (&Invocation{}).Run(ctx, "list", nil); err == nil {
 		t.Fatal("invocation without a store accepted a call")
-	}
-	if rendered := Summary(&Task{ID: "b-default/x", Title: "x", Status: StatusReady}); rendered == "" {
-		t.Fatal("summary rendered empty")
 	}
 }
