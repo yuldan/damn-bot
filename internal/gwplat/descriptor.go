@@ -220,6 +220,14 @@ func Descriptors() []Descriptor {
 			Render:     render.PlatformPlain,
 			DefaultOff: true,
 		},
+		{
+			Name:       "webhook",
+			Transport:  TransportWebhook,
+			Caps:       capsOf("webhook"),
+			Render:     render.PlatformPlain,
+			Secrets:    []string{"webhook_secret"},
+			DefaultOff: true,
+		},
 	}
 }
 

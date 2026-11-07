@@ -65,13 +65,13 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 |---|---|---|---|---|---|
 | PLAT-028 | `api_server` core gateway | `/v1/chat/completions`, `/v1/responses`, `/v1/runs` OpenAI-compatible; SSE stream; bearer token per klien; payload > batas → 413 eksplisit (bukan potong diam); 0 turn tanpa token | `TestF7PLAT028APIServer`, `TestF7APIStream413`, `TestF7PLAT028Responses`, `TestF7PLAT028Runs` | LULUS | REL-14; responses/runs #741 |
 | UI-021 | OpenAI-compatible API server | klien eksternal (SDK openai) bicara ke `/v1`; `model` dipetakan ke profil/route; usage/ledger tercatat | `TestF7UI021OpenAICompat`, `TestF7UIOpenAISDK` | LULUS | surface sama dengan PLAT-028 (#741) |
-| PLAT-029 | `webhook` core gateway | penerima webhook generik; secret bersama; dedupe `delivery_id`; toolset webhook hanya web/vision/clarify | `TestF7PLAT029Webhook`, `TestF7WebhookToolsetSafe` | BELUM | EC-SEC-006 |
+| PLAT-029 | `webhook` core gateway | penerima webhook generik; secret bersama; dedupe `delivery_id`; toolset webhook hanya web/vision/clarify | `TestF7PLAT029Webhook`, `TestF7WebhookToolsetSafe` | LULUS | EC-SEC-006 |
 | GW-011 | Webhook platform & subscriptions | subscription dinamis (subscribe/list/remove/test) persisten; signature keluar; retry berbatas; test kirim 1 event bertanda | `TestF7GW011Subscriptions`, `TestF7GW011SubscriptionRetry` | BELUM | CLI-026 |
 | GW-012 | MS Graph webhook | handshake `validationToken` (echo ≤ 10 s); `clientState` dicocokkan; dedupe `resource`+`changeType`; notifikasi asing ditolak | `TestF7GW012MSGraph`, `TestF7MSGraphClientState` | BELUM | PLAT-030 |
 | PLAT-030 | `msgraph_webhook` core gateway | subscription Graph dibuat/diperbarui (renew sebelum expiry) dan notifikasi diteruskan ke Teams pipeline | `TestF7PLAT030MSGraphRenew` | BELUM | — |
 | CLI-026 | `damnbot webhook` | empat sub: `subscribe`, `list`, `remove`, `test`; `test` mengirim tepat 1 event; 0 kredensial di output | `TestF7CLI026Webhook` | BELUM | — |
 | TSET-042 | bundle `hermes-api-server` | komposit tanpa tool registry sendiri; komposisi toolset aman untuk klien API | `TestF7TSET042APIServerBundle` | LULUS | — |
-| TSET-061 | bundle `hermes-webhook` | komposit; hanya toolset aman (web/vision/clarify), 0 shell/write | `TestF7TSET061WebhookBundle`, `TestF7WebhookToolsetSafe` | BELUM | EC-SEC-006 |
+| TSET-061 | bundle `hermes-webhook` | komposit; hanya toolset aman (web/vision/clarify), 0 shell/write | `TestF7TSET061WebhookBundle`, `TestF7WebhookToolsetSafe` | LULUS | EC-SEC-006 |
 
 ## 4. Ledger parity F7 — peer, hosted rooms, relay, profile routing, scale-to-zero
 
@@ -192,7 +192,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | EC-STATE-004 | multiplex banyak profil tidak menembus batas koneksi; EMFILE → fallback ke writer, bukan 500 | `TestEdgeCases/EC-STATE-004` (`TestF7ECSTATE004ReadPool`) | LULUS |
 | EC-TERM-004 | task id sama lintas profil tidak berbagi sandbox/cwd; kunci dikualifikasi per profil/sesi | `TestEdgeCases/EC-TERM-004` (`TestF7ECTERM004SandboxKey`) | LULUS |
 | EC-TERM-005 | policy terminal yang gagal resolve → fail closed, bukan nilai ambient | `TestEdgeCases/EC-TERM-005` (`TestF7ECTERM005PolicyResolve`) | LULUS |
-| EC-SEC-006 | payload webhook tidak pernah mengeksekusi file/terminal; toolset webhook = web/vision/clarify | `TestEdgeCases/EC-SEC-006` (`TestF7ECSEC006WebhookToolset`) | BELUM |
+| EC-SEC-006 | payload webhook tidak pernah mengeksekusi file/terminal; toolset webhook = web/vision/clarify | `TestEdgeCases/EC-SEC-006` (`TestF7ECSEC006WebhookToolset`) | LULUS |
 
 Katalog EC dibaca lewat `internal/testutil/phase` (`g.Item(t, "<EC-ID>", "F7", "covered")`); `make phase-acceptance` pada `PHASE=F7` mensertifikasi F6, sedangkan baris F7 menjadi gate saat `PHASE`→F8.
 

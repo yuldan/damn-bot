@@ -423,7 +423,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TSET-058 | toolset `hermes-wecom` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:223` | sesuai platform/posture | — |  | F7 | planned |
 | TSET-059 | toolset `hermes-wecom-callback` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:224` | sesuai platform/posture | — |  | F7 | planned |
 | TSET-060 | toolset `hermes-sms` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:231` | sesuai platform/posture | — |  | F7 | planned |
-| TSET-061 | toolset `hermes-webhook` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:232` | sesuai platform/posture | — |  | F7 | planned |
+| TSET-061 | toolset `hermes-webhook` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:232` | sesuai platform/posture | — |  | F7 | LULUS |
 | TSET-062 | toolset `hermes-gateway` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:233` | sesuai platform/posture | — |  | F4 | planned |
 
 ## 3. PLAT — adapter platform chat
@@ -458,7 +458,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | PLAT-026 | WhatsApp Business (Cloud) (`whatsapp_cloud`) | WhatsApp Business Cloud API resmi Meta | `plugins/platforms/whatsapp_cloud/plugin.yaml`, `plugins/platforms/whatsapp_cloud/adapter.py` | opt-in (aktif bila env wajib diisi) | WHATSAPP_CLOUD_PHONE_NUMBER_ID, WHATSAPP_CLOUD_ACCESS_TOKEN; URL webhook publik |  | F7 | LULUS |
 | PLAT-027 | Yuanbao (`yuanbao`) | Tencent Yuanbao IM Bot via WebSocket | `plugins/platforms/yuanbao/plugin.yaml`, `plugins/platforms/yuanbao/adapter.py` | opt-in (aktif bila env wajib diisi) | YUANBAO_APP_ID, YUANBAO_APP_SECRET; — |  | F7 | planned |
 | PLAT-028 | `api_server` (core gateway) | OpenAI-compatible HTTP API (chat completions, responses, runs) | `gateway/platforms/api_server.py` | opt-in | extra `web`/aiohttp [INFERENCE] | toolset `hermes-api-server` | F7 | LULUS |
-| PLAT-029 | `webhook` (core gateway) | Penerima webhook generik (toolset aman) | `gateway/platforms/webhook.py` | opt-in | — | toolset `hermes-webhook` | F7 | planned |
+| PLAT-029 | `webhook` (core gateway) | Penerima webhook generik (toolset aman) | `gateway/platforms/webhook.py` | opt-in | — | toolset `hermes-webhook` | F7 | LULUS |
 | PLAT-030 | `msgraph_webhook` (core gateway) | Webhook Microsoft Graph (notifikasi Teams/Outlook) | `gateway/platforms/msgraph_webhook.py` | opt-in | Microsoft Graph | dipakai teams_pipeline [INFERENCE] | F7 | planned |
 
 ## 4. PROV — provider/model backend

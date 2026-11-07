@@ -138,6 +138,7 @@ func Builtin() []Definition {
 		{Name: "hermes-telegram", Description: "Telegram bot toolset: full access for personal use", Includes: []string{"hermes-cli"}},
 		{Name: "hermes-gateway", Description: "Gateway toolset: union of the messaging platform toolsets", Includes: []string{"hermes-telegram"}},
 		{Name: "hermes-api-server", Description: "OpenAI-compatible API toolkit: full headless toolkit without clarify", Tools: apiServer},
+		{Name: "hermes-webhook", Description: "Webhook-safe toolkit: web, vision and clarify only (EC-SEC-006)", Includes: []string{"web", "vision", "clarify"}},
 		{Name: "cli", Description: "Alias of the full headless toolkit", Includes: []string{"hermes-cli"}},
 	}
 	out := make([]Definition, len(defs)) // fresh slices: no mutable package state

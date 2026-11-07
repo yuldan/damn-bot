@@ -42,6 +42,9 @@ func p6ModuleImports(m map[string][]string) {
 	m["internal/update"] = []string{"internal/netx"}
 	m["internal/toolset"] = nil // pure composition data (ADR-139): no internal deps
 	m["internal/gwwa"] = []string{"internal/netx"}
+	// F7 P7 generic webhook + MS Graph surfaces (PLAT-029/GW-012): the
+	// receiver and store use the gateway inbound type and the gwplat contract.
+	m["internal/gwapi/webhook"] = []string{"internal/gateway", "internal/gwplat"}
 	m["internal/gwplat/whatsapp_cloud"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/netx"}
 	m["internal/gwplat/whatsapp_web"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/gwwa"}
 }
