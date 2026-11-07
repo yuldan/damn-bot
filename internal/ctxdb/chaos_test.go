@@ -428,6 +428,15 @@ func multiWorker(t *testing.T, s *Store, n int) multiResult {
 
 func (res *multiResult) sharedStep(s *Store, own string) {
 	start := time.Now()
+	// Wait on a read connection while a live foreign owner holds the lease.
+	// A busy AcquireLease opens a write transaction, and a loop of those queues
+	// ahead of the owner's own Append until the writer retry bound expires
+	// (Windows -race measured 15.24 s = 3 x busy_timeout, then db_busy reached
+	// the caller -- the lease was never leaked). Only the moment the lease
+	// looks free costs a writer; losing that free window is a plain skip.
+	if _, held := sharedLeaseHeld(context.Background(), s, "SHARED"); held {
+		return
+	}
 	_, err := s.AcquireLease(context.Background(), "SHARED")
 	if errors.Is(err, ErrSessionBusy) {
 		return
