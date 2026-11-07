@@ -2,10 +2,15 @@ package gwwa_test
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -270,6 +275,114 @@ func waitEvent(t *testing.T, c *gwwa.Client, match func(gwwa.Event) bool) gwwa.E
 		case <-deadline:
 			t.Fatal("notification not delivered")
 		}
+	}
+}
+
+// TestBridgeHTTPTransport proves the loopback HTTP transport: hello and
+// inbound arrive over /events and send is a POST /rpc with the bearer token;
+// no request fetches a WhatsApp Web protocol version at runtime.
+func TestBridgeHTTPTransport(t *testing.T) {
+	bridge := newHTTPBridge()
+	srv := httptest.NewServer(http.HandlerFunc(bridge.handle))
+	defer srv.Close()
+
+	tr, err := gwwa.NewHTTP(srv.URL, "tok", srv.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	c, err := gwwa.Connect(ctx, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeClient(t, c)
+	bridge.events <- `{"jsonrpc":"2.0","method":"inbound","params":{"external_id":"h1","chat_id":"6281","sender_id":"6281","text":"yo"}}`
+	waitEvent(t, c, func(ev gwwa.Event) bool { return ev.Inbound != nil && ev.Inbound.ExternalID == "h1" })
+	if err := c.Send(ctx, "6281", "reply", "h1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range bridge.pathsSeen() {
+		if strings.Contains(p, "version") || strings.Contains(p, "fetch") {
+			t.Fatalf("runtime protocol-version request: %s", p)
+		}
+	}
+	if !strings.Contains(strings.Join(bridge.pathsSeen(), ","), "/rpc") {
+		t.Fatalf("no rpc request: %v", bridge.pathsSeen())
+	}
+}
+
+type httpBridge struct {
+	mu     sync.Mutex
+	paths  []string
+	events chan string
+}
+
+func newHTTPBridge() *httpBridge {
+	return &httpBridge{events: make(chan string, 8)}
+}
+
+func (b *httpBridge) pathsSeen() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.paths...)
+}
+
+func (b *httpBridge) handle(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Authorization") != "Bearer tok" {
+		http.Error(w, "no bearer", http.StatusUnauthorized)
+		return
+	}
+	b.mu.Lock()
+	b.paths = append(b.paths, r.URL.Path)
+	b.mu.Unlock()
+	switch r.URL.Path {
+	case "/events":
+		b.stream(w, r)
+	case "/rpc":
+		b.rpc(w, r)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func (b *httpBridge) stream(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	flusher, flushable := w.(http.Flusher)
+	if !flushable {
+		flusher = nil
+	}
+	if _, err := fmt.Fprintln(w, `{"jsonrpc":"2.0","method":"bridge.hello","params":{"protocol":"damnbot.bridge/v1","bridge_version":"0.1.0","capabilities":{"wa_version":"2.3000.101","wa_version_source":"build"}}}`); err != nil {
+		return
+	}
+	if flusher != nil {
+		flusher.Flush()
+	}
+	for {
+		select {
+		case line := <-b.events:
+			if _, err := fmt.Fprintln(w, line); err != nil {
+				return
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+func (b *httpBridge) rpc(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID uint64 `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if _, err := fmt.Fprintf(w, `{"jsonrpc":"2.0","id":%d,"result":{}}`, req.ID); err != nil {
+		return
 	}
 }
 

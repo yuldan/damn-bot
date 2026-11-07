@@ -36,7 +36,11 @@ func storeImports() []string {
 
 // allowedImports mengembalikan matriks paket → impor internal yang diizinkan (produksi).
 // p6ModuleImports registers the F7 P6 (WhatsApp) module edges.
+// p6ModuleImports registers the F7 P6 (WhatsApp) module edges plus the shared
+// leaf entries that keep allowedImports under its funlen limit.
 func p6ModuleImports(m map[string][]string) {
+	m["internal/update"] = []string{"internal/netx"}
+	m["internal/toolset"] = nil // pure composition data (ADR-139): no internal deps
 	m["internal/gwwa"] = []string{"internal/netx"}
 	m["internal/gwplat/whatsapp_cloud"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/netx"}
 	m["internal/gwplat/whatsapp_web"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/gwwa"}
@@ -69,7 +73,8 @@ func allowedImports() map[string][]string {
 		// Sibling parser/client packages: ts is stdlib-only, lsp reaches netx/jsonrpc.
 		"internal/codeintel/ts": nil, "internal/codeintel/lsp": {"internal/netx/jsonrpc"},
 		"internal/gateway" + moduleWildcard: moduleImports(),
-
+		"internal/gwplat":                   {"internal/gateway", "internal/gateway/outq", "internal/gateway/render"},
+		"internal/gwplat" + moduleWildcard:  append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...),
 		// Core.
 		"internal/loop":               {"internal/loop/event", "internal/boundary"}, // E-02
 		"internal/plan":               {"internal/loop/event"},
@@ -117,8 +122,6 @@ func allowedImports() map[string][]string {
 		"internal/ctxdb/mcpservestore": storeImports(),
 		"internal/ctxdb/cronstore":     storeImports(),
 		"internal/config":              {"internal/schema", "internal/toolset", "internal/update"},
-		"internal/update":              {"internal/netx"},
-		"internal/toolset":             nil, // pure composition data (ADR-139): no internal deps
 		"internal/kanban":              {"internal/ctxdb", "internal/netx", "internal/tools", "internal/toolset", "internal/gateway/render"},
 		"internal/netx":                {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
 		"internal/netx/jsonrpc":        {"internal/netx", "internal/netx/retry", "internal/redact"},

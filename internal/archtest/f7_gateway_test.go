@@ -30,5 +30,7 @@ func TestF7NoInlineSleep(t *testing.T) {
 }
 
 func isGatewaySource(path string) bool {
-	return strings.HasPrefix(path, "internal/gateway/") || strings.HasPrefix(path, "internal/gwplat/")
+	return strings.HasPrefix(path, "internal/gateway/") ||
+		strings.HasPrefix(path, "internal/gwplat/") ||
+		strings.HasPrefix(path, "internal/gwwa/")
 }
