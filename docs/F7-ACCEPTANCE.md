@@ -97,21 +97,21 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | CLI-015 | `damnbot whatsapp` | setup hanya menawarkan Cloud API; mode Web ditolak tanpa `--accept-ban-risk`; ack ditulis sekali + `system_notice{wa_ban_risk_ack}` | `TestSetupNoWebWithoutAck`, `TestF7CLI015WhatsApp`, `TestF7E2EAdapterCLI` | LULUS | GAP-GW-01; satu jalur tulis `enableWhatsAppWeb` |
 | CLI-016 | `damnbot whatsapp-cloud` | setup phone-number id + access token dari secret; verifikasi webhook ditampilkan | `TestF7CLI016WhatsAppCloud`, `TestF7WhatsAppCloudConfig`, `TestF7E2EAdapterCLI` | LULUS | section `[modules.gateway.whatsapp_cloud]` dibaca `config.Load`; hanya nama secret (ADR-328) |
 | CLI-017 | `damnbot slack` | helper manifest (scopes/events) dihasilkan; manifest tidak memuat token | `TestF7CLI017SlackManifest`, `TestF7E2EAdapterCLI` | LULUS | JSON deterministik; 0 field kredensial |
-| TSET-046 | `hermes-discord` | komposit platform Discord; 0 tool registry sendiri; hanya aktif bila adapter aktif | `TestF7TSET046DiscordBundle` | BELUM | — |
-| TSET-047 | `hermes-whatsapp` | komposit; memuat toolset aman; tidak mengaktifkan cold outbound | `TestF7TSET047WhatsAppBundle` | BELUM | — |
-| TSET-048 | `hermes-slack` | komposit; renderer mrkdwn aktif | `TestF7TSET048SlackBundle` | BELUM | — |
-| TSET-049 | `hermes-signal` | komposit; adapter Signal wajib aktif | `TestF7TSET049SignalBundle` | BELUM | — |
-| TSET-050 | `hermes-bluebubbles` | komposit; adapter BlueBubbles wajib aktif | `TestF7TSET050BlueBubblesBundle` | BELUM | — |
-| TSET-051 | `hermes-email` | komposit; toolset aman; 0 tool shell | `TestF7TSET051EmailBundle` | BELUM | — |
-| TSET-052 | `hermes-mattermost` | komposit; adapter Mattermost wajib aktif | `TestF7TSET052MattermostBundle` | BELUM | — |
-| TSET-053 | `hermes-matrix` | komposit; edit-stream mati (GW-10) | `TestF7TSET053MatrixBundle` | BELUM | — |
-| TSET-054 | `hermes-dingtalk` | komposit; adapter DingTalk wajib aktif | `TestF7TSET054DingTalkBundle` | BELUM | — |
-| TSET-055 | `hermes-feishu` | komposit; adapter Feishu wajib aktif | `TestF7TSET055FeishuBundle` | BELUM | — |
-| TSET-056 | `hermes-weixin` | komposit; SILK decode tersedia lewat MEDIA-031 | `TestF7TSET056WeixinBundle` | BELUM | — |
-| TSET-057 | `hermes-qqbot` | komposit; adapter QQ wajib aktif | `TestF7TSET057QQBotBundle` | BELUM | — |
-| TSET-058 | `hermes-wecom` | komposit; dua surface (robot WS + callback) | `TestF7TSET058WeComBundle` | BELUM | — |
-| TSET-059 | `hermes-wecom-callback` | komposit callback; XML parser hardened | `TestF7TSET059WeComCallbackBundle` | BELUM | — |
-| TSET-060 | `hermes-sms` | komposit; cap segmen (GW-09) berlaku | `TestF7TSET060SMSBundle` | BELUM | — |
+| TSET-046 | `hermes-discord` | komposit platform Discord; 0 tool registry sendiri; hanya aktif bila adapter aktif | `TestF7TSET046DiscordBundle`, `TestF7BundleTable` | LULUS | `Bundle.Selection` → 0 tool saat adapter nonaktif |
+| TSET-047 | `hermes-whatsapp` | komposit; memuat toolset aman; tidak mengaktifkan cold outbound | `TestF7TSET047WhatsAppBundle` | LULUS | tanpa `room_send`/`send_message`; berlaku `whatsapp_cloud`+`whatsapp_web` |
+| TSET-048 | `hermes-slack` | komposit; renderer mrkdwn aktif | `TestF7TSET048SlackBundle` | LULUS | `render.PlatformSlack` (`**x**`→`*x*`) |
+| TSET-049 | `hermes-signal` | komposit; adapter Signal wajib aktif | `TestF7TSET049SignalBundle` | LULUS | baris `Bundles()` + gate aktivasi |
+| TSET-050 | `hermes-bluebubbles` | komposit; adapter BlueBubbles wajib aktif | `TestF7TSET050BlueBubblesBundle` | LULUS | — |
+| TSET-051 | `hermes-email` | komposit; toolset aman; 0 tool shell | `TestF7TSET051EmailBundle` | LULUS | `safe`+`clarify`+`memory`+`session_search` |
+| TSET-052 | `hermes-mattermost` | komposit; adapter Mattermost wajib aktif | `TestF7TSET052MattermostBundle` | LULUS | — |
+| TSET-053 | `hermes-matrix` | komposit; edit-stream mati (GW-10) | `TestF7TSET053MatrixBundle` | LULUS | `MatrixCaps().SupportsEditStream()==false` |
+| TSET-054 | `hermes-dingtalk` | komposit; adapter DingTalk wajib aktif | `TestF7TSET054DingTalkBundle` | LULUS | — |
+| TSET-055 | `hermes-feishu` | komposit; adapter Feishu wajib aktif | `TestF7TSET055FeishuBundle` | LULUS | — |
+| TSET-056 | `hermes-weixin` | komposit; SILK decode tersedia lewat MEDIA-031 | `TestF7TSET056WeixinBundle` | BELUM | menunggu `MEDIA-031` (SILK) `LULUS`; bundle kompositnya sudah ada |
+| TSET-057 | `hermes-qqbot` | komposit; adapter QQ wajib aktif | `TestF7TSET057QQBotBundle` | LULUS | — |
+| TSET-058 | `hermes-wecom` | komposit; dua surface (robot WS + callback) | `TestF7TSET058WeComBundle` | LULUS | dua baris bundle di platform `wecom` |
+| TSET-059 | `hermes-wecom-callback` | komposit callback; XML parser hardened | `TestF7TSET059WeComCallbackBundle` | LULUS | parser XML di adapter P5; bundle komposit aman |
+| TSET-060 | `hermes-sms` | komposit; cap segmen (GW-09) berlaku | `TestF7TSET060SMSBundle` | LULUS | `CapsFor("sms").MaxLen==480` |
 
 ## 6. Ledger parity F7 — media (2)
 

@@ -141,6 +141,22 @@ func Builtin() []Definition {
 		{Name: "hermes-webhook", Description: "Webhook-safe toolkit: web, vision and clarify only (EC-SEC-006)", Includes: []string{"web", "vision", "clarify"}},
 		{Name: "cli", Description: "Alias of the full headless toolkit", Includes: []string{"hermes-cli"}},
 	}
+	// Platform chat bundles (P11, TSET-046..060) are composites of the safe
+	// chat sets: no tool registry of their own, no shell or file write, and no
+	// outbound (room_send). The bound adapter must be active before such a
+	// bundle contributes tools (internal/gwplat.Bundle).
+	chat := []string{"safe", "clarify", "memory", "session_search"}
+	for _, platform := range []string{
+		"bluebubbles", "dingtalk", "discord", "email", "feishu", "matrix",
+		"mattermost", "qqbot", "signal", "slack", "sms", "wecom",
+		"wecom-callback", "weixin", "whatsapp",
+	} {
+		defs = append(defs, Definition{
+			Name:        "hermes-" + platform,
+			Description: "Platform chat bundle: safe web and vision tools; no shell, file write or outbound",
+			Includes:    chat,
+		})
+	}
 	out := make([]Definition, len(defs)) // fresh slices: no mutable package state
 	for i := range defs {
 		out[i] = defs[i]
