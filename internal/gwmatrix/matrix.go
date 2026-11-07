@@ -160,9 +160,6 @@ func validateHomeserver(raw string) error {
 	return fmt.Errorf("%w: homeserver must be https or loopback http", ErrConfig)
 }
 
-// Outbox exposes the shared outbound seam to the wiring.
-func (a *Adapter) Outbox() *gwplat.Outbox { return a.out }
-
 // Run holds the sync loop; a permanent token failure stops it.
 func (a *Adapter) Run(ctx context.Context) error {
 	backoff := a.cfg.Backoff
