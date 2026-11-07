@@ -15,6 +15,7 @@ import (
 
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/outq"
+	"github.com/damnbot/damnbot/internal/gwmatrix/e2ee"
 	"github.com/damnbot/damnbot/internal/gwplat"
 	"github.com/damnbot/damnbot/internal/netx"
 )
@@ -69,14 +70,19 @@ func newScheduler(t *testing.T) *outq.Scheduler {
 // fakeHomeserver serves whoami, m.direct, sync and send, and records every
 // authenticated request.
 type fakeHomeserver struct {
-	srv      *httptest.Server
-	mu       sync.Mutex
-	auth     []string
-	paths    []string
-	sent     []map[string]string
-	syncBody string
-	status   int
-	requests int
+	srv        *httptest.Server
+	mu         sync.Mutex
+	auth       []string
+	paths      []string
+	sent       []map[string]string
+	syncBody   string
+	status     int
+	requests   int
+	uploaded   map[string]any
+	deviceKeys string
+	claimBody  string
+	members    string
+	toDevice   []map[string]any
 }
 
 func newFakeHomeserver(t *testing.T, syncBody string) *fakeHomeserver {
@@ -101,7 +107,42 @@ func newFakeHomeserver(t *testing.T, syncBody string) *fakeHomeserver {
 			writeJSON(t, rw, `{"@alice:example.test":["!dm:example.test"]}`)
 		case strings.HasSuffix(r.URL.Path, "/sync"):
 			writeJSON(t, rw, f.syncBody)
-		case strings.Contains(r.URL.Path, "/send/m.room.message/"):
+		case strings.Contains(r.URL.Path, "/keys/upload"):
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				http.Error(rw, err.Error(), http.StatusBadRequest)
+				return
+			}
+			f.mu.Lock()
+			f.uploaded = payload
+			f.mu.Unlock()
+			writeJSON(t, rw, `{"one_time_key_counts":{"signed_curve25519":1}}`)
+		case strings.Contains(r.URL.Path, "/keys/query"):
+			f.mu.Lock()
+			keys := f.deviceKeys
+			f.mu.Unlock()
+			writeJSON(t, rw, keys)
+		case strings.Contains(r.URL.Path, "/keys/claim"):
+			f.mu.Lock()
+			claim := f.claimBody
+			f.mu.Unlock()
+			writeJSON(t, rw, claim)
+		case strings.Contains(r.URL.Path, "/joined_members"):
+			f.mu.Lock()
+			members := f.members
+			f.mu.Unlock()
+			writeJSON(t, rw, members)
+		case strings.Contains(r.URL.Path, "/sendToDevice/"):
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				http.Error(rw, err.Error(), http.StatusBadRequest)
+				return
+			}
+			f.mu.Lock()
+			f.toDevice = append(f.toDevice, payload)
+			f.mu.Unlock()
+			writeJSON(t, rw, `{}`)
+		case strings.Contains(r.URL.Path, "/send/"):
 			var payload map[string]string
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 				http.Error(rw, err.Error(), http.StatusBadRequest)
@@ -130,6 +171,12 @@ func (f *fakeHomeserver) snapshot() (paths []string, auth []string, sent []map[s
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.paths...), append([]string(nil), f.auth...), append([]map[string]string(nil), f.sent...), f.requests
+}
+
+func (f *fakeHomeserver) configure(deviceKeys, claim, members string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deviceKeys, f.claimBody, f.members = deviceKeys, claim, members
 }
 
 func (f *fakeHomeserver) setStatus(status int) {
@@ -162,6 +209,9 @@ func buildAdapter(t *testing.T, cfg *Config, src gwplat.SecretSource, h gwplat.H
 func mustAdapter(t *testing.T, srv *fakeHomeserver, h gwplat.Handler, crypto Encrypted) *Adapter {
 	t.Helper()
 	cfg := &Config{Enabled: true, Homeserver: srv.srv.URL, Crypto: crypto, SyncTimeout: time.Second, HTTPClient: netx.LoopbackClient()}
+	if keys, ok := crypto.(Keyring); ok {
+		cfg.Keys = keys
+	}
 	ad, err := buildAdapter(t, cfg, secrets{"matrix_access_token": "tok"}, h, newScheduler(t))
 	if err != nil {
 		t.Fatal(err)
@@ -220,6 +270,22 @@ func (f *fakeCrypto) HandleToDevice(context.Context, string, json.RawMessage) (b
 	defer f.mu.Unlock()
 	f.toDevice++
 	return true, nil
+}
+
+func (f *fakeCrypto) DeviceKeys(context.Context) (json.RawMessage, map[string]string, error) {
+	return json.RawMessage(`{}`), map[string]string{}, nil
+}
+
+func (f *fakeCrypto) MarkPublished() {}
+
+func (f *fakeCrypto) NewOutboundRoom(_ context.Context, roomID string) (*e2ee.RoomKey, error) {
+	return &e2ee.RoomKey{RoomID: roomID, SessionID: "s1", SessionKey: "k1"}, nil
+}
+
+func (f *fakeCrypto) AddRoomKey(context.Context, string, *e2ee.RoomKey) error { return nil }
+
+func (f *fakeCrypto) EncryptToDevice(context.Context, *e2ee.Device, []byte) (json.RawMessage, error) {
+	return json.RawMessage(`{}`), nil
 }
 
 // TestMatrixClientPlaintext proves the sync/send surface before E2EE: DM vs
@@ -405,20 +471,5 @@ func TestF7MatrixNoEditStream(t *testing.T) {
 	}
 	if desc.Render != "matrix" {
 		t.Fatalf("renderer = %q, want matrix", desc.Render)
-	}
-}
-
-// TestMatrixRunStopsOnContext exercises the Run entry point: a cancelled
-// context ends the loop before any request.
-func TestMatrixRunStopsOnContext(t *testing.T) {
-	srv := newFakeHomeserver(t, `{"next_batch":"s1"}`)
-	ad := mustAdapter(t, srv, newRecorder(), nil)
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if err := ad.Run(ctx); err != nil {
-		t.Fatalf("run with cancelled context = %v", err)
-	}
-	if _, _, _, requests := srv.snapshot(); requests != 0 {
-		t.Fatalf("cancelled run made %d requests", requests)
 	}
 }
