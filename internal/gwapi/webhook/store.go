@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -215,6 +216,43 @@ func (s *Store) Remove(id string) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %s", ErrNotFound, id)
+}
+
+// SetExpiry updates the expiration of one row (MS Graph renewal).
+func (s *Store) SetExpiry(id string, expires time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.subs {
+		if s.subs[i].ID != id {
+			continue
+		}
+		previous := s.subs[i].ExpiresAt
+		s.subs[i].ExpiresAt = expires.UTC()
+		s.subs[i].UpdatedAt = s.now().UTC()
+		if err := s.saveLocked(); err != nil {
+			s.subs[i].ExpiresAt = previous
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrNotFound, id)
+}
+
+// Due returns subscriptions expiring at or before now+lead, earliest first.
+// A row without an expiration is never due.
+func (s *Store) Due(now time.Time, lead time.Duration) []Subscription {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := now.Add(lead)
+	var due []Subscription
+	for i := range s.subs {
+		if s.subs[i].ExpiresAt.IsZero() || s.subs[i].ExpiresAt.After(cutoff) {
+			continue
+		}
+		due = append(due, cloneSub(&s.subs[i]))
+	}
+	sort.Slice(due, func(i, j int) bool { return due[i].ExpiresAt.Before(due[j].ExpiresAt) })
+	return due
 }
 
 func (s *Store) saveLocked() error {

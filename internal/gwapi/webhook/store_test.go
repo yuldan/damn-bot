@@ -153,3 +153,46 @@ func checkStoreRemove(t *testing.T, store *Store, id string) {
 		t.Fatalf("second Remove = %v, want ErrNotFound", err)
 	}
 }
+
+// TestF7WebhookStoreExpiry: renewal moves one row's expiry, and Due returns
+// only rows inside the lead window, earliest first.
+func TestF7WebhookStoreExpiry(t *testing.T) {
+	t.Parallel()
+	store, _ := testStore(t)
+	now := time.Unix(1_700_000_000, 0)
+	first := Subscription{
+		ID: "wh_1", Provider: "msgraph", URL: "https://hooks.example.test/a",
+		Events: []string{"e"}, SecretRef: "s", ExpiresAt: now.Add(5 * time.Minute),
+	}
+	second := Subscription{
+		ID: "wh_2", Provider: "msgraph", URL: "https://hooks.example.test/b",
+		Events: []string{"e"}, SecretRef: "s", ExpiresAt: now.Add(10 * time.Minute),
+	}
+	never := Subscription{
+		ID: "wh_3", Provider: "generic", URL: "https://hooks.example.test/c",
+		Events: []string{"e"}, SecretRef: "s",
+	}
+	for _, sub := range []*Subscription{&first, &second, &never} {
+		if _, _, err := store.Add(sub); err != nil {
+			t.Fatal(err)
+		}
+	}
+	due := store.Due(now, 15*time.Minute)
+	if len(due) != 2 || due[0].ID != "wh_1" || due[1].ID != "wh_2" {
+		t.Fatalf("Due = %+v", due)
+	}
+	if got := store.Due(now, time.Minute); len(got) != 0 {
+		t.Fatalf("Due outside lead = %+v", got)
+	}
+	extended := now.Add(2 * time.Hour)
+	if err := store.SetExpiry("wh_1", extended); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.Get("wh_1")
+	if !got.ExpiresAt.Equal(extended) {
+		t.Fatalf("expiry = %s, want %s", got.ExpiresAt, extended)
+	}
+	if err := store.SetExpiry("wh_missing", extended); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown SetExpiry = %v, want ErrNotFound", err)
+	}
+}

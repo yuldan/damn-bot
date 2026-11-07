@@ -224,8 +224,8 @@ func Descriptors() []Descriptor {
 	return append(out, webhookDescriptors()...)
 }
 
-// webhookDescriptors keeps the HTTP callback surface out of Descriptors so
-// that function stays within the funlen budget (PLAT-029).
+// webhookDescriptors are the HTTP callback surfaces (PLAT-029/PLAT-030); they
+// stay in one place so Descriptors itself stays within the funlen limit.
 func webhookDescriptors() []Descriptor {
 	return []Descriptor{
 		{
@@ -234,6 +234,14 @@ func webhookDescriptors() []Descriptor {
 			Caps:       capsOf("webhook"),
 			Render:     render.PlatformPlain,
 			Secrets:    []string{"webhook_secret"},
+			DefaultOff: true,
+		},
+		{
+			Name:       "msgraph_webhook",
+			Transport:  TransportWebhook,
+			Caps:       capsOf("msgraph_webhook"),
+			Render:     render.PlatformPlain,
+			Secrets:    []string{"msgraph_client_state"},
 			DefaultOff: true,
 		},
 	}
