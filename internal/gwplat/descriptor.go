@@ -143,7 +143,22 @@ func (r *Registry) Len() int {
 // Descriptors returns the adapters this slice ships. It is a function, not a
 // variable, so the registry stays the only registration path.
 func Descriptors() []Descriptor {
-	out := []Descriptor{
+	return append(plainDescriptors(), platformDescriptors()...)
+}
+
+// plainDescriptors is the secret-less plain-text group.
+func plainDescriptors() []Descriptor {
+	return []Descriptor{
+		simple("ntfy", TransportSSE),
+		simple("raft", TransportLongPoll),
+		simple("signal", TransportJSONRPC),
+		simple("simplex", TransportWS),
+	}
+}
+
+// platformDescriptors carries the adapter rows; each P5 slice appends its own.
+func platformDescriptors() []Descriptor {
+	return []Descriptor{
 		{
 			Name:       "buzz",
 			Transport:  TransportWS,
@@ -185,20 +200,6 @@ func Descriptors() []Descriptor {
 			DefaultOff: true,
 		},
 		{
-			Name:       "ntfy",
-			Transport:  TransportSSE,
-			Caps:       capsOf("ntfy"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-		{
-			Name:       "raft",
-			Transport:  TransportLongPoll,
-			Caps:       capsOf("raft"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-		{
 			Name:       "whatsapp_cloud",
 			Transport:  TransportWebhook,
 			Caps:       capsOf("whatsapp_cloud"),
@@ -214,28 +215,6 @@ func Descriptors() []Descriptor {
 			Secrets:    []string{"whatsapp_web_bridge_token"},
 			DefaultOff: true,
 		},
-		{
-			Name:       "signal",
-			Transport:  TransportJSONRPC,
-			Caps:       capsOf("signal"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-		{
-			Name:       "simplex",
-			Transport:  TransportWS,
-			Caps:       capsOf("simplex"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-	}
-	return append(out, webhookDescriptors()...)
-}
-
-// webhookDescriptors are the HTTP callback surfaces (PLAT-029/PLAT-030); they
-// stay in one place so Descriptors itself stays within the funlen limit.
-func webhookDescriptors() []Descriptor {
-	return []Descriptor{
 		{
 			Name:       "webhook",
 			Transport:  TransportWebhook,
@@ -253,6 +232,11 @@ func webhookDescriptors() []Descriptor {
 			DefaultOff: true,
 		},
 	}
+}
+
+// simple is the descriptor of a plain-text adapter without secrets.
+func simple(name string, transport Transport) Descriptor {
+	return Descriptor{Name: name, Transport: transport, Caps: capsOf(name), Render: render.PlatformPlain, DefaultOff: true}
 }
 
 func capsOf(name string) gateway.Caps {

@@ -114,10 +114,10 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 	if now == nil {
 		now = time.Now
 	}
-	client := cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+	if cfg.HTTPClient == nil {
+		return nil, fmt.Errorf("%w: HTTP client is required", ErrConfig)
 	}
+	client := cfg.HTTPClient
 	local := *cfg
 	if local.SyncTimeout <= 0 {
 		local.SyncTimeout = 30 * time.Second
@@ -147,13 +147,15 @@ func validateHomeserver(raw string) error {
 	return fmt.Errorf("%w: homeserver must be https or loopback http", ErrConfig)
 }
 
-// Outbox exposes the shared outbound seam to the wiring.
-func (a *Adapter) Outbox() *gwplat.Outbox { return a.out }
-
 // Run holds the sync loop; a permanent token failure stops it.
 func (a *Adapter) Run(ctx context.Context) error {
 	backoff := a.cfg.Backoff
 	for attempt := 1; ; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
 		err := a.Sync(ctx)
 		select {
 		case <-ctx.Done():

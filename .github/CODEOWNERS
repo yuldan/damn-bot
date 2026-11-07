@@ -22,7 +22,6 @@
 /internal/compaction/ @yuldan
 /internal/delegate/ @yuldan
 /internal/config/ @yuldan
-/internal/codetools/ @yuldan
 /internal/ctxdb/ @yuldan
 /internal/e2e/ @yuldan
 /internal/heal/ @yuldan
@@ -46,7 +45,6 @@
 /internal/testutil/ @yuldan
 /internal/update/ @yuldan
 /internal/integration/ @yuldan
-/internal/e2e/ @yuldan
 /internal/tools/ @yuldan
 /internal/toolset/ @yuldan
 /internal/voice/ @yuldan
