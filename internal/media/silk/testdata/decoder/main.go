@@ -9,7 +9,11 @@ import (
 
 func main() {
 	_, _ = io.Copy(io.Discard, os.Stdin)
-	switch os.Getenv("SILK_HELPER_MODE") {
+	mode := ""
+	if len(os.Args) > 1 {
+		mode = os.Args[1]
+	}
+	switch mode {
 	case "ok":
 		_, _ = os.Stdout.Write([]byte{0x01, 0x00, 0x02, 0x00, 0xfd, 0xff, 0x00, 0x00})
 	case "empty":

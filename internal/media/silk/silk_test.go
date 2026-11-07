@@ -28,10 +28,7 @@ func helperBinary(t *testing.T) string {
 
 func helperConfig(t *testing.T, mode string) *Config {
 	t.Helper()
-	return &Config{
-		Argv: []string{helperBinary(t)},
-		Env:  append(os.Environ(), "SILK_HELPER_MODE="+mode),
-	}
+	return &Config{Argv: []string{helperBinary(t), mode}}
 }
 
 // TestSilkDecode proves the success path and the exact PCM16 golden.
