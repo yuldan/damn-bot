@@ -49,6 +49,24 @@ type Config struct {
 	Toolsets toolset.Config `toml:"toolsets"`
 	Update   update.Config  `toml:"update"`
 	ACP      ACP            `toml:"acp"`
+	// Kanban is the F7 [kanban] automation section (ADR-326 P9-12).
+	Kanban Kanban `toml:"kanban"`
+}
+
+// Kanban is SPEC §12 [kanban]: the gateway automation switches of the F7
+// board. Every switch is off by default; the board itself stays usable from
+// the CLI and /kanban without any of them (opt-in automation, ADR-326).
+type Kanban struct {
+	// DispatchInGateway lets the serve gateway claim ready cards and run one
+	// headless turn per card as the claiming worker.
+	DispatchInGateway bool `toml:"dispatch_in_gateway" json:"dispatch_in_gateway"`
+	// AutoDecompose lets the dispatcher split ready cards labelled
+	// "decompose" through one auxiliary LLM call per card; the plan is
+	// schema-validated and billed once.
+	AutoDecompose bool `toml:"auto_decompose" json:"auto_decompose"`
+	// NotifyInGateway sends board changes to the subscribed chats through
+	// the gateway outbox, rate-limited to one message per task per minute.
+	NotifyInGateway bool `toml:"notify_in_gateway" json:"notify_in_gateway"`
 }
 
 // ACP is SPEC §12 [acp]: client-side capability use (GAP-UX-01).

@@ -673,9 +673,9 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | AUTO-014 | Goals + goal judge | Tujuan berdiri lintas turn, dinilai judge | `hermes_cli/goals.py`, `hermes_cli/goal_command.py`, `gateway/run_goals.py` | opt-in (`/goal`, max_turns 20) | LLM auxiliary (`auxiliary.goal_judge`) | `/subgoal` | F8 | planned |
 | AUTO-015 | Loops / proactive | Ulangi prompt pada interval di sesi | `hermes_cli/loops.py` | opt-in (`/loop`, alias `/proactive`) | — | min interval 30 s | F8 | planned |
 | AUTO-016 | Heartbeat | Prompt berulang saat sesi idle | `hermes_cli/heartbeat.py` | opt-in (`/heartbeat`) | — | alias `/hb` | F8 | planned |
-| AUTO-017 | Kanban dispatcher | Dispatch task kanban ke worker profil | `hermes_cli/kanban_db_dispatch.py`, `gateway/kanban_watchers_dispatcher.py` | on di gateway (`kanban.dispatch_in_gateway`) | — |  | F7 | planned |
-| AUTO-018 | Kanban auto-decompose | Pecah task besar otomatis | `hermes_cli/kanban_decompose.py` | on (`kanban.auto_decompose`) | LLM auxiliary |  | F7 | planned |
-| AUTO-019 | Kanban notifier/watchers | Notifikasi perubahan task ke gateway | `gateway/kanban_watchers_notifier.py` | on (`kanban.notify_in_gateway`) | — |  | F7 | planned |
+| AUTO-017 | Kanban dispatcher | Dispatch task kanban ke worker profil | `hermes_cli/kanban_db_dispatch.py`, `gateway/kanban_watchers_dispatcher.py` | on di gateway (`kanban.dispatch_in_gateway`) | — |  | F7 | LULUS |
+| AUTO-018 | Kanban auto-decompose | Pecah task besar otomatis | `hermes_cli/kanban_decompose.py` | on (`kanban.auto_decompose`) | LLM auxiliary |  | F7 | LULUS |
+| AUTO-019 | Kanban notifier/watchers | Notifikasi perubahan task ke gateway | `gateway/kanban_watchers_notifier.py` | on (`kanban.notify_in_gateway`) | — |  | F7 | LULUS |
 | AUTO-020 | Kanban swarm / workflow / PR acceptance | Alur kerja multi-agent & penerimaan PR | `hermes_cli/kanban_swarm.py`, `hermes_cli/kanban_workflow.py`, `hermes_cli/kanban_pr_acceptance.py` | opt-in | git/GitHub | [INFERENCE] dari nama modul | F7 | LULUS |
 | AUTO-021 | Mixture of Agents (MoA) | Satu prompt ke beberapa model + aggregator | `agent/moa_loop.py`, `hermes_cli/moa_config.py` | opt-in (`/moa`; preset default enabled) | Beberapa provider (default aggregator OpenRouter) | `hermes moa` | F5 | planned |
 | AUTO-022 | Background prompt `/bg` | Jalankan prompt di sesi background terpisah | `hermes_cli/commands.py:50` | opt-in | — |  | F3 | planned |

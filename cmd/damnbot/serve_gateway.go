@@ -290,6 +290,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 	}()
 	go g.idleLoop(runCtx)
 	g.resumeInbound(runCtx)
+	startKanbanAutomation(runCtx, g, g.store.DB)
 	return nil
 }
 
