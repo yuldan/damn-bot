@@ -81,7 +81,8 @@ func TestAPIServerResponseCancelIdempotent(t *testing.T) {
 	h := newTestServer(t, eng, nil, testConfig()).Handler()
 	rec := httptest.NewRecorder()
 	req := request(t, http.MethodPost, "/v1/responses", `{"model":"damnbot","input":"hi","stream":true}`, authHeaders())
-	go func() { h.ServeHTTP(rec, req) }()
+	handlerDone := make(chan struct{})
+	go func() { h.ServeHTTP(rec, req); close(handlerDone) }()
 	select {
 	case <-started:
 	case <-time.After(2 * time.Second):
@@ -109,6 +110,11 @@ func TestAPIServerResponseCancelIdempotent(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("engine not cancelled")
 	}
+	select {
+	case <-handlerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream handler did not return")
+	}
 	unknown := postPath(t, h, "/v1/responses/resp_missing/cancel", `{}`)
 	if unknown.Code != http.StatusNotFound {
 		t.Errorf("unknown cancel = %d", unknown.Code)
@@ -127,7 +133,8 @@ func TestF7PLAT028Runs(t *testing.T) {
 		}()
 		return ch, nil
 	}}
-	h := newTestServer(t, eng, nil, testConfig()).Handler()
+	srv := newTestServer(t, eng, nil, testConfig())
+	h := srv.Handler()
 	rec := postPath(t, h, "/v1/runs", `{"model":"damnbot","input":"hi"}`)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("create = %d %s", rec.Code, rec.Body.String())
@@ -144,6 +151,7 @@ func TestF7PLAT028Runs(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("run never finished")
 	}
+	waitRunDone(t, srv, created.ID)
 	getRec := get(t, h, "/v1/runs/"+created.ID, authHeaders())
 	var final RunObject
 	if err := json.Unmarshal(getRec.Body.Bytes(), &final); err != nil {
@@ -168,7 +176,8 @@ func TestAPIServerRunsEventsAndCancel(t *testing.T) {
 		go func() { <-ctx.Done(); close(cancelled); close(ch) }()
 		return ch, nil
 	}}
-	h := newTestServer(t, eng, nil, testConfig()).Handler()
+	srv := newTestServer(t, eng, nil, testConfig())
+	h := srv.Handler()
 	rec := postPath(t, h, "/v1/runs", `{"model":"damnbot","input":"hi"}`)
 	var created RunObject
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
@@ -190,6 +199,7 @@ func TestAPIServerRunsEventsAndCancel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("run not cancelled")
 	}
+	waitRunDone(t, srv, created.ID)
 	ev := get(t, h, "/v1/runs/"+created.ID+"/events", authHeaders())
 	if ev.Code != http.StatusOK || !strings.Contains(ev.Body.String(), "event: run.in_progress") || !strings.Contains(ev.Body.String(), "event: done") {
 		t.Errorf("events = %d %s", ev.Code, ev.Body.String())
@@ -219,4 +229,21 @@ func postPath(t *testing.T, h http.Handler, path, body string) *httptest.Respons
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, request(t, http.MethodPost, path, body, authHeaders()))
 	return rec
+}
+
+// waitRunDone blocks until executeRun has published its terminal state, so a
+// finishing goroutine never outlives the test.
+func waitRunDone(t *testing.T, srv *Server, id string) {
+	t.Helper()
+	srv.store.mu.Lock()
+	rs := srv.store.runs[id]
+	srv.store.mu.Unlock()
+	if rs == nil {
+		t.Fatalf("run %q is not registered", id)
+	}
+	select {
+	case <-rs.done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("run %q did not finish", id)
+	}
 }
