@@ -84,9 +84,16 @@ func waWebEnable(args []string, stdout, stderr io.Writer) int {
 		say(stderr, "gateway whatsapp-web enable: %v; use the Cloud API, or pass the flag explicitly\n", errWebNeedsAck)
 		return 2
 	}
+	return enableWhatsAppWeb(*dataDir, "gateway whatsapp-web enable", stdout, stderr)
+}
+
+// enableWhatsAppWeb records the single ban-risk acknowledgement and enables
+// the bridge. The gateway command and `damnbot whatsapp setup` share this one
+// write path, so the ack can never be duplicated or skipped.
+func enableWhatsAppWeb(dataDir, cmd string, stdout, stderr io.Writer) int {
 	c, err := openConfig()
 	if err != nil {
-		return configFail(stderr, "gateway whatsapp-web enable", err)
+		return configFail(stderr, cmd, err)
 	}
 	ack := c.cfg.Modules.Gateway.WhatsAppWeb.AckBanRiskAt
 	first := ack == ""
@@ -100,8 +107,8 @@ func waWebEnable(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	if first {
-		if err := recordWAAck(*dataDir, ack); err != nil {
-			say(stderr, "gateway whatsapp-web enable: audit: %s\n", cleanLine(err.Error()))
+		if err := recordWAAck(dataDir, ack); err != nil {
+			say(stderr, "%s: audit: %s\n", cmd, cleanLine(err.Error()))
 			return 1
 		}
 	}
@@ -221,10 +228,10 @@ func upsertWAWebSection(data []byte, enabled bool, ack string) []byte {
 	return []byte(strings.Join(lines, "\n"))
 }
 
-// resolveWADataDir returns the operator-selected data dir or the active
+// resolveProfileDataDir returns the operator-selected data dir or the active
 // profile's; `enable` must audit even on a fresh install, so the caller can
 // create it before opening the store.
-func resolveWADataDir(dataDir string) (string, error) {
+func resolveProfileDataDir(dataDir string) (string, error) {
 	if dataDir != "" {
 		return dataDir, nil
 	}
@@ -242,7 +249,7 @@ func resolveWADataDir(dataDir string) (string, error) {
 // recordWAAck appends the single `system_notice{kind:"wa_ban_risk_ack"}` audit
 // event. Failure is reported but never rolls the config back silently.
 func recordWAAck(dataDir, ack string) error {
-	dir, err := resolveWADataDir(dataDir)
+	dir, err := resolveProfileDataDir(dataDir)
 	if err != nil {
 		return err
 	}
