@@ -256,8 +256,8 @@ func (m *Modules) validateMedia() error {
 		return invalid("modules.media.video_key_env", "video backend needs a key env and create/status URLs with a %%s id")
 	}
 	if md.SilkDecoder != "" {
-		if !filepath.IsAbs(md.SilkDecoder) || strings.ContainsRune(md.SilkDecoder, 0) {
-			return invalid("modules.media.silk_decoder", "must be an absolute path")
+		if len(md.SilkDecoder) > 1024 || !filepath.IsAbs(md.SilkDecoder) || strings.ContainsAny(md.SilkDecoder, "\x00\r\n") {
+			return invalid("modules.media.silk_decoder", "must be an absolute path without control characters")
 		}
 	}
 	return nil

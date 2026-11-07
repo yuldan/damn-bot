@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -387,10 +388,78 @@ func TestWeixinVoiceCorrupt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ad.poll(t.Context()); err != nil {
-		t.Fatal(err)
+	if err := ad.poll(t.Context()); !errors.Is(err, silk.ErrSilkCorrupt) {
+		t.Fatalf("poll = %v, want ErrSilkCorrupt", err)
 	}
 	if rec.count() != 0 {
 		t.Fatalf("corrupt voice dispatched %d turns", rec.count())
+	}
+}
+
+// fakeSTT is the composed STT seam: it reports the decoded PCM length.
+type fakeSTT struct{ calls int }
+
+func (f *fakeSTT) Transcribe(_ context.Context, pcm io.Reader) (string, error) {
+	f.calls++
+	data, err := io.ReadAll(pcm)
+	if err != nil {
+		return "", err
+	}
+	return "stt:" + hex.EncodeToString(data), nil
+}
+
+func decoderBinary(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "silk-decoder")
+	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./testdata/decoder") // #nosec G204 -- fixed go tool
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("build decoder: %v", err)
+	}
+	return bin
+}
+
+// TestWeixinComposedSilkSTT proves the production composition: SilkDecoder+STT
+// in Config decodes voice and dispatches the transcript without VoiceToText.
+func TestWeixinComposedSilkSTT(t *testing.T) {
+	srv := newFakeILinkBatch(t, voiceMessage(t))
+	stt := &fakeSTT{}
+	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
+		SilkDecoder: decoderBinary(t), STT: stt}
+	rec := newRecorder()
+	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ad.poll(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case in := <-rec.seen:
+		if in.Text != "stt:01000200" || stt.calls != 1 {
+			t.Fatalf("voice = %q stt calls %d", in.Text, stt.calls)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no composed voice turn")
+	}
+}
+
+// TestWeixinDecoderMissing proves a missing decoder surfaces the typed
+// module_unavailable error before STT and dispatches nothing.
+func TestWeixinDecoderMissing(t *testing.T) {
+	srv := newFakeILinkBatch(t, voiceMessage(t))
+	stt := &fakeSTT{}
+	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
+		SilkDecoder: filepath.Join(t.TempDir(), "absent-decoder"), STT: stt}
+	rec := newRecorder()
+	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ad.poll(t.Context())
+	if !errors.Is(err, silk.ErrDecoderMissing) {
+		t.Fatalf("poll = %v, want ErrDecoderMissing", err)
+	}
+	if rec.count() != 0 || stt.calls != 0 {
+		t.Fatalf("missing decoder dispatched %d turns, stt %d", rec.count(), stt.calls)
 	}
 }

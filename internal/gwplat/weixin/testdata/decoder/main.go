@@ -13,7 +13,7 @@ func main() {
 		mode = os.Args[1]
 	}
 	switch mode {
-	case "ok":
+	case "", "ok":
 		_, _ = os.Stdout.Write([]byte{0x01, 0x00, 0x02, 0x00})
 	case "fail":
 		_, _ = os.Stderr.WriteString("bad silk")

@@ -118,7 +118,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
 | MEDIA-029 | Discord voice channel | join/leave voice channel; PCM 48 kHz mixer; STT/TTS lewat pipeline F6; tanpa opus/ffmpeg → `module_unavailable` 0 join; barge-in menutup stream | `TestF7MEDIA029DiscordVoice`, `TestF7DiscordVoiceNoOpus` | LULUS | carryover F6 (F6-ACCEPTANCE §6) |
-| MEDIA-031 | Silk audio (WeChat/QQ) | decode SILK/SILKv3 → PCM16 untuk STT; payload rusak → error typed, bukan crash; 0 dependency CGO | `TestF7MEDIA031Silk`, `TestF7SilkCorruptPayload` | LULUS | carryover F6 |
+| MEDIA-031 | Silk audio (WeChat/QQ) | decode SILK/SILKv3 → PCM16 untuk STT; payload rusak → error typed, bukan crash; 0 dependency CGO | `TestF7MEDIA031Silk`, `TestF7SilkCorruptPayload` | LULUS | subprocess SILK (ADR-001/ADR-329, 0 CGO) |
 
 ## 7. Ledger parity F7 — kanban (23)
 
