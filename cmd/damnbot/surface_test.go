@@ -55,12 +55,13 @@ func TestParseGlobalArgs(t *testing.T) {
 }
 
 // TestSurfaceRegistry: one entry per SPEC §10 row, unique names, phases from
-// the owning phase, and every callable entry has a phase ≤ F4 today.
+// the owning phase, and every callable entry has a phase ≤ F4 today. The F7
+// webhook surface (subscribe/list/remove/test) is one registry entry too.
 func TestSurfaceRegistry(t *testing.T) {
 	t.Parallel()
 	entries := surface()
-	if len(entries) != 29 {
-		t.Fatalf("registry has %d entries, want 29 (24 + send + peer + cua + browser + api-server)", len(entries))
+	if len(entries) != 30 {
+		t.Fatalf("registry has %d entries, want 30 (24 + send + peer + cua + browser + api-server + webhook)", len(entries))
 	}
 	seen := map[string]bool{}
 	for _, e := range entries {
@@ -80,7 +81,7 @@ func TestSurfaceRegistry(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"run", "sessions", "checkpoints", "undo", "review", "skills", "bundles", "version", "acp", "serve", "pause", "resume", "mcp", "kanban", "api-server"} {
+	for _, want := range []string{"run", "sessions", "checkpoints", "undo", "review", "skills", "bundles", "version", "acp", "serve", "pause", "resume", "mcp", "kanban", "api-server", "webhook"} {
 		if !seen[want] {
 			t.Errorf("registry is missing SPEC §10 command %q", want)
 		}
