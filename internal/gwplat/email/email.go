@@ -91,14 +91,16 @@ func newAdapter(ctx context.Context, cfg *Config, out *gwplat.Outbox, h gwplat.H
 	return ad, nil
 }
 
-// Outbox exposes the shared outbound seam to the wiring.
-func (a *Adapter) Outbox() *gwplat.Outbox { return a.out }
-
 // Run polls until ctx ends; a failed session is closed and backed off, and an
 // IDLE cycle repolls immediately instead of sleeping.
 func (a *Adapter) Run(ctx context.Context) error {
 	backoff := gwplat.Backoff{}
 	for attempt := 1; ; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
 		a.idled = false
 		wait := a.cfg.Interval
 		if err := a.pollOnce(ctx); err != nil {
