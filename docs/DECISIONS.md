@@ -6540,3 +6540,15 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 **Konsekuensi.** (+) Satu sumber kebenaran config dan satu pembaca (`config.Load`), bukan file side-channel; setup idempoten, komentar config lain tetap utuh, dan nilai secret tidak pernah menyentuh disk. (-) Baris `config` kembali tanpa headroom; penambahan kunci config berikutnya butuh ADR baru dengan angka terukur.
 
+
+## ADR-329 — Config decoder SILK eksternal untuk MEDIA-031
+
+**Status:** Accepted 2026-11-07 (F7 P5g; melengkapi ADR-326, ADR-001, ADR-318). Menambah satu kunci config `[modules.media].silk_decoder` dan wiring Weixin voice→STT.
+
+**Konteks.** MEDIA-031 membutuhkan dekode SILK/SILKv3 → PCM16 untuk STT. Semua decoder SILK yang tersedia publik memerlukan CGO atau transpilasi SDK proprietary (`anonymous5l/silk`, `jdeng/gosilk`), sedangkan ADR-001 mewajibkan backend voice lokal dipanggil sebagai executable eksternal dan binary Go tetap CGO-free. Hermes sendiri memakai binding C in-process (`pyproject.toml:349` `pilk==0.2.4`; `tools/transcription_audio.py:120-132` `import pilk`/`pilk.silk_to_wav`). Decoder standalone `kn007/silk-v3-decoder` dapat dipanggil sebagai proses.
+
+**Keputusan.** (1) Kunci baru `modules.media.silk_decoder`: path absolut binary decoder; default kosong = fitur mati, dan adapter mengembalikan `module_unavailable{silk_decoder_missing}` tanpa dial/menulis byte. (2) `internal/media/silk.Decode` menjalankan decoder sebagai subprocess (argv eksplisit, tanpa shell; payload→stdin, PCM/WAV→stdout), membuffer output dan baru menyalinnya setelah exit 0; exit non-zero/output kosong/ganjil → `ErrSilkCorrupt`, start gagal → `ErrSilkDecoder`, stderr ≤512 B tanpa payload, output ≤32 MiB, tanpa file temp. (3) Adapter Weixin memakai seam `Config.VoiceToText` (komposisi merangkai `silk.Decode` + STT); adapter nonaktif atau seam nil tidak memanggil decoder. QQBot memakai seam yang sama setelah P4 merge (wiring dicatat sebagai item kecil, tanpa PR yang bergantung pada kode belum ada).
+
+**Anggaran (terukur).** `config` 2498 → **2504** (+6: field, validasi path absolut, dan referensi), Σ core **56.893 → 56.899**, plafon core tetap **56.900** (ADR-307); `MODULE media` terukur tetap ≤ 9.500. Tidak ada baris `MODULE` lain yang berubah dan tidak ada egress `netx` baru.
+
+**Konsekuensi.** (+) MEDIA-031 dapat ditutup tanpa CGO dan tanpa menautkan codec. (+) Decoder adalah seam konfigurasi, bukan autodetect env. (−) Pengguna wajib memasang decoder eksternal; tanpa itu voice message gagal tertutup dengan alasan typed.
