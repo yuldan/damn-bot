@@ -121,6 +121,7 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"voice-live":         {"inference", "enabled"},
 		"browser":            {"tool", "enabled"},
 		"doctor-tools-fetch": {"tool", "enabled"},
+		"kanban-attach":      {"tool", "enabled"},
 	}
 	if !background {
 		want["update"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}
