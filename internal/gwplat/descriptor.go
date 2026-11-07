@@ -143,7 +143,7 @@ func (r *Registry) Len() int {
 // Descriptors returns the adapters this slice ships. It is a function, not a
 // variable, so the registry stays the only registration path.
 func Descriptors() []Descriptor {
-	return []Descriptor{
+	out := []Descriptor{
 		{
 			Name:       "buzz",
 			Transport:  TransportWS,
@@ -220,6 +220,14 @@ func Descriptors() []Descriptor {
 			Render:     render.PlatformPlain,
 			DefaultOff: true,
 		},
+	}
+	return append(out, webhookDescriptors()...)
+}
+
+// webhookDescriptors keeps the HTTP callback surface out of Descriptors so
+// that function stays within the funlen budget (PLAT-029).
+func webhookDescriptors() []Descriptor {
+	return []Descriptor{
 		{
 			Name:       "webhook",
 			Transport:  TransportWebhook,
