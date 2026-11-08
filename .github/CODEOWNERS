@@ -51,6 +51,7 @@
 /internal/toolset/ @yuldan
 /internal/voice/ @yuldan
 /internal/webtools/ @yuldan
+/internal/web/ @yuldan
 /internal/tui/ @yuldan
 /internal/cron/ @yuldan
 /internal/computeruse/ @yuldan

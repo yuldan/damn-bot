@@ -48,6 +48,8 @@ type serveOptions struct {
 	telegramMode          string
 	telegramWebhookListen string
 	telegramWebhookURL    string
+	// web starts the SPEC §13.2 listener on the `[web]` config section.
+	web bool
 }
 
 // serveFlagSet defines the flags once for `serve`, its help and tests.
@@ -61,6 +63,7 @@ func serveFlagSet(o *serveOptions, out io.Writer) *flag.FlagSet {
 	fs.StringVar(&o.telegramMode, "telegram-mode", config.OS().Getenv("DAMNBOT_TELEGRAM_MODE"), "Telegram transport: polling (default) or webhook")
 	fs.StringVar(&o.telegramWebhookListen, "telegram-webhook-listen", config.OS().Getenv("DAMNBOT_TELEGRAM_WEBHOOK_LISTEN"), "loopback listener for the Telegram webhook (default 127.0.0.1:7878)")
 	fs.StringVar(&o.telegramWebhookURL, "telegram-webhook-url", config.OS().Getenv("DAMNBOT_TELEGRAM_WEBHOOK_URL"), "public HTTPS URL registered with setWebhook (webhook mode)")
+	registerWebFlag(fs, &o.web)
 	return fs
 }
 
@@ -165,7 +168,26 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	errs := obs.Serve(hs, ln)
 	sessionsPrintf(stderr, "serve: data dir %s\n", dataDir)
 	sessionsPrintf(stdout, "serve: observability listening on %s\n", ln.Addr())
-	return serveLoop(ctx, sigCtx, o, eps, hs, errs, db, lock, daemon, gw, cr, gwErr, stderr)
+	var webStop func(context.Context) error
+	if o.web {
+		started, werr := startServeWeb(ctx, &cfg, o, dataDir, db, stdout, stderr)
+		if werr != nil {
+			return serveExitFatal, werr
+		}
+		webStop = started
+	}
+	return serveLoop(ctx, sigCtx, o, eps, hs, errs, db, lock, daemon, gw, cr, gwErr, webStop, stderr)
+}
+
+// stopWeb stops the optional `--web` listener; nil is a no-op.
+func stopWeb(ctx context.Context, stop func(context.Context) error) error {
+	if stop == nil {
+		return nil
+	}
+	if err := stop(ctx); err != nil {
+		return fmt.Errorf("web ui: %w", err)
+	}
+	return nil
 }
 
 // serveChecks builds the /readyz probes of the running daemon.
@@ -302,7 +324,7 @@ func serveBeat(ctx context.Context, eps *obs.Endpoints, lock *serveLock, gw *ser
 	return func() {}
 }
 
-func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps *obs.Endpoints, hs *http.Server, errs <-chan error, db *ctxdb.Store, lock *serveLock, daemon *serveDaemon, gw *serveGateway, cr *serveCron, gwErr error, stderr io.Writer) (int, error) {
+func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps *obs.Endpoints, hs *http.Server, errs <-chan error, db *ctxdb.Store, lock *serveLock, daemon *serveDaemon, gw *serveGateway, cr *serveCron, gwErr error, webStop func(context.Context) error, stderr io.Writer) (int, error) {
 	if gwErr != nil {
 		return serveExitFatal, gwErr
 	}
@@ -338,14 +360,22 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 	cr.Stop(ctx)
 	gw.Stop(ctx)
 	shutCtx, cancelShut := context.WithTimeout(context.WithoutCancel(ctx), serveShutdownMax)
+	webErr := stopWeb(shutCtx, webStop)
 	shutErr := hs.Shutdown(shutCtx)
 	cancelShut()
 	closeErr := db.CloseContext(context.WithoutCancel(ctx))
+	return serveLoopResult(restart, serveErr, webErr, shutErr, closeErr)
+}
+
+// serveLoopResult maps the shutdown error set to the process exit code.
+func serveLoopResult(restart bool, serveErr, webErr, shutErr, closeErr error) (int, error) {
 	switch {
-	case restart && serveErr == nil && shutErr == nil && closeErr == nil:
+	case restart && serveErr == nil && shutErr == nil && closeErr == nil && webErr == nil:
 		return serveExitPlanned, nil
 	case serveErr != nil:
 		return serveExitSoftware, fmt.Errorf("observability server: %w", serveErr)
+	case webErr != nil:
+		return serveExitSoftware, fmt.Errorf("shutdown web ui: %w", webErr)
 	case shutErr != nil:
 		return serveExitSoftware, fmt.Errorf("shutdown observability server: %w", shutErr)
 	case closeErr != nil:

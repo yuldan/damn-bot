@@ -511,6 +511,8 @@ MODULE gwapi      3000 internal/gwapi
 MODULE gwwa        600 internal/gwwa
 MODULE gwmatrix   1500 internal/gwmatrix
 MODULE kanban     3000 internal/kanban
+# Baris Web UI F8 (SPEC §3.2.4, 5.000 Go; aset JS/CSS dihitung terpisah).
+MODULE web        5000 internal/web
 # Baris top-level agar tidak di-shadow `MODULE gateway`; cap 4.000 dari
 # SPEC §3.2.4 F7 (ADR-326 butir 5). Kode diukur bertahap oleh slice P8a..e.
 MODULE gwpeer     4000 internal/gwpeer
