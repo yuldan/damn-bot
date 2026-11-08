@@ -116,6 +116,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 		Log:       Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
 		Update:    update.DefaultConfig(),
 		ACP:       ACP{UseClientFS: true},
+		Web:       Web{Listen: "127.0.0.1:7878", AllowedHosts: []string{}, Auth: "token"},
 	}
 	if diff := cmp.Diff(want, Default()); diff != "" {
 		t.Errorf("Default() differs from SPEC §12 (-want +got):\n%s", diff)

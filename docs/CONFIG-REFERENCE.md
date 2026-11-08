@@ -244,6 +244,19 @@ config_version = 1
   dispatch_in_gateway = false
   auto_decompose = false
   notify_in_gateway = false
+
+[web]
+  listen = "127.0.0.1:7878"
+  allow_remote = false
+  allowed_hosts = []
+  auth = "token"
+  tls_cert = ""
+  tls_key = ""
+  basic_user = ""
+  basic_password_secret = ""
+  oidc_issuer = ""
+  oidc_client_id = ""
+  oidc_client_secret_secret = ""
 ```
 
 ## Keys
@@ -309,3 +322,13 @@ config_version = 1
 | `kanban.dispatch_in_gateway` | bool | `false` | `DAMNBOT_KANBAN_DISPATCH_IN_GATEWAY` |
 | `kanban.auto_decompose` | bool | `false` | `DAMNBOT_KANBAN_AUTO_DECOMPOSE` |
 | `kanban.notify_in_gateway` | bool | `false` | `DAMNBOT_KANBAN_NOTIFY_IN_GATEWAY` |
+| `web.listen` | string | `127.0.0.1:7878` | `DAMNBOT_WEB_LISTEN` |
+| `web.allow_remote` | bool | `false` | `DAMNBOT_WEB_ALLOW_REMOTE` |
+| `web.auth` | string | `token` | `DAMNBOT_WEB_AUTH` |
+| `web.tls_cert` | string | `` | `DAMNBOT_WEB_TLS_CERT` |
+| `web.tls_key` | string | `` | `DAMNBOT_WEB_TLS_KEY` |
+| `web.basic_user` | string | `` | `DAMNBOT_WEB_BASIC_USER` |
+| `web.basic_password_secret` | string | `` | `DAMNBOT_WEB_BASIC_PASSWORD_SECRET` |
+| `web.oidc_issuer` | string | `` | `DAMNBOT_WEB_OIDC_ISSUER` |
+| `web.oidc_client_id` | string | `` | `DAMNBOT_WEB_OIDC_CLIENT_ID` |
+| `web.oidc_client_secret_secret` | string | `` | `DAMNBOT_WEB_OIDC_CLIENT_SECRET_SECRET` |
