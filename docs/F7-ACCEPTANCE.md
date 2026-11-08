@@ -170,7 +170,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | GAP | Kriteria verifikasi | Tes yang harus ada | Status |
 |---|---|---|---|
 | GAP-SEC-10 | tabel identity strength lengkap untuk 30 adapter; identitas `weak` tidak bisa allowlist/pair (fail-closed); IRC wajib SASL + `account-tag`; PRIVMSG tanpa tag `account` → 0 LLM/tool call | `TestIdentityStrengthTable`, `TestIRCAccountAuth` | LULUS |
-| GAP-REL-14 | suite `known-defects` ≥ 10 skenario lulus 100% per PR: payload > batas → 413 eksplisit, streaming 1× per pesan, biaya kartu kanban 1× per run, stream terputus retry/error, gambar MCP tetap lampiran | `TestKnownDefectsSuite` (agregat 10 `TestKnownDefect*` + `TestF7KanbanCostOnce` + `TestF7APIStream413`) | BELUM |
+| GAP-REL-14 | suite `known-defects` ≥ 10 skenario lulus 100% per PR: payload > batas → 413 eksplisit, streaming 1× per pesan, biaya kartu kanban 1× per run, stream terputus retry/error, gambar MCP tetap lampiran | `TestKnownDefectsSuite` (agregat 10 `TestKnownDefect*` + `TestF7KanbanCostOnce` + `TestF7APIStream413`) | LULUS |
 | GAP-GW-01 | wizard hanya Cloud API; Web hanya lewat `--accept-ban-risk` dengan satu ack + event audit; guard cold outbound `cold_outbound_denied` 0 request; pacing 100 pesan ≥ 297 s fake clock | `TestWhatsAppWebGuards`, `TestSetupNoWebWithoutAck` | LULUS |
 | GAP-GW-03 | `gateway/outq` token bucket per chat/grup/platform dari `Caps.Rate`; replay 200 balasan → 0×429; `MaxChunksPerReply` dihormati semua adapter; 0 `time.Sleep` inline (forbidigo) | `TestF7GAPGW03OutqReplay`, `TestPlatformAdapterContract`, `TestF7NoInlineSleep` | LULUS |
 | GAP-GW-04 | satu parse AST → renderer Telegram entities/Slack mrkdwn/WhatsApp/Discord/Matrix HTML/plain; fence terpotong dibuka ulang; `FuzzRenderTelegram` 10.000 input 0 penolakan; golden per renderer | `FuzzRenderTelegram`, `TestF7RenderGoldens` | LULUS |
@@ -202,7 +202,7 @@ Katalog EC dibaca lewat `internal/testutil/phase` (`g.Item(t, "<EC-ID>", "F7", "
 |---|---|---|---|
 | MEDIA-029/031 | dua baris media F6 yang ditandai `N/A — fase F7` ditutup di §6 | `TestF7MEDIA029DiscordVoice`, `TestF7MEDIA031Silk` | LULUS |
 | Q14 image preflight | `BenchmarkImagePreflight` 12 MP ≤ 150 ms diukur di mesin Q14; angka target dan `TestImagePreflightTargetNotLowered` tidak berubah | pengukuran Q14 + artefak `bench/speed/results/` + `TestF7ImagePreflightQ14Artifact` | BELUM |
-| GAP-REL-14 F7 slice | suite `known-defects` diperluas ke permukaan F7 (api-server 413, kanban biaya 1×, stream diskon) | `TestKnownDefectsSuite` | BELUM |
+| GAP-REL-14 F7 slice | suite `known-defects` diperluas ke permukaan F7 (api-server 413, kanban biaya 1×, stream diskon) | `TestKnownDefectsSuite` | LULUS |
 
 ## 12. Perintah bukti
 
