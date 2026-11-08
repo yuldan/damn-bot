@@ -1,6 +1,8 @@
 package connectors
 
 func (m *Module) build(name string) (Handler, error) {
-	_ = name
+	if name == "graph" {
+		return m.newGraph()
+	}
 	return nil, nil
 }
