@@ -39,8 +39,8 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-004 | DingTalk Stream | WS client id/secret; ack ≤ 3 s; dedupe `msgId` (replay 2× → 1 turn) | `TestF7PLAT004DingTalk`, `TestF7DingTalkDedupe` | LULUS | — |
 | PLAT-005 | Discord | Gateway WS + REST; intents minimal; thread/DM mapping; slash command; 4004 → needs_attention (GW-11) | `TestF7PLAT005Discord`, `TestF7DiscordIntents` | LULUS | voice MEDIA-029 |
 | PLAT-006 | Email | IMAP polling + SMTP reply; MIME multipart; dedupe `Message-ID`; BODY.PEEK (GW-08) | `TestF7PLAT006Email` | LULUS | GAP-GW-08 |
-| PLAT-007 | Feishu/Lark | WS long connection + webhook fallback; tenant token cache; dedupe `event_id` | `TestF7PLAT007Feishu` | BELUM | — |
-| PLAT-008 | Google Chat | callback HTTP terverifikasi (JWT Google) atau Pub/Sub pull; payload tak terverifikasi → 0 turn | `TestF7PLAT008GoogleChat`, `TestF7GoogleChatVerify` | BELUM | — |
+| PLAT-007 | Feishu/Lark | WS long connection + webhook fallback; tenant token cache; dedupe `event_id` | `TestF7PLAT007Feishu` | LULUS | — |
+| PLAT-008 | Google Chat | callback HTTP terverifikasi (JWT Google) atau Pub/Sub pull; payload tak terverifikasi → 0 turn | `TestF7PLAT008GoogleChat`, `TestF7GoogleChatVerify` | LULUS | — |
 | PLAT-009 | IRC | wajib SASL PLAIN/EXTERNAL + CAP `account-notify`/`account-tag`; tanpa itu `module_unavailable{irc_no_account_auth}` | `TestF7PLAT009IRC`, `TestIRCAccountAuth` | LULUS | GAP-SEC-10 |
 | PLAT-010 | LINE | webhook HMAC-SHA256 constant-time; reply token sekali pakai | `TestF7PLAT010LINE`, `TestF7LINEHMAC` | LULUS | — |
 | PLAT-011 | Matrix | homeserver + access token; E2EE pure Go (`goolm`); edit-stream default mati (GW-10) | `TestF7PLAT011Matrix`, `TestF7MatrixNoEditStream` | LULUS | budget `gwmatrix` |
