@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/gwplat/yuanbao` (F7 P10c-1, PLAT-027): adapter WS app id/secret dari seam, grup/DM mapping, dedupe event_id, outbound render→outq, ws loopback-only; tes TestF7PLAT027Yuanbao.
+
 - `internal/gwplat/a2a` tools (F7 P10a-4, TOOL-001..005/TSET-033): lima tool a2a_* + toolset a2a default-off + e2e inbound→prompt/tool outbound; tes TestF7TOOL001..005, TestF7A2AOrchestrateDepth, TestF7TSET033A2A, TestF7A2AInboundPrompt.
 
 - `internal/gwplat/a2a` client (F7 P10a-3, slice persiapan TOOL-001..005): send/get/status/cancel/wait/stream/discover, SSRF pra-dial, retry netx/retry, token tidak dicetak; tes TestF7A2AClient.

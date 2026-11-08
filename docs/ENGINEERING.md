@@ -259,6 +259,8 @@ flowchart TD
     PLAS --> NET
     PLA2["gwplat/a2a (server F7)"] --> PLA
     PLA2 --> NET
+    PLA3["gwplat/yuanbao (adapter F7)"] --> PLA
+    PLA3 --> NET
     GWM --> PLA
     GWM --> GW
     GWM --> NET

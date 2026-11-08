@@ -239,7 +239,7 @@ func platformDescriptors() []Descriptor {
 
 // p10Descriptors carries the P10 A2A/Yuanbao rows; each slice appends its own.
 func p10Descriptors() []Descriptor {
-	return []Descriptor{plainSecret("a2a", TransportJSONRPC, "a2a_token")}
+	return []Descriptor{plainSecret("a2a", TransportJSONRPC, "a2a_token"), plainSecret("yuanbao", TransportWS, "yuanbao_app_secret")}
 }
 
 // simple is the descriptor of a plain-text adapter without secrets.

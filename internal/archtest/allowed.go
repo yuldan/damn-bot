@@ -162,6 +162,7 @@ func f7ModuleImports(m map[string][]string) {
 	m["internal/gwplat"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/toolset"}
 	m["internal/gwplat"+moduleWildcard] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}
 	m["internal/gwplat/a2a"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...)
+	m["internal/gwplat/yuanbao"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...)
 	// ntfy/raft memakai klien netx; edge eksplisit agar wildcard gwplat tetap sempit.
 	m["internal/gwplat/ntfy"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
 	m["internal/gwplat/raft"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
