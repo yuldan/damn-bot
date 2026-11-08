@@ -17,13 +17,15 @@ Aturan gate:
 | Item ROADMAP F7 | Kriteria | Tes yang harus ada | Status |
 |---|---|---|---|
 | PLAT 30/30 fake server | 29 baris PLAT berfase F7 `LULUS` (§2 dan §3) + PLAT-022 (Telegram, F4) yang sudah berjalan; setiap adapter menjawab fake server, 0 network tanpa config | §2/§3 `LULUS` + `TestPlatformAdapterContract` + `TestF7PlatformIdentityTable` | BELUM |
-| Smoke nyata nightly | adapter yang punya akun uji lulus smoke nightly; adapter tanpa akun → `N/A — no test account (nightly smoke)` | job `nightly` + `TestF7NightlySmokeMatrix` (daftar adapter × status akun) | BELUM |
+| Smoke nyata nightly | adapter yang punya akun uji lulus smoke nightly; adapter tanpa akun → `N/A — no test account (nightly smoke)` | job `nightly` + `TestF7NightlySmokeMatrix` (daftar adapter × status akun) | N/A — no test account for any adapter (nightly smoke) (carryover F8) |
 | EC-PLAT non-Telegram (5) | EC-PLAT-004/005/006/008/024 `covered` di katalog EC | §10 baris EC-PLAT-* | LULUS |
 | EC-STATE/TERM/SEC F7 | EC-STATE-004, EC-TERM-004, EC-TERM-005, EC-SEC-006 `covered` | §10 baris EC-STATE-004/EC-TERM-004/EC-TERM-005/EC-SEC-006 | LULUS |
-| Budget modul & binary | `make loc` 0 GAGAL dengan baris F7 (ADR-326); P13 full ≤ 52.000.000 B dan minimal ≤ 22.100.000 B (ADR-325) | `TestLocBudgetModuleRows`, `TestBudgetTableSum`, `make size-check` di PR penutup | BELUM |
+| Budget modul & binary | `make loc` 0 GAGAL dengan baris F7 (ADR-326); P13 full ≤ 52.000.000 B dan minimal ≤ 22.100.000 B (ADR-325) | `TestLocBudgetModuleRows`, `TestBudgetTableSum`, `make size-check` di PR penutup | LULUS |
 | Ledger F7 | 103 baris parity F7 + 10 GAP + 9 EC tertutup; `PHASE` → F8 hanya setelahnya | `TestF7LedgerClosed`, `TestParityPhaseColumn`, `TestF7LedgerGateRules` | BELUM |
 
 Catatan **PLAT 30/30**: `docs/FEATURE-PARITY.md` memuat 30 baris PLAT; `PLAT-022` (Telegram) berfase F4 dan sudah berjalan (ADR-020), sehingga ledger F7 menagih 29 baris (26 adapter — termasuk `PLAT-025` WhatsApp Web bridge — ditambah tiga surface core gateway `PLAT-028/029/030`). `PLUG-024` (plugin platforms, 27 adapter) dihitung di §2.
+
+Catatan **Budget modul & binary**: baris menjadi `LULUS` di head PR #805 dengan bukti mesin — `TestLocBudgetModuleRows` dan `TestBudgetTableSum` hijau, `make loc` 0 GAGAL (Σ core 56.893/56.900, config 2.498/2.498, netx 1.892/1.900, TOTAL 136.817/190.000), dan `make size-check` full 37.957.794/52.000.000 B + minimal 22.061.218/22.100.000 B.
 
 ## 2. Ledger parity F7 — PLAT adapter (26) + PLUG-024
 
@@ -201,8 +203,10 @@ Katalog EC dibaca lewat `internal/testutil/phase` (`g.Item(t, "<EC-ID>", "F7", "
 | Item | Kriteria | Tes yang harus ada | Status |
 |---|---|---|---|
 | MEDIA-029/031 | dua baris media F6 yang ditandai `N/A — fase F7` ditutup di §6 | `TestF7MEDIA029DiscordVoice`, `TestF7MEDIA031Silk` | LULUS |
-| Q14 image preflight | `BenchmarkImagePreflight` 12 MP ≤ 150 ms diukur di mesin Q14; angka target dan `TestImagePreflightTargetNotLowered` tidak berubah | pengukuran Q14 + artefak `bench/speed/results/` + `TestF7ImagePreflightQ14Artifact` | BELUM |
+| Q14 image preflight | `BenchmarkImagePreflight` 12 MP ≤ 150 ms diukur di mesin Q14; angka target dan `TestImagePreflightTargetNotLowered` tidak berubah | pengukuran Q14 + artefak `bench/speed/results/` + `TestF7ImagePreflightQ14Artifact` | N/A — hardware: target hanya sah di Q14 (carryover F8) |
 | GAP-REL-14 F7 slice | suite `known-defects` diperluas ke permukaan F7 (api-server 413, kanban biaya 1×, stream diskon) | `TestKnownDefectsSuite` | LULUS |
+
+Catatan **Q14 image preflight**: `N/A` di sini hanya soal mesin pengukuran — `BenchmarkImagePreflight` dan `TestImagePreflightTargetNotLowered` tidak diubah, target 12 MP ≤ 150 ms tetap, dan artefak `bench/speed/results/` tidak dibuat karena target hanya sah diukur di Q14 (F6 mencatat 265,0 ms di workstation).
 
 ## 12. Perintah bukti
 
@@ -226,6 +230,7 @@ make size-check
 `N/A` bukan `LULUS` dan bukan jalan pintas. Bentuk yang diterima gate: `N/A — <alasan teknis ≥ 8 karakter> (carryover F8)`; alasan wajib menyebut prasyarat yang hilang dan fase target. Pemakaian yang **sah**:
 
 - adapter tanpa akun uji nyata → `N/A — no test account (nightly smoke) (carryover F8)` pada baris *smoke akun nyata* saja; baris fake server tetap wajib `LULUS`.
+- baris agregat *smoke akun nyata* saat `nightly.yml` tidak menjalankan satu pun smoke akun/kredensial nyata → `N/A — no test account for any adapter (nightly smoke) (carryover F8)`; `TestF7NightlySmokeMatrix` mendaftar 30 adapter × status akun (semua `no test account`) dan baris fake server tetap wajib `LULUS`.
 - pengukuran hardware Q14 → `N/A — hardware: target hanya sah di Q14 (carryover F8)`.
 - surface yang menunggu modul fase lain (mis. dashboard kanban UI penuh) → `N/A — UI web F8 (carryover F8)`.
 
