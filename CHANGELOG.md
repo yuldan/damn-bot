@@ -4,6 +4,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+
+- `docs/F8-ACCEPTANCE.md` + `docs/DECISIONS.md` (F8 fondasi, ADR-330): **ledger acceptance F8** dibuka dengan §1 tujuh baris agregat ROADMAP, §2–§8 seluruh 148 baris parity F8 per paket (CLI 14, SLASH 13, TOOL 23, TSET 10, SKILL 8, SKCAT 35, MEM 6, AUTO 12, UI 8, PLUG 10, OPS 9), §9 17 GAP F8, §10 EC kosong (tidak ada EC F8), §11 dua carryover F7 berbentuk `N/A — … (carryover F9)`, §12 perintah bukti, §13 definisi `N/A`, dan §14 angka (167 baris data; 174 termasuk agregat). Semua baris ledger dimulai `BELUM`; status parity F7 tidak disalin dan `docs/FEATURE-PARITY.md` tidak diubah. ADR-330 juga menetapkan gate penutupan (`TestF8LedgerClosed`/`TestF8LedgerGateRules`/cabang `PHASE>F8` di `TestParityPhaseColumn`) dan plafon `maxF8ModuleLOC` 21.800 + `maxModuleLOC` 132.000 yang dipasang di PR berikut.
+
 - `internal/gwplat` (F7 P12d, PLUG-024): registry tertutup kini memuat 27 plugin (= `gateway.PlatformNames()` dikurangi tiga surface core `api_server`/`webhook`/`msgraph_webhook`), dengan descriptor deklaratif `telegram` sebagai metadata adapter F4 (default-off, tanpa autodetect env, tanpa adapter/logika baru). Tes `TestF7PLUG024PlatformPlugins` (27 plugin terdaftar, caps SEC-10, env beracun tidak mengubah registry) dan `TestF7PlatformRegistryClosed` (nama asing, duplikat, default-on ditolak); baris ledger/parity `PLUG-024` menjadi `LULUS`.
 
 - `internal/gwplat/yuanbao` tools (F7 P10c-2, TOOL-049..053/TSET-032): lima tool yb_* + toolset hermes-yuanbao default-off, DM non-allowlist & stiker asing ditolak; tes TestF7TOOL049..053, TestF7TSET032Yuanbao.
