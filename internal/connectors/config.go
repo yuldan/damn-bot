@@ -17,6 +17,7 @@ type Section struct {
 	MaxResponseBytes int64           `json:"max_response_bytes"`
 	Graph            json.RawMessage `json:"graph"`
 	Teams            json.RawMessage `json:"teams"`
+	Feishu           json.RawMessage `json:"feishu"`
 }
 
 // Framework bounds are hard caps: config may lower them, never raise them.
@@ -39,6 +40,7 @@ type Config struct {
 	MaxBytes     int64
 	Graph        json.RawMessage
 	Teams        json.RawMessage
+	Feishu       json.RawMessage
 }
 
 // DecodeSection decodes one strict [modules.connectors] section.
@@ -68,7 +70,7 @@ func ConfigFrom(s *Section) (Config, error) {
 	}
 	return Config{
 		Enabled: s.Enabled, Offline: s.Offline, NoBackground: s.NoBackground,
-		Timeout: time.Duration(s.TimeoutS) * time.Second, Retries: s.MaxRetries, MaxBytes: s.MaxResponseBytes, Graph: s.Graph, Teams: s.Teams,
+		Timeout: time.Duration(s.TimeoutS) * time.Second, Retries: s.MaxRetries, MaxBytes: s.MaxResponseBytes, Graph: s.Graph, Teams: s.Teams, Feishu: s.Feishu,
 	}, nil
 }
 

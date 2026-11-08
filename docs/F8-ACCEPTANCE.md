@@ -79,11 +79,11 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 | TOOL-037 | `show_tip` | alias legacy `tip`; tip kontekstual; `notices=false` → 0 tip | `TestF8TOOL037ShowTip` | BELUM | GAP-OPS-09 |
 | TOOL-038 | `discord` | baca/partisipasi Discord: pesan, cari member, buat thread; token dari seam | `TestF8TOOL038Discord` | BELUM | TSET-014 |
 | TOOL-039 | `discord_admin` | admin server: channel, role, pin; butuh scope admin + approval | `TestF8TOOL039DiscordAdmin` | BELUM | TSET-015 |
-| TOOL-040 | `feishu_doc_read` | baca dokumen Feishu/Lark; hasil `<untrusted>`; batas ukuran | `TestF8TOOL040FeishuDocRead` | BELUM | TSET-016 |
-| TOOL-041 | `feishu_drive_add_comment` | tambah komentar dokumen Feishu; approval mutasi | `TestF8TOOL041FeishuAddComment` | BELUM | TSET-017 |
-| TOOL-042 | `feishu_drive_list_comment_replies` | daftar balasan komentar; paginasi berbatas | `TestF8TOOL042FeishuListReplies` | BELUM | — |
-| TOOL-043 | `feishu_drive_list_comments` | daftar komentar dokumen; tanpa akses → kosong | `TestF8TOOL043FeishuListComments` | BELUM | — |
-| TOOL-044 | `feishu_drive_reply_comment` | balas komentar; id komentar divalidasi | `TestF8TOOL044FeishuReplyComment` | BELUM | — |
+| TOOL-040 | `feishu_doc_read` | baca dokumen Feishu/Lark; hasil `<untrusted>`; batas ukuran | `TestF8TOOL040FeishuDocRead` | LULUS | TSET-016 |
+| TOOL-041 | `feishu_drive_add_comment` | tambah komentar dokumen Feishu; approval mutasi | `TestF8TOOL041FeishuAddComment` | LULUS | TSET-017 |
+| TOOL-042 | `feishu_drive_list_comment_replies` | daftar balasan komentar; paginasi berbatas | `TestF8TOOL042FeishuListReplies` | LULUS | — |
+| TOOL-043 | `feishu_drive_list_comments` | daftar komentar dokumen; tanpa akses → kosong | `TestF8TOOL043FeishuListComments` | LULUS | — |
+| TOOL-044 | `feishu_drive_reply_comment` | balas komentar; id komentar divalidasi | `TestF8TOOL044FeishuReplyComment` | LULUS | — |
 | TOOL-071 | `setup_beat` | kartu onboarding first-run; hanya sesi GUI; sekali per instalasi | `TestF8TOOL071SetupBeat` | BELUM | TSET-024 |
 | TOOL-072 | `desktop_project` | buat/ganti Desktop Project (workspace bernama); path di luar workspace ditolak | `TestF8TOOL072DesktopProject` | BELUM | TSET-022 |
 | TOOL-088 | `x_search` | cari post/thread X via xAI; opt-in; hasil `<untrusted>` + batas | `TestF8TOOL088XSearch` | BELUM | TSET-031 |
