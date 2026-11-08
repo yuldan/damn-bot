@@ -157,6 +157,7 @@ func Builtin() []Definition {
 			Includes:    chat,
 		})
 	}
+	defs = append(defs, p10Toolsets()...)
 	out := make([]Definition, len(defs)) // fresh slices: no mutable package state
 	for i := range defs {
 		out[i] = defs[i]
@@ -164,6 +165,15 @@ func Builtin() []Definition {
 		out[i].Includes = slices.Clone(defs[i].Includes)
 	}
 	return out
+}
+
+// p10Toolsets carries the P10 default-off toolsets.
+func p10Toolsets() []Definition {
+	return []Definition{
+		{Name: "a2a", Description: "Agent-to-Agent: discover, call, history, list, orchestrate (default off)", Tools: []string{
+			"a2a_call", "a2a_discover", "a2a_history", "a2a_list", "a2a_orchestrate",
+		}},
+	}
 }
 
 func builtinMap() map[string]Definition {
