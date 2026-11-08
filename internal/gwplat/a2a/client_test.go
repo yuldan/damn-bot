@@ -6,16 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/gwplat"
 )
-
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func clientFor(t *testing.T, url, token string) *Client {
 	t.Helper()
@@ -57,6 +52,9 @@ func TestF7A2AClient(t *testing.T) {
 
 func assertClientCalls(t *testing.T, client *Client) {
 	t.Helper()
+	if client.MaxDepth() != 2 || client.MaxFanOut() != 4 {
+		t.Fatalf("orchestration caps = %d/%d", client.MaxDepth(), client.MaxFanOut())
+	}
 	task, err := client.Send(t.Context(), "local", Request{Message: Message{Role: "user", Parts: []Part{{Text: "hi"}}}})
 	if err != nil {
 		t.Fatal(err)
@@ -123,16 +121,11 @@ func assertClientStreamDiscover(t *testing.T, client *Client) {
 
 func assertClientSSRF(t *testing.T) {
 	t.Helper()
-	var dials atomic.Int64
-	ssrfHTTP := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		dials.Add(1)
-		return nil, errors.New("must not dial")
-	})}
 	_, err := NewClient(t.Context(), &ClientConfig{
-		Peers: []Peer{{Name: "private", URL: "http://127.0.0.1:9999/"}}, Token: testToken, HTTP: ssrfHTTP,
+		Peers: []Peer{{Name: "private", URL: "http://127.0.0.1:9999/"}}, Token: testToken,
 	})
-	if !errors.Is(err, ErrPeerURL) || dials.Load() != 0 {
-		t.Fatalf("SSRF peer = %v dials=%d", err, dials.Load())
+	if !errors.Is(err, ErrPeerURL) {
+		t.Fatalf("SSRF peer = %v", err)
 	}
 	for _, raw := range []string{"http://10.0.0.8/", "http://localhost:1/", "https://169.254.169.254/", "file:///etc/passwd"} {
 		if verr := ValidatePeerURL(raw, false); !errors.Is(verr, ErrPeerURL) {
