@@ -480,7 +480,7 @@ func failingDecoderBinary(t *testing.T) string {
 
 func buildDecoder(t *testing.T, name string) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), name)
+	bin := filepath.Join(t.TempDir(), name+exeSuffix())
 	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./testdata/decoder") // #nosec G204 -- fixed go tool
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("build decoder: %v", err)
