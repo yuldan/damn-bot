@@ -51,6 +51,8 @@ type Config struct {
 	ACP      ACP            `toml:"acp"`
 	// Kanban is the F7 [kanban] automation section (ADR-326 P9-12).
 	Kanban Kanban `toml:"kanban"`
+	// Web is the F8 [web] section of `damnbot serve --web` (SPEC §13.2).
+	Web Web `toml:"web"`
 }
 
 // Kanban is SPEC §12 [kanban]: the gateway automation switches of the F7
@@ -373,6 +375,7 @@ func Default() Config {
 		Modules:   modules,
 		Providers: Providers{Custom: []CustomProvider{}},
 		Update:    update.DefaultConfig(), ACP: ACP{UseClientFS: true},
+		Web: defaultWeb(),
 		Log: Log{
 			Level:             "info",
 			MessageContent:    false,
@@ -426,6 +429,7 @@ func (c *Config) Clone() Config {
 	out.Gateway.Users = maps.Clone(c.Gateway.Users)
 	out.Providers.Custom = cloneCustomProviders(c.Providers.Custom)
 	out.Toolsets = cloneToolsets(c.Toolsets)
+	out.Web.AllowedHosts = slices.Clone(c.Web.AllowedHosts)
 	return out
 }
 

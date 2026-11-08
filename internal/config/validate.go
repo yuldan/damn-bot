@@ -36,6 +36,7 @@ func (c *Config) Validate() error {
 		c.validateProviders,
 		c.validateLog,
 		c.validateToolsets,
+		c.validateWeb,
 		c.Update.Validate,
 	}
 	for _, check := range checks {
@@ -346,7 +347,7 @@ func (w *ModulesWhatsAppCloud) validate() error {
 		{"app_secret_secret", w.AppSecretSecret},
 		{"verify_token_secret", w.VerifyTokenSecret},
 	} {
-		if ref.name != "" && !validCloudSecretName(ref.name) {
+		if ref.name != "" && !validKeychainSecretName(ref.name) {
 			return invalid("modules.gateway.whatsapp_cloud."+ref.key, "must be a lowercase secret name")
 		}
 	}
@@ -361,9 +362,9 @@ func digitsOnly(s string) bool {
 	return s != "" && strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
 }
 
-// validCloudSecretName mirrors the adapter secret-name grammar: lowercase,
+// validKeychainSecretName is the keychain secret-name grammar: lowercase,
 // digits and underscore, at most 64 bytes.
-func validCloudSecretName(name string) bool {
+func validKeychainSecretName(name string) bool {
 	if name == "" || len(name) > 64 {
 		return false
 	}
