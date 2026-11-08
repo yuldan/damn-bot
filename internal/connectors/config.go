@@ -20,6 +20,8 @@ type Section struct {
 	Feishu           json.RawMessage `json:"feishu"`
 	Meet             json.RawMessage `json:"meet"`
 	XSearch          json.RawMessage `json:"x_search"`
+	Discord          json.RawMessage `json:"discord"`
+	OSV              json.RawMessage `json:"osv"`
 }
 
 // Framework bounds are hard caps: config may lower them, never raise them.
@@ -45,6 +47,8 @@ type Config struct {
 	Feishu       json.RawMessage
 	Meet         json.RawMessage
 	XSearch      json.RawMessage
+	Discord      json.RawMessage
+	OSV          json.RawMessage
 }
 
 // DecodeSection decodes one strict [modules.connectors] section.
@@ -74,7 +78,7 @@ func ConfigFrom(s *Section) (Config, error) {
 	}
 	return Config{
 		Enabled: s.Enabled, Offline: s.Offline, NoBackground: s.NoBackground,
-		Timeout: time.Duration(s.TimeoutS) * time.Second, Retries: s.MaxRetries, MaxBytes: s.MaxResponseBytes, Graph: s.Graph, Teams: s.Teams, Feishu: s.Feishu, Meet: s.Meet, XSearch: s.XSearch,
+		Timeout: time.Duration(s.TimeoutS) * time.Second, Retries: s.MaxRetries, MaxBytes: s.MaxResponseBytes, Graph: s.Graph, Teams: s.Teams, Feishu: s.Feishu, Meet: s.Meet, XSearch: s.XSearch, Discord: s.Discord, OSV: s.OSV,
 	}, nil
 }
 

@@ -42,6 +42,8 @@ func Registry() map[string]Egress {
 		"feishu":  {Purpose: Tool, Host: "open.feishu.cn", Trigger: "an approved feishu_doc_read or feishu_drive_* call"},
 		"meet":    {Purpose: Tool, Host: "meet.node_url from [modules.connectors.meet] (https/wss only)", Trigger: "an approved google_meet call"},
 		"xsearch": {Purpose: Tool, Host: "api.x.ai", Trigger: "an approved x_search call"},
+		"discord": {Purpose: Tool, Host: "discord.com/api", Trigger: "an approved discord or discord_admin call"},
+		"osv":     {Purpose: Tool, Host: "api.osv.dev", Trigger: "an approved osv_check call"},
 		"mcp": {
 			Purpose: Tool,
 			Host:    "server url from [modules.mcp.servers.<name>].url (public addresses only)",
@@ -95,18 +97,9 @@ func Registry() map[string]Egress {
 
 // String names the purpose in diagnostics.
 func (p Purpose) String() string {
-	switch p {
-	case Inference:
-		return "inference"
-	case Tool:
-		return "tool"
-	case Background:
-		return "background"
-	case Gateway:
-		return "gateway"
-	case Exec:
-		return "exec"
-	default:
-		return "unknown"
+	names := [...]string{"unknown", "inference", "tool", "background", "gateway", "exec"}
+	if int(p) < len(names) {
+		return names[p]
 	}
+	return "unknown"
 }

@@ -43,9 +43,10 @@ func (m *Module) newXSearch() (Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	base := xSearchBase(cfg)
 	return &xSearchHandler{
 		doer: doer, cfg: cfg, sec: m.deps.Secrets,
-		red: m.redactor, base: xSearchBase(cfg),
+		red: m.redactor, base: base,
 	}, nil
 }
 

@@ -6660,3 +6660,4 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 - Amandemen (ADR-332, C5): `PLUG-026` menjadi `LULUS` lewat `TestF8PLUG026TeamsPipeline` (subscription/renew/status/transcripts; lane `teams`).
 - Amandemen (ADR-332, C6): `TOOL-040`..`TOOL-044` menjadi `LULUS` lewat lima tes Feishu bernama; lane `feishu`.
 - Amandemen (ADR-332, C7): `TOOL-088`, `PLUG-018`, dan `GAP-GW-12` menjadi `LULUS` lewat tes Meet/X bernama; lane `meet`, `xsearch`.
+- Amandemen (ADR-332, C8): `TOOL-038`/`TOOL-039` menjadi `LULUS` lewat tes Discord/admin bernama; lane `discord`, `osv`.

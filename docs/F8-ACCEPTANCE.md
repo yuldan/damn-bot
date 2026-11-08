@@ -77,8 +77,8 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 | TOOL-035 | `read_window_below` | baca jendela/pane di bawah chat; pane hilang → kosong bukan panic | `TestF8TOOL035ReadWindowBelow` | BELUM | — |
 | TOOL-036 | `set_theme` | ganti tema desktop; tema asing ditolak | `TestF8TOOL036SetTheme` | BELUM | — |
 | TOOL-037 | `show_tip` | alias legacy `tip`; tip kontekstual; `notices=false` → 0 tip | `TestF8TOOL037ShowTip` | BELUM | GAP-OPS-09 |
-| TOOL-038 | `discord` | baca/partisipasi Discord: pesan, cari member, buat thread; token dari seam | `TestF8TOOL038Discord` | BELUM | TSET-014 |
-| TOOL-039 | `discord_admin` | admin server: channel, role, pin; butuh scope admin + approval | `TestF8TOOL039DiscordAdmin` | BELUM | TSET-015 |
+| TOOL-038 | `discord` | baca/partisipasi Discord: pesan, cari member, buat thread; token dari seam | `TestF8TOOL038Discord` | LULUS | TSET-014 |
+| TOOL-039 | `discord_admin` | admin server: channel, role, pin; butuh scope admin + approval | `TestF8TOOL039DiscordAdmin` | LULUS | TSET-015 |
 | TOOL-040 | `feishu_doc_read` | baca dokumen Feishu/Lark; hasil `<untrusted>`; batas ukuran | `TestF8TOOL040FeishuDocRead` | LULUS | TSET-016 |
 | TOOL-041 | `feishu_drive_add_comment` | tambah komentar dokumen Feishu; approval mutasi | `TestF8TOOL041FeishuAddComment` | LULUS | TSET-017 |
 | TOOL-042 | `feishu_drive_list_comment_replies` | daftar balasan komentar; paginasi berbatas | `TestF8TOOL042FeishuListReplies` | LULUS | — |
