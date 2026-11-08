@@ -330,6 +330,6 @@ func (m *Module) newDoer(client *netx.Client) (*Doer, error) {
 	return NewDoer(DoerOptions{
 		Client: client, Timeout: m.cfg.Timeout, Retries: m.cfg.Retries,
 		MaxBytes: m.cfg.MaxBytes, Redactor: m.redactor,
-		Now: m.deps.Now, Sleep: m.deps.Sleep,
+		Now: m.deps.Now,
 	})
 }

@@ -86,7 +86,7 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 | TOOL-044 | `feishu_drive_reply_comment` | balas komentar; id komentar divalidasi | `TestF8TOOL044FeishuReplyComment` | LULUS | — |
 | TOOL-071 | `setup_beat` | kartu onboarding first-run; hanya sesi GUI; sekali per instalasi | `TestF8TOOL071SetupBeat` | BELUM | TSET-024 |
 | TOOL-072 | `desktop_project` | buat/ganti Desktop Project (workspace bernama); path di luar workspace ditolak | `TestF8TOOL072DesktopProject` | BELUM | TSET-022 |
-| TOOL-088 | `x_search` | cari post/thread X via xAI; opt-in; hasil `<untrusted>` + batas | `TestF8TOOL088XSearch` | BELUM | TSET-031 |
+| TOOL-088 | `x_search` | cari post/thread X via xAI; opt-in; hasil `<untrusted>` + batas | `TestF8TOOL088XSearch` | LULUS | TSET-031 |
 
 ## 4. Ledger parity F8 — TSET (10) dan MEM (6)
 
@@ -198,7 +198,7 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | PLUG-014 | Plugin: context_engine | slot engine konteks alternatif; default off; engine asing ditolak | `TestF8PLUG014ContextEngine` | BELUM | MEM-023 |
 | PLUG-016 | Plugin: dashboard_auth | 4 provider auth dashboard; token hanya cookie/session store | `TestF8PLUG016DashboardAuth` | BELUM | UI-015 |
 | PLUG-017 | Plugin: disk-cleanup | bersihkan file ephemeral; dry-run + allowlist path | `TestF8PLUG017DiskCleanup` | BELUM | AUTO-030 |
-| PLUG-018 | Plugin: google_meet | join Meet, transkripsi caption, bicara realtime; pengumuman consent ≤ 10 s | `TestF8PLUG018GoogleMeet`, `TestF8MeetConsent` | BELUM | GAP-GW-12 |
+| PLUG-018 | Plugin: google_meet | join Meet, transkripsi caption, bicara realtime; pengumuman consent ≤ 10 s | `TestF8PLUG018GoogleMeet`, `TestF8MeetConsent` | LULUS | GAP-GW-12 |
 | PLUG-019 | Plugin: hermes-achievements | achievement/gamifikasi dashboard; event lokal 0 LLM call | `TestF8PLUG019Achievements` | BELUM | — |
 | PLUG-022 | Plugin: memory | slot/plugin memory provider (Honcho); provider tunggal; ByteRover/RetainDB drop | `TestF8PLUG022MemoryProvider` | BELUM | MEM-005; NP-21 |
 | PLUG-025 | Plugin: security-guidance | peringatan keamanan pada hasil write file; non-blokir | `TestF8PLUG025SecurityGuidance` | BELUM | — |
@@ -226,7 +226,7 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | GAP-REL-07 | deadline jam monotonic; TTFB 25 s + 5 s/32K tok (maks 90 s), idle 60 s; status "menunggu provider" terlihat di web setelah 10 s; fake clock ±1 jam 0 kill palsu | `TestF8WebProviderStatus`, `TestF8MonotonicDeadlines` | BELUM |
 | GAP-REL-16 | cron `after = [...]` DAG (siklus ditolak, kedalaman ≤ 5); job B menerima `execution_id` run A yang sama; `after_timeout_s` → `upstream_missing` | `TestF8CronAfterDAG` | BELUM |
 | GAP-GW-07 | setiap entri skills-hub/MCP hub punya `tos_risk`/`tos_note`; `high` butuh ack diketik; entri jailbreak → `pending`; pola dotenv threat scan | `TestF8HubTOSRisk`, `TestThreatScanDotenv` | BELUM |
-| GAP-GW-12 | bot Google Meet mengirim pengumuman consent ≤ 10 s; teks tidak kosong; `consent_announcement=false` butuh ack; node audio non-TLS ditolak | `TestF8MeetConsent`, `TestF8MeetNodeTLS` | BELUM |
+| GAP-GW-12 | bot Google Meet mengirim pengumuman consent ≤ 10 s; teks tidak kosong; `consent_announcement=false` butuh ack; node audio non-TLS ditolak | `TestF8MeetConsent`, `TestF8MeetNodeTLS` | LULUS |
 | GAP-PROV-05 | importer byterover/retaindb → memori native + 1 warning; upload provider eksternal ≤ 1 MiB/item | `TestExternalMemoryUploadCap` | BELUM |
 | GAP-UX-07 | transkrip HTML semantik, keyboard-only, focus trap, WCAG 2.2 AA, `prefers-reduced-motion`, 18 bahasa + RTL; axe 0 serious/critical | `TestF8WebA11y`, `TestContrastTokens` | BELUM |
 | GAP-UX-08 | 0 URL eksternal di aset/template/ekspor; font system stack; sesi export HTML self-contained; docs embedded ≤ 250 KB brotli | `TestWebAssetsNoExternalURL`, `TestHelpOffline` | BELUM |

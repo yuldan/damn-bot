@@ -124,6 +124,8 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"doctor-tools-fetch": {"tool", "enabled"},
 		"kanban-attach":      {"tool", "enabled"},
 		"webhook-delivery":   {"tool", "enabled"},
+		"meet":               {"tool", "enabled"},
+		"xsearch":            {"tool", "enabled"},
 		"feishu":             {"tool", "enabled"},
 		"teams":              {"tool", "enabled"},
 		"graph":              {"tool", "enabled"},

@@ -18,8 +18,10 @@ type Deps struct {
 	KnownSecrets []string
 	Network      *netx.Network
 	Now          func() time.Time
-	Sleep        func(context.Context, time.Duration) error
 	GOOS         string
+	// InsecureTestNode lets a test point the Meet connector at an httptest
+	// HTTP server; the composition root never sets it.
+	InsecureTestNode bool
 }
 
 // Module is the F8 connectors module.

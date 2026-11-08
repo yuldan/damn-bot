@@ -8,6 +8,10 @@ func (m *Module) build(name string) (Handler, error) {
 		return m.newTeams()
 	case "feishu":
 		return m.newFeishu()
+	case "meet":
+		return m.newMeet()
+	case "xsearch":
+		return m.newXSearch()
 	}
 	return nil, nil
 }

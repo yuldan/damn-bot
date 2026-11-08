@@ -357,7 +357,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TOOL-085 | `vision_analyze` (toolset `vision`) | Analisis gambar (URL/path) dengan model vision | `tools/vision_tools.py:1030` | opt-in | Model vision (auxiliary.vision) | check_fn `check_vision_requirements` | F6 | LULUS |
 | TOOL-086 | `web_extract` (toolset `web`) | Ekstrak konten halaman web menjadi markdown | `tools/web_tools.py:566` | opt-in | API key backend search (Exa/Tavily/Parallel/Perplexity/Firecrawl/Keenable) atau backend keyless (ddgs/SearXNG/Brave free) | check_fn `check_web_api_key` | F6 | LULUS |
 | TOOL-087 | `web_search` (toolset `web`) | Pencarian web via backend search terpilih | `tools/web_tools.py:560` | opt-in | API key backend search (Exa/Tavily/Parallel/Perplexity/Firecrawl/Keenable) atau backend keyless (ddgs/SearXNG/Brave free) | check_fn `check_web_api_key` | F6 | LULUS |
-| TOOL-088 | `x_search` (toolset `x_search`) | Cari post/thread X (Twitter) via xAI x_search | `tools/x_search_tool.py:340` | off (default-off toolset) | XAI_API_KEY atau SuperGrok OAuth | check_fn `check_x_search_requirements` | F8 | planned |
+| TOOL-088 | `x_search` (toolset `x_search`) | Cari post/thread X (Twitter) via xAI x_search | `tools/x_search_tool.py:340` | off (default-off toolset) | XAI_API_KEY atau SuperGrok OAuth | check_fn `check_x_search_requirements` | F8 | LULUS |
 
 ## 2b. TOOL — toolset
 33 toolset dari `get_available_toolsets()` + toolset komposit/bundle di `TOOLSETS` (`toolsets.py:74`).
@@ -742,7 +742,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | PLUG-015 | Plugin: cron_providers (chronos) | Provider cron terkelola | `plugins/cron_providers/chronos/plugin.yaml` | off | Nous Portal |  | — | dropped-with-approval (NP-19) |
 | PLUG-016 | Plugin: dashboard_auth | 4 provider auth dashboard | `plugins/dashboard_auth/_shared.py` | opt-in | — | lihat UI | F8 | planned |
 | PLUG-017 | Plugin: disk-cleanup | Bersihkan file ephemeral | `plugins/disk-cleanup/disk_cleanup.py` | opt-in | — |  | F8 | planned |
-| PLUG-018 | Plugin: google_meet | Join Google Meet, transkripsi caption, bicara realtime | `plugins/google_meet/plugin.yaml`, `plugins/google_meet/meet_bot.py` | opt-in | extra `google-meet` (playwright), Node |  | F8 | planned |
+| PLUG-018 | Plugin: google_meet | Join Google Meet, transkripsi caption, bicara realtime | `plugins/google_meet/plugin.yaml`, `plugins/google_meet/meet_bot.py` | opt-in | extra `google-meet` (playwright), Node |  | F8 | LULUS |
 | PLUG-019 | Plugin: hermes-achievements | Achievement/gamifikasi di dashboard | `plugins/hermes-achievements/README.md` | opt-in | — |  | F8 | planned |
 | PLUG-020 | Plugin: image_gen | 8 backend generate gambar | `plugins/image_gen/_common.py` | opt-in | lihat MEDIA |  | F6 | LULUS |
 | PLUG-021 | Plugin: kanban (dashboard, systemd) | UI dashboard kanban & unit systemd | `plugins/kanban/dashboard`, `plugins/kanban/systemd` | opt-in | systemd |  | F7 | LULUS |
