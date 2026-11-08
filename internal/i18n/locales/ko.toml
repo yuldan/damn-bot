@@ -1,0 +1,15 @@
+# 한국어 (ko) — SPEC §9.12.
+
+"help.usage" = "사용법: damnbot <명령> [플래그]"
+"help.commands" = "명령:"
+"help.global_flags" = "전역 플래그:"
+"help.profile" = "별도의 구성 및 데이터 프로필 사용"
+"help.help" = "명령의 도움말 표시"
+"help.version" = "버전 표시(`damnbot version`의 별칭)"
+"help.details" = "자세한 내용은 `damnbot help <명령>`을 실행하세요."
+"help.unknown_topic" = "help: 알 수 없는 주제 %q"
+"help.unknown_topic_hint" = "help: 명령 목록은 `damnbot help`을 실행하세요"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "구성 로드"
+"api.token_required" = "bearer 토큰이 필요합니다: DAMNBOT_API_TOKEN 또는 --token-secret을 설정하세요(또는 --allow-unauthenticated를 명시적으로 전달하세요)"
+"web.auth_unauthorized" = "권한 없음: 유효한 액세스 토큰이 필요합니다"

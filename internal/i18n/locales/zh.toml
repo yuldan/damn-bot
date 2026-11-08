@@ -1,0 +1,15 @@
+# 简体中文 (zh) — SPEC §9.12.
+
+"help.usage" = "用法：damnbot <命令> [选项]"
+"help.commands" = "命令："
+"help.global_flags" = "全局选项："
+"help.profile" = "使用单独的配置和数据配置文件"
+"help.help" = "显示命令帮助"
+"help.version" = "显示版本（`damnbot version` 的别名）"
+"help.details" = "运行 `damnbot help <命令>` 查看详情。"
+"help.unknown_topic" = "help：未知主题 %q"
+"help.unknown_topic_hint" = "help：运行 `damnbot help` 查看命令列表"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "加载配置"
+"api.token_required" = "需要 bearer 令牌：设置 DAMNBOT_API_TOKEN 或 --token-secret（或显式传入 --allow-unauthenticated）"
+"web.auth_unauthorized" = "未授权：需要有效的访问令牌"

@@ -1,0 +1,15 @@
+# Español (es) — SPEC §9.12.
+
+"help.usage" = "uso: damnbot <comando> [opciones]"
+"help.commands" = "Comandos:"
+"help.global_flags" = "Opciones globales:"
+"help.profile" = "usar un perfil de configuración y datos separado"
+"help.help" = "mostrar la ayuda de un comando"
+"help.version" = "mostrar la versión (alias de `damnbot version`)"
+"help.details" = "Ejecuta `damnbot help <comando>` para obtener detalles."
+"help.unknown_topic" = "help: tema desconocido %q"
+"help.unknown_topic_hint" = "help: ejecuta `damnbot help` para ver la lista de comandos"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "cargar configuración"
+"api.token_required" = "se requiere token de portador: define DAMNBOT_API_TOKEN o --token-secret (o pasa --allow-unauthenticated explícitamente)"
+"web.auth_unauthorized" = "no autorizado: se requiere un token de acceso válido"

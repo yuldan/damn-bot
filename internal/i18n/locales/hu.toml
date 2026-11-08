@@ -1,0 +1,15 @@
+# Magyar (hu) — SPEC §9.12.
+
+"help.usage" = "használat: damnbot <parancs> [kapcsolók]"
+"help.commands" = "Parancsok:"
+"help.global_flags" = "Globális kapcsolók:"
+"help.profile" = "külön konfigurációs és adatprofil használata"
+"help.help" = "egy parancs súgójának megjelenítése"
+"help.version" = "verzió kiírása (`damnbot version` álneve)"
+"help.details" = "A részletekért futtasd: `damnbot help <parancs>`."
+"help.unknown_topic" = "help: ismeretlen téma %q"
+"help.unknown_topic_hint" = "help: a parancslistához futtasd: `damnbot help`"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "konfiguráció betöltése"
+"api.token_required" = "bearer token szükséges: állítsd be a DAMNBOT_API_TOKEN vagy --token-secret értéket (vagy add meg kifejezetten a --allow-unauthenticated kapcsolót)"
+"web.auth_unauthorized" = "jogosulatlan: érvényes hozzáférési token szükséges"

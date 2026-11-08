@@ -1,0 +1,15 @@
+# Türkçe (tr) — SPEC §9.12.
+
+"help.usage" = "kullanım: damnbot <komut> [bayraklar]"
+"help.commands" = "Komutlar:"
+"help.global_flags" = "Genel bayraklar:"
+"help.profile" = "ayrı bir yapılandırma ve veri profili kullan"
+"help.help" = "bir komut için yardım göster"
+"help.version" = "sürümü yazdır (`damnbot version` takma adı)"
+"help.details" = "Ayrıntılar için `damnbot help <komut>` çalıştırın."
+"help.unknown_topic" = "help: bilinmeyen konu %q"
+"help.unknown_topic_hint" = "help: komut listesi için `damnbot help` çalıştırın"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "yapılandırmayı yükle"
+"api.token_required" = "bearer token gerekli: DAMNBOT_API_TOKEN veya --token-secret ayarlayın (ya da açıkça --allow-unauthenticated geçin)"
+"web.auth_unauthorized" = "yetkisiz: geçerli bir erişim belirteci gerekli"

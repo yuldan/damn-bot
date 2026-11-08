@@ -1,0 +1,15 @@
+# 日本語 (ja) — SPEC §9.12.
+
+"help.usage" = "使用法: damnbot <コマンド> [フラグ]"
+"help.commands" = "コマンド:"
+"help.global_flags" = "グローバルフラグ:"
+"help.profile" = "別の設定・データプロファイルを使用する"
+"help.help" = "コマンドのヘルプを表示する"
+"help.version" = "バージョンを表示（`damnbot version` の別名）"
+"help.details" = "詳細は `damnbot help <コマンド>` を実行してください。"
+"help.unknown_topic" = "help: 不明なトピック %q"
+"help.unknown_topic_hint" = "help: コマンド一覧は `damnbot help` を実行してください"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "設定を読み込む"
+"api.token_required" = "ベアラートークンが必要です: DAMNBOT_API_TOKEN または --token-secret を設定してください（明示的に --allow-unauthenticated を渡すこともできます）"
+"web.auth_unauthorized" = "認証されていません: 有効なアクセストークンが必要です"
