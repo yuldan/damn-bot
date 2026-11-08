@@ -11,11 +11,12 @@ import (
 // masuk Σ core. Preseden: baris infra non-produksi NEW-34 juga di luar Σ core; kelas MODULE selalu
 // dilewati `budgetCoreSum` dan tetap ditegakkan per-baris oleh `scripts/loc-check.sh budget`.
 const (
-	maxModuleLOC   = 111000 // Σ kelas MODULE: F3 19.800 + F4 18.700 + F5 20.300 + F6 24.500 = 83.300; + F7 (gwplat 13.000, gwapi 3.000, gwpeer 4.000, gwwa 600, gwmatrix 1.500, kanban 3.000) 25.100 = 108.400; +backup 1.467 = 109.867 ≤ 111.000 (ADR-326).
+	maxModuleLOC   = 132000 // Σ kelas MODULE: F3 19.800 + F4 18.700 + F5 20.300 + F6 24.500 = 83.300; + F7 25.100 = 108.400; + F8 allocation 21.800 = 130.200; +backup 1.467 = 131.667 ≤ 132.000 (ADR-330). F8 rows are booked by each package PR (ADR-326 pattern); none exist yet.
 	maxF3ModuleLOC = 21500  // ROADMAP F3 = 21.500 (tui + acp + importer/ops); F3 tanpa backup
 	maxF4ModuleLOC = 18700  // ROADMAP F4 = 20.000: heal core 1.500 + MODULE 18.700 (ADR-244, ADR-245, ADR-248)
 	maxF6ModuleLOC = 24500  // SPEC §3.2.4 F6: web 3.000 + browser 5.500 + media 9.500 + voice 4.500 + computer-use 2.000 (ADR-309/ADR-310)
 	maxF7ModuleLOC = 25100  // SPEC §3.2.4 F7: gwplat 13.000 + gwapi 3.000 + gwpeer 4.000 + gwwa 600 + gwmatrix 1.500 + kanban 3.000 (ADR-326)
+	maxF8ModuleLOC = 21800  // ROADMAP F8 = 21.800: web 5.000 + connectors 6.000 + skills-hub/memory-providers 3.500 + auto 4.000 + i18n 800 + batch 2.500 (ADR-330)
 	maxF3OpsLOC    = 9000   // SPEC §3.2.4: importer + setup/doctor/update/profiles/backup
 )
 
@@ -128,9 +129,10 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 		"scorecard": 500, "mcp": 6500, "delegate": 2000, "backend": 4800, "codeintel": 7000, // mcp: SPEC §3.2.4:291, ADR-268; delegate: §3.2.4:290, ADR-273.
 		"webtools": 3000, "browser": 5500, "media": 9500, "voice": 4500, "computeruse": 2000, // SPEC §3.2.4, ADR-309; `web` dibangun sebagai internal/webtools.
 		"gwplat": 13000, "gwapi": 3000, "gwpeer": 4000, "gwwa": 600, "gwmatrix": 1500, "kanban": 3000, // SPEC §3.2.4 F7, ADR-326.
+		"web": 5000, "connectors": 6000, "skillhub": 2500, "memprovider": 1000, "auto": 4000, "batch": 2500, "i18n": 800, // SPEC §3.2.4 F8, ADR-330.
 	}
 	backupCap, hasBackup := 0, false
-	opsSum, f3Sum, f4Sum, f6Sum, f7Sum := 0, 0, 0, 0, 0
+	opsSum := 0
 	for _, row := range rows {
 		if !row.module {
 			if row.group == "backup" {
@@ -149,6 +151,23 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 		if f3OpsFamily(row.group) {
 			opsSum += row.capLOC
 		}
+	}
+
+	if moduleSum > maxModuleLOC {
+		t.Errorf("ROADMAP F3+F4: Σ baris MODULE = %d > %d (ADR-196, ADR-244)", moduleSum, maxModuleLOC)
+	}
+	f3Sum, f4Sum, f6Sum, f7Sum, f8Sum := moduleFamilySums(rows)
+	checkModuleFamilySums(t, f3Sum, f4Sum, f6Sum, f7Sum, f8Sum)
+	checkModuleBackupSums(t, moduleSum, opsSum, backupCap, hasBackup)
+}
+
+// moduleFamilySums menjumlahkan cap baris MODULE per fase; keluarga dipisah
+// dari checkModuleCapsAndSums agar kompleksitas kognitif gate tetap ≤ 20.
+func moduleFamilySums(rows []locBudgetRow) (f3Sum, f4Sum, f6Sum, f7Sum, f8Sum int) {
+	for _, row := range rows {
+		if !row.module {
+			continue
+		}
 		if f3ModuleFamily(row.group) {
 			f3Sum += row.capLOC
 		}
@@ -161,17 +180,15 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 		if f7ModuleFamily(row.group) {
 			f7Sum += row.capLOC
 		}
+		if f8ModuleFamily(row.group) {
+			f8Sum += row.capLOC
+		}
 	}
-
-	if moduleSum > maxModuleLOC {
-		t.Errorf("ROADMAP F3+F4: Σ baris MODULE = %d > %d (ADR-196, ADR-244)", moduleSum, maxModuleLOC)
-	}
-	checkModuleFamilySums(t, f3Sum, f4Sum, f6Sum, f7Sum)
-	checkModuleBackupSums(t, moduleSum, opsSum, backupCap, hasBackup)
+	return f3Sum, f4Sum, f6Sum, f7Sum, f8Sum
 }
 
-// checkModuleFamilySums menegakkan plafon Σ per fase (F3/F4/F6).
-func checkModuleFamilySums(t *testing.T, f3Sum, f4Sum, f6Sum, f7Sum int) {
+// checkModuleFamilySums menegakkan plafon Σ per fase (F3/F4/F6/F7/F8).
+func checkModuleFamilySums(t *testing.T, f3Sum, f4Sum, f6Sum, f7Sum, f8Sum int) {
 	t.Helper()
 	if f3Sum > maxF3ModuleLOC {
 		t.Errorf("ROADMAP F3: Σ MODULE F3 = %d > %d (ADR-196)", f3Sum, maxF3ModuleLOC)
@@ -184,6 +201,9 @@ func checkModuleFamilySums(t *testing.T, f3Sum, f4Sum, f6Sum, f7Sum int) {
 	}
 	if f7Sum > maxF7ModuleLOC {
 		t.Errorf("ROADMAP F7: Σ MODULE F7 = %d > %d (ADR-326)", f7Sum, maxF7ModuleLOC)
+	}
+	if f8Sum > maxF8ModuleLOC {
+		t.Errorf("ROADMAP F8: Σ MODULE F8 = %d > %d (ADR-330)", f8Sum, maxF8ModuleLOC)
 	}
 }
 
@@ -239,6 +259,16 @@ func f6ModuleFamily(name string) bool {
 func f7ModuleFamily(name string) bool {
 	switch name {
 	case "gwplat", "gwapi", "gwpeer", "gwwa", "gwmatrix", "kanban":
+		return true
+	}
+	return false
+}
+
+// f8ModuleFamily: baris MODULE F8 (ADR-330). Cap total 21.800; baris
+// dibukukan oleh PR paketnya, jadi family boleh kosong selama F8 berjalan.
+func f8ModuleFamily(name string) bool {
+	switch name {
+	case "web", "connectors", "skillhub", "memprovider", "auto", "batch", "i18n":
 		return true
 	}
 	return false
