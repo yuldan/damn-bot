@@ -217,6 +217,67 @@ config_version = 1
     timeout_s = 0
     max_retries = 0
     max_response_bytes = 0
+  [modules.auto]
+    [modules.auto.review]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.title]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.curator]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.compaction]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.blueprints]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.suggestions]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.goals]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.loops]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.heartbeat]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.disk_cleanup]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.maintenance]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
+    [modules.auto.webhooks]
+      enabled = false
+      daily_tokens = 0
+      daily_usd = 0.0
+      min_interval_s = 0
 
 [providers]
   custom = []

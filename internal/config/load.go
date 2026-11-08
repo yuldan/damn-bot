@@ -110,11 +110,7 @@ func (l *Loader) Parse(data []byte, source string) (Config, error) {
 		return Config{}, syntaxError(source, err)
 	}
 	if key, ok := firstUnknown(&md); ok {
-		kind, msg := ErrUnknownKey, "key is not part of the config"
-		if isModuleKey(key) {
-			kind = ErrModuleUnavailable
-			msg = "module not compiled in this build (F4/F5)"
-		}
+		msg, kind := unknownKeyKind(key)
 		return Config{}, &Error{
 			Kind: kind,
 			Key:  key.String(),
@@ -145,6 +141,19 @@ func (c *Config) normalize() {
 		c.Modules.Gateway.Telegram.ThreadFallback = "fail"
 	}
 	c.Modules.normalizeMCP()
+}
+
+// unknownKeyKind classifies one undecoded key. An absent compiled module is
+// ErrModuleUnavailable; an unknown key inside the closed auto registry is a
+// typo and stays ErrUnknownKey (ADR-333).
+func unknownKeyKind(key toml.Key) (string, error) {
+	if isModuleKey(key) {
+		if strings.HasPrefix(key.String(), "modules.auto.") && autoModuleAvailable() {
+			return "key is not part of the config", ErrUnknownKey
+		}
+		return "module not compiled in this build (F4/F5)", ErrModuleUnavailable
+	}
+	return "key is not part of the config", ErrUnknownKey
 }
 
 // isModuleKey reports a section owned by a module that this build does not

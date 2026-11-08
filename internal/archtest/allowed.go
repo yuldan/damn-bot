@@ -165,6 +165,7 @@ func allowedImports() map[string][]string {
 // model room/relay hanya memakai stdlib, sedangkan multiplex membaca tipe
 // route gateway dan identitas token membaca config.OS.
 func f7ModuleImports(m map[string][]string) {
+	m["internal/auto"] = []string{"internal/budget", "internal/provider"} // F8 AUTO framework (ADR-333)
 	m["internal/gwpeer"] = []string{"internal/config", "internal/gateway"}
 	m["internal/gwplat"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/toolset"}
 	m["internal/gwplat"+moduleWildcard] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}
