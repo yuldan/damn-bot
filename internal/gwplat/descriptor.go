@@ -158,7 +158,7 @@ func plainDescriptors() []Descriptor {
 
 // platformDescriptors carries the adapter rows; each P5 slice appends its own.
 func platformDescriptors() []Descriptor {
-	return []Descriptor{
+	out := []Descriptor{
 		{
 			Name:       "buzz",
 			Transport:  TransportWS,
@@ -234,6 +234,7 @@ func platformDescriptors() []Descriptor {
 		plainSecret("photon", TransportLongPoll, "photon_project_secret"),
 		plainSecret("weixin", TransportLongPoll, "weixin_token"),
 	}
+	return append(out, p4Descriptors()...)
 }
 
 // simple is the descriptor of a plain-text adapter without secrets.
