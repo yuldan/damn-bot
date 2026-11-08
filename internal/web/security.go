@@ -29,8 +29,7 @@ func newNonce() string {
 	return base64.RawURLEncoding.EncodeToString(raw)
 }
 
-// setSecurityHeaders stamps every response (GAP-SEC-06). The CSP is the same
-// for HTML, assets and JSON so an error page can never weaken it.
+// setSecurityHeaders stamps every response (GAP-SEC-06).
 func setSecurityHeaders(w http.ResponseWriter, nonce string) {
 	h := w.Header()
 	h.Set("Content-Security-Policy", ContentSecurityPolicy(nonce))
@@ -42,34 +41,102 @@ func setSecurityHeaders(w http.ResponseWriter, nonce string) {
 	h.Set("Cache-Control", "no-store")
 }
 
-// ServeHTTP is the router: security headers, the Host allowlist, then the
-// public endpoints this slice owns (/healthz and the CSP report sink). Every
-// other path is 404 until the auth slice lands.
+// ServeHTTP is the router: headers, Host allowlist, the public auth surface and
+// the session API. Pages and assets land in slice 2c.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	setSecurityHeaders(w, newNonce())
 	if !s.hostAllowed(r.Host) {
 		http.Error(w, "misdirected request", http.StatusMisdirectedRequest)
 		return
 	}
-	switch r.URL.Path {
-	case "/healthz":
+	p := r.URL.Path
+	switch {
+	case p == "/healthz":
 		s.healthz(w)
-	case "/csp-report":
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
+	case s.authRoute(w, r, p):
+	case s.apiRoute(w, r, p):
 	default:
 		http.NotFound(w, r)
 	}
 }
 
-// hostAllowed is the anti-DNS-rebinding check (GAP-SEC-08): a loopback bind
-// accepts only the three loopback names, a remote bind only the allowlist.
+// authRoute serves the exchange surface; it reports whether it answered.
+func (s *Server) authRoute(w http.ResponseWriter, r *http.Request, p string) bool {
+	switch p {
+	case "/auth/exchange":
+		// Before a CSRF token exists only the origin/fetch-metadata half of
+		// GAP-SEC-08 applies.
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w)
+			return true
+		}
+		if !sameOrigin(r) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return true
+		}
+		s.exchange(w, r)
+	case "/auth/callback":
+		s.callback(w, r)
+	case "/csp-report":
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w)
+			return true
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		return false
+	}
+	return true
+}
+
+// apiRoute serves the session API; both endpoints require a session.
+func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request, p string) bool {
+	switch p {
+	case "/api/session":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return true
+		}
+		s.withSession(w, r, s.sessionInfo)
+	case "/api/logout":
+		if s.mutation(w, r) {
+			s.withSession(w, r, s.logout)
+		}
+	default:
+		return false
+	}
+	return true
+}
+
+// mutation guards a state-changing request: same-origin fetch metadata plus the
+// double-submit token (GAP-SEC-08).
+func (s *Server) mutation(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return false
+	}
+	if !sameOrigin(r) || !doubleSubmit(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+// withSession runs h only for an authenticated request; a missing or expired
+// session is a bare 401 with no token material.
+func (s *Server) withSession(w http.ResponseWriter, r *http.Request, h func(http.ResponseWriter, *http.Request, *Session)) {
+	row, ok := s.authenticate(w, r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	h(w, r, &row)
+}
+
+// hostAllowed is the anti-DNS-rebinding check (GAP-SEC-08).
 func (s *Server) hostAllowed(hostport string) bool {
 	if hostport == "" {
-		return true // HTTP/1.0 or a unix peer without a Host header
+		return true
 	}
 	host := hostport
 	if u, err := url.Parse("//" + hostport); err == nil {
@@ -86,10 +153,32 @@ func (s *Server) hostAllowed(hostport string) bool {
 	return false
 }
 
-// healthz is the unauthenticated liveness probe; it names no subsystem state.
+// healthz is the unauthenticated liveness probe.
 func (s *Server) healthz(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
 		s.logWarn("encode health", err)
 	}
+}
+
+// sessionInfo returns the principal only; the session token is never echoed.
+func (s *Server) sessionInfo(w http.ResponseWriter, _ *http.Request, row *Session) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"principal": row.Principal, "auth": s.cfg.Auth}); err != nil {
+		s.logWarn("encode session", err)
+	}
+}
+
+// methodNotAllowed answers a wrong verb without revealing the valid set.
+func methodNotAllowed(w http.ResponseWriter) {
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+// originHost extracts the host:port of an Origin header value.
+func originHost(origin string) string {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Host
 }

@@ -22,12 +22,23 @@ import (
 	"time"
 )
 
+// Authentication modes (SPEC §13.2). Token and Once are loopback modes; Basic
+// and OIDC are the remote credential modes.
+const (
+	ModeToken = "token"
+	ModeOnce  = "once"
+	ModeBasic = "basic"
+	ModeOIDC  = "oidc"
+)
+
 // Errors returned by [New] before anything listens.
 var (
 	// ErrRemoteRefused is a non-loopback listen without allow_remote.
 	ErrRemoteRefused = errors.New("web: non-loopback listen requires allow_remote")
 	// ErrRemoteTLS is a non-loopback listen without a certificate pair.
 	ErrRemoteTLS = errors.New("web: non-loopback listen requires TLS")
+	// ErrAuthSeam is an auth mode whose verifier was not wired (fail-closed).
+	ErrAuthSeam = errors.New("web: auth mode has no verifier")
 	// ErrListen is a malformed listen address.
 	ErrListen = errors.New("web: invalid listen address")
 )
@@ -42,6 +53,15 @@ type Config struct {
 	AllowedHosts []string
 	TLSCert      string
 	TLSKey       string
+	Auth         string
+	// Sessions is the server-side store (web_sessions in production).
+	Sessions SessionStore
+	// Basic verifies the single basic-auth principal; nil disables the mode.
+	Basic BasicVerifier
+	// OIDC is the authorization-code seam; nil disables the mode.
+	OIDC OIDCProvider
+	// NonceTTL is the one-use link lifetime; 0 means 60 s.
+	NonceTTL time.Duration
 	// DataDir expands the <state_dir> placeholder of a unix listen.
 	DataDir string
 	// Now is the clock seam; the default is time.Now.
@@ -52,10 +72,11 @@ type Config struct {
 
 // Server is one web listener. It is safe for concurrent use.
 type Server struct {
-	cfg Config
-	now func() time.Time
-	srv *http.Server
-	ln  net.Listener
+	cfg    Config
+	now    func() time.Time
+	srv    *http.Server
+	ln     net.Listener
+	nonces nonceSet
 }
 
 // New validates cfg and builds the handler. Nothing listens until [Server.Serve].
@@ -63,6 +84,9 @@ func New(cfg *Config) (*Server, error) {
 	c := *cfg
 	if c.Now == nil {
 		c.Now = time.Now
+	}
+	if c.NonceTTL <= 0 {
+		c.NonceTTL = 60 * time.Second
 	}
 	local, err := listenIsLocal(c.Listen)
 	if err != nil {
@@ -76,6 +100,12 @@ func New(cfg *Config) (*Server, error) {
 			return nil, ErrRemoteTLS
 		}
 	}
+	if verr := validateAuth(&c); verr != nil {
+		return nil, verr
+	}
+	if c.Sessions == nil {
+		return nil, errors.New("web: no session store wired")
+	}
 	s := &Server{cfg: c, now: c.Now}
 	s.srv = &http.Server{
 		Handler:           s,
@@ -85,7 +115,27 @@ func New(cfg *Config) (*Server, error) {
 	if c.Log != nil {
 		s.srv.ErrorLog = slog.NewLogLogger(c.Log.Handler(), slog.LevelWarn)
 	}
+	s.nonces.init(c.Now)
 	return s, nil
+}
+
+// validateAuth refuses a mode whose verifier is missing instead of serving
+// unauthenticated (fail-closed).
+func validateAuth(cfg *Config) error {
+	switch cfg.Auth {
+	case ModeToken, ModeOnce:
+	case ModeBasic:
+		if cfg.Basic == nil {
+			return fmt.Errorf("%w: basic", ErrAuthSeam)
+		}
+	case ModeOIDC:
+		if cfg.OIDC == nil {
+			return fmt.Errorf("%w: oidc", ErrAuthSeam)
+		}
+	default:
+		return fmt.Errorf("web: unknown auth mode %q", cfg.Auth)
+	}
+	return nil
 }
 
 // listenIsLocal reports whether the configured bind is loopback or a unix
@@ -171,6 +221,26 @@ func (s *Server) listenUnix(ctx context.Context) (net.Listener, error) {
 		return nil, fmt.Errorf("web: socket mode: %w", err)
 	}
 	return ln, nil
+}
+
+// OpenURL mints a one-use nonce and returns the URL to open (GAP-SEC-07).
+// The nonce travels in the fragment, so the server never logs or receives it
+// until the page exchanges it.
+func (s *Server) OpenURL(remote bool) string {
+	_ = remote // local and remote links differ only in the caller's TTL choice
+	nonce := s.nonces.mint(s.now(), s.cfg.NonceTTL)
+	scheme, host := "http", s.cfg.Listen
+	if s.cfg.TLSCert != "" {
+		scheme = "https"
+	}
+	if ln := s.ln; ln != nil {
+		if ln.Addr().Network() == "tcp" {
+			host = ln.Addr().String()
+		} else {
+			host = "localhost"
+		}
+	}
+	return scheme + "://" + host + "/auth#" + nonce
 }
 
 // Shutdown stops the listener and drains active requests.
