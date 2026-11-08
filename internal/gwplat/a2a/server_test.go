@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/gwplat"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 type secrets map[string]string
@@ -64,7 +65,7 @@ func rpcPost(t *testing.T, url, token, method string, params any) (int, []byte) 
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := netx.LoopbackClient().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +207,7 @@ func TestF7A2AAgentCard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := netx.LoopbackClient().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
