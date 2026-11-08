@@ -1,0 +1,215 @@
+# Embedded skill catalog for SKILL/SKCAT F8 (58 bundled + 153 optional = 211).
+# Generated from bench/evals/sources/hermes-skills.tsv (hermes-agent git 868b9f244f5aa3ad238e494048046fe4f29c28ba).
+# Columns: path, name, description, version, sha256 (record digest, see catalog.go).
+# Regenerate with scripts when the upstream corpus pin moves; TestCatalogMatchesBenchTSV fails on drift.
+optional-skills/autonomous-ai-agents/agent-merge-conflict-arbiter/SKILL.md	agent-merge-conflict-arbiter	Neutral arbiter for merge conflicts between two agents.	1.0.0	9b9d2ba9c48d9036c26f773a16cf1a7cd9e7079da1ae1c2e6e56fd7fe5d970d4
+optional-skills/autonomous-ai-agents/antigravity-cli/SKILL.md	antigravity-cli	Operate the Antigravity CLI (agy): plugins, auth, sandbox.	1.0.0	a2dfebd0949b32594022e55341e077ebf14a4fe626a83fd390c3ba347d535075
+optional-skills/autonomous-ai-agents/blackbox/SKILL.md	blackbox	Delegate coding tasks to the Blackbox AI multi-model CLI.	1.0.0	e6b8b7cf0c0bfad2d026b5c490d004fb8f6504f8cacc34a64f1bffb6e8f4d6b1
+optional-skills/autonomous-ai-agents/dynamic-workflow/SKILL.md	dynamic-workflow	Plan-in-code fan-outs, adversarial verification, waves.	1.0.0	8c72bb887b7cfb784baf427c8a692045e5b2fbeabbc4a18839a537ec2ca13fd9
+optional-skills/autonomous-ai-agents/grok/SKILL.md	grok	Delegate coding to xAI Grok Build CLI (features, PRs).	1.0.0	8f3e67e6bc3523ed1ec149fc1f823960c9a415067fe04ce6c78719a58aaeaff7
+optional-skills/autonomous-ai-agents/honcho/SKILL.md	honcho	Configure and troubleshoot Honcho memory for Hermes.	1.0.0	9175fdfb6c0eb99ebf6a80e0084d59fe6b8ab0c0f2eecfa6dfe1334e4999e315
+optional-skills/autonomous-ai-agents/openhands/SKILL.md	openhands	Delegate coding to OpenHands CLI (model-agnostic, LiteLLM).	1.0.0	77839757d092e9c4c4e8c01f6fda1546843604c8d838e20822dde6ee811c6dd4
+optional-skills/blockchain/evm/SKILL.md	evm	Read-only EVM client: wallets, tokens, gas across 8 chains.	1.0.0	193fc244c6f756532a5a44469e639fd5a31b3ceeba538bb07da3dd824b3ad3fb
+optional-skills/blockchain/hyperliquid/SKILL.md	hyperliquid	Hyperliquid market data, account history, trade review.	1.0.0	c611e9addd706defbfb9da9083c862988759fe90eacce4b2eabd137114e37e86
+optional-skills/blockchain/solana/SKILL.md	solana	Query Solana wallets, tokens, txs, and NFTs in USD.	1.0.0	08ffd633ea6582d7ff111c25bdd2bb5b7b01763c8f466b26e19ea1b9d0424e42
+optional-skills/communication/one-three-one-rule/SKILL.md	one-three-one-rule	1-3-1 decision briefs: problem, three options, one pick.	1.0.0	959862ba89b172f34f42f6da61b9398cd0d595540fc2741b6b4df6935af1edf1
+optional-skills/creative/ai-presenter-video/SKILL.md	ai-presenter-video	Make a verified AI presenter video from script + image.	1.0.0	063a5860a0efe84aea7cbe13811864bee0d8bb8628571d30f6ea63cd1cacabed
+optional-skills/creative/anatomy/SKILL.md	anatomy	Explain an idea as an interactive isometric machine figure.	1.0.0	0a2db779f1208d10e882e2e1904775f33c4eb9078ae6b5577b63ecd097220453
+optional-skills/creative/archify/SKILL.md	archify	Validated interactive HTML diagrams, upstream-maintained.	1.0.0	6686ebcb8edcf1fbcfb4d990f8cbc3ef0a25047c902fd3d79321c6f0564fab3e
+optional-skills/creative/ascii-art/SKILL.md	ascii-art	ASCII art: pyfiglet, cowsay, boxes, image-to-ascii.	1.0.0	28eef159720af4b629296bc442dfa27d58bca32ab02a535be2feacba55b0761a
+optional-skills/creative/audiocraft-audio-generation/SKILL.md	audiocraft-audio-generation	AudioCraft: MusicGen text-to-music, AudioGen text-to-sound.	1.0.0	3e54dbb00d76ed251ee30e7bfbe47e1fb648f8132b1448682471d21802c1e1df
+optional-skills/creative/auteur/SKILL.md	auteur	Design and build cinematic, award-level web pages.	1.0.0	c23c66638a29449cf49000af91ce31583cc802db56aeb6aad8fedb9b5fdf9cef
+optional-skills/creative/baoyu-article-illustrator/SKILL.md	baoyu-article-illustrator	Article illustrations: type × style × palette consistency.	1.0.0	2d5d83acb051e3078ab7d3e564f0a3b5bf6e78b61b6b7d5774308d7f34e902d1
+optional-skills/creative/baoyu-comic/SKILL.md	baoyu-comic	Knowledge comics (知识漫画): educational, biography, tutorial.	1.0.0	bbbf5f4d3d57705b4ed2898489b124b535bac0fb651e992d4406f575e40bdb27
+optional-skills/creative/brag-slim/SKILL.md	brag-slim	Launch video from a project or URL, upstream-maintained.	1.0.0	3a235809f8b60a2e774a693990eeb32078ab8487cc865699efed026d0ebb3ad7
+optional-skills/creative/brag/SKILL.md	brag	Project launch video via Hyperframes, upstream-maintained.	1.0.0	c3c0042c68db3085e81f0cac9424c3fff0f25294722eaa33b022dacf4c5e7cbc
+optional-skills/creative/comfyui/SKILL.md	comfyui	Generate images, video, and audio via diffusion workflows.	1.0.0	8b06683279ed2e36e8ec2830c052c6a9f7f95e24eb0f9313e1053f5e577a80fb
+optional-skills/creative/concept-diagrams/SKILL.md	concept-diagrams	Generate flat, minimal educational SVG visuals as HTML.	1.0.0	dd8bb18d86771359a7a5a7778c0996b8782760adad34765ad94c1f971c008b59
+optional-skills/creative/creative-ideation/SKILL.md	creative-ideation	Generate ideas via named methods from creative practice.	1.0.0	cd652f9d8d0954bd9c9c37e340aa501b45384e6713dc9109578e278b61aa71e8
+optional-skills/creative/draw-your-font/SKILL.md	draw-your-font	Turn a handwriting photo into an installable TTF font.	1.0.0	96c8f51ba17be7990bd1add5a50ea709b7e8c0a2fe36d4ceb8403d053ded964f
+optional-skills/creative/dream-loop/SKILL.md	dream-loop	Build stunning 3D scenes via a concept-art fidelity loop.	1.0.0	7b720c72ebf290437d8866db70f2a2beaeeb63c78e3ec8dd6d42b8950e8ff3fc
+optional-skills/creative/excalidraw/SKILL.md	excalidraw	Hand-drawn Excalidraw JSON diagrams (arch, flow, seq).	1.0.0	43431a39ceef907df5ba74023fa0199d27349302d9ef1a555f59a7a3b657cc94
+optional-skills/creative/heartmula/SKILL.md	heartmula	HeartMuLa: Suno-like song generation from lyrics + tags.	1.0.0	9373db0b993c2708b64dee34be522373ba9e9e8c9e6c114c7a9c4e9639680e6b
+optional-skills/creative/hyperframes/SKILL.md	hyperframes	Render MP4/WebM videos from HTML compositions.	1.0.0	e239521b329cd6566c0d7653e3502274d5ef2b6a3e36db0470cf6292af04ec6c
+optional-skills/creative/impeccable/SKILL.md	impeccable	Frontend design guidance, upstream-maintained (impeccable).	1.0.0	eb68addb59db260f2b90d8df870c9a47644c03bbbd4ee350706e3a0f9c3e2715
+optional-skills/creative/ip-as-logo/SKILL.md	ip-as-logo	Design minimal cute IP mascot marks readable at 32px.	1.0.0	6774077bc7a68857227d19a78367303062cc4bc244998633d1dbe7d72a1b5f56
+optional-skills/creative/kanban-video-orchestrator/SKILL.md	kanban-video-orchestrator	Plan and run multi-agent video production pipelines.	1.0.0	446639a3c62dd5a36af905c936541603a732baa269492ae4453ace1cb3df71a0
+optional-skills/creative/meme-generation/SKILL.md	meme-generation	Create meme PNGs from templates with Pillow text overlay.	1.0.0	4302d82d4f6587d0174e2ddada28187335637b312f45148456edb0dcb379fdab
+optional-skills/creative/mono-color/SKILL.md	mono-color	Generate one- or two-ink editorial print poster images.	1.0.0	6ed7e04838eda2d4f2e0211ce384578f3e49e957f5192e88d471bab8af38d436
+optional-skills/creative/pixel-art/SKILL.md	pixel-art	Pixel art w/ era palettes (NES, Game Boy, PICO-8).	1.0.0	d2681de10b62043c5e27bd37f165cc7730dc3a88836d8d695ba6ea54d9047881
+optional-skills/creative/pretext/SKILL.md	pretext	Build creative browser demos with DOM-free text layout.	1.0.0	6d82a1f359059dd2d140619f497781e073a728e9ad6553722a9c3cb029d94073
+optional-skills/creative/simple-english/SKILL.md	simple-english	Rewrite text to ASD-STE100 Simplified Technical English.	1.0.0	80353ecdb4ac0360ed1ba875c3cbfde4d18353f2a46831a2b13e507912771eae
+optional-skills/creative/sketch/SKILL.md	sketch	Throwaway HTML mockups: 2-3 design variants to compare.	1.0.0	cb3ce223a498b7cd073872281094efb7a55e1f96aa0f58e2c7b88501fcfc45d4
+optional-skills/creative/social-media-content-calendar/SKILL.md	social-media-content-calendar	Plan multi-platform social campaigns: briefs to posting.	1.0.0	5b2d32b5ded0c367d7b174043e8efec0a4d8d8645be01cf1a4743fc998d48d77
+optional-skills/creative/system-atlas/SKILL.md	system-atlas	Build explorable isometric architecture atlases as HTML.	1.0.0	cc0ad58a63a974c0b101ec2f38417ae6ce795739fb3204c092ff6669064050b2
+optional-skills/creative/tldraw-offline/SKILL.md	tldraw-offline	Drive and script tldraw offline canvases with an agent.	1.0.0	a05d5dd18fb816448d454b6e9d50e99b5f37b2ee106d66fe767f702ca1cbd81c
+optional-skills/creative/unreal-mcp/SKILL.md	unreal-mcp	Automate Unreal Engine editor scenes, actors, and renders.	1.0.0	f3b696fa642c795c0e5e0ae60a36ac2c75ff5620b5ab4ea07f2336e13e9c872f
+optional-skills/data-science/jupyter-notebook/SKILL.md	jupyter-notebook	Iterative Python via live Jupyter kernel (hamelnb).	1.0.0	82d2cb71132515d6d726fbd09c4095726c27872291d9ed658660e6f824f6a6bb
+optional-skills/devops/actual-setup/SKILL.md	actual-setup	Set up Actual Computer (actual.inc) inference in Hermes.	1.0.0	55d2269d5f96b9be2748f5dfe35b43469bc9d4fbeeddc36cc40ec90d8cd5d0e3
+optional-skills/devops/docker-management/SKILL.md	docker-management	Manage Docker containers, images, volumes, and Compose.	1.0.0	467df81e1513b972e07a6e4352265277fb123c6ddfb395321ff45bbf4fbc2701
+optional-skills/devops/hermes-s6-container-supervision/SKILL.md	hermes-s6-container-supervision	Modify or debug s6 services in the Hermes Docker image.	1.0.0	ad81b9d2003af979ad408e96e2c80ea911bc11a6176c47d271cc1cbdc7f2173b
+optional-skills/devops/inference-sh-cli/SKILL.md	inference-sh-cli	Run 150+ AI apps (image, video, LLM) via inference.sh CLI.	1.0.0	d907dd2c549acb77bfbda2205eafc38c10a3642bb2ab68972c34988b83eb9f60
+optional-skills/devops/pinggy-tunnel/SKILL.md	pinggy-tunnel	Zero-install localhost tunnels over SSH via Pinggy.	1.0.0	00b85eec03e6ebb5326186349c0bde0914e9ee883a6b0e12b94aaa7d165d4196
+optional-skills/devops/setup-wizard-generator/SKILL.md	setup-wizard-generator	Generate a bash wizard guiding a human through manual setup.	1.0.0	0f7682892e015cb1a4ce54cf3e2e23e1fa894dcab9fd23564f84cda1eaf953ac
+optional-skills/devops/watchers/SKILL.md	watchers	Poll RSS, JSON APIs, and GitHub with watermark dedup.	1.0.0	6631b8194e40a369603782948b1411d9917ca35719143530271f6535f0181d87
+optional-skills/dogfood/adversarial-ux-test/SKILL.md	adversarial-ux-test	Roleplay a hostile user to find and triage UX pain points.	1.0.0	33b981f067855c77ed8a406d7e71f51f83cb90a37fefa00dd93f43c600e2d1a0
+optional-skills/email/agentmail/SKILL.md	agentmail	Use when an agent needs AgentMail CLI email inboxes.	1.0.0	c86fd78385ba8ebbaf7e4dc8363564854aca6b612cee54940e71c836fa031d11
+optional-skills/finance/3-statement-model/SKILL.md	3-statement-model	Build integrated IS/BS/CF financial workbooks in Excel.	1.0.0	cd8d5d139aa5f75862733e904434f1c77e543bf051a65b2a334a4175b2d019bf
+optional-skills/finance/comps-analysis/SKILL.md	comps-analysis	Build comparable-company valuation workbooks in Excel.	1.0.0	af7c477ccbc17c53ed6e8b68cd8a6518a3e2745462fc893359b26d7c0ff8cc24
+optional-skills/finance/dcf-model/SKILL.md	dcf-model	Build discounted cash flow valuation workbooks in Excel.	1.0.0	6d9d03628fc6e61bd14654afd5c98a91e2649683993d8c0a084cd5448777187d
+optional-skills/finance/excel-author/SKILL.md	excel-author	Build auditable financial workbooks headless via openpyxl.	1.0.0	ff322d20fed68b7d0b785a4141bd388a4dde7a354847515ce5ff1aabe2eda964
+optional-skills/finance/lbo-model/SKILL.md	lbo-model	Build leveraged buyout workbooks with IRR/MOIC in Excel.	1.0.0	dc4f8e473728a479d89b2c3f5bbfeb7ebfd0057d8896d21bad47ebf4308df370
+optional-skills/finance/merger-model/SKILL.md	merger-model	Build M&A accretion/dilution workbooks in Excel.	1.0.0	c3598f012fb3928cf37fd588f8be08ad748a7214e0fce70143c3475b60a3c983
+optional-skills/finance/polymarket/SKILL.md	polymarket	Query Polymarket: markets, prices, orderbooks, history.	1.0.0	7647008fd4328fed8609e262b143362dd21ca12582ecc711cac8b4603920951e
+optional-skills/finance/pptx-author/SKILL.md	pptx-author	Build PowerPoint decks headless with python-pptx.	1.0.0	b81b0c2ef400f7acd7ff812d4d03c42d9100bb2cea27ea8668f26fbac57aa1af
+optional-skills/finance/stocks/SKILL.md	stocks	Stock quotes, history, search, compare, crypto via Yahoo.	1.0.0	fbb6840a88af1a32d4b8c18e0b3b31aeb1cd52bd8e995fddccebe104f23ac1e8
+optional-skills/gaming/minecraft-modpack-server/SKILL.md	minecraft-modpack-server	Host modded Minecraft servers (CurseForge, Modrinth).	1.0.0	f2921c9429d24f3b0b5dec9549190d3e0bd3c99ec2bc1264d422aab0319d5951
+optional-skills/gaming/pokemon-player/SKILL.md	pokemon-player	Play Pokemon via headless emulator + RAM reads.	1.0.0	a5c93dee3c321f180c91402f2659f3d43dd6f2c09817b42d927d8280cbe94204
+optional-skills/health/fitness-nutrition/SKILL.md	fitness-nutrition	Workout planning, macros, and body metrics via wger/USDA.	1.0.0	4bc12bf27d9d92f7fe206900097271cdbc47f27c53318a1576c750f726d3aa30
+optional-skills/health/neuroskill-bci/SKILL.md	neuroskill-bci	Use live BCI cognitive and mood state from NeuroSkill.	1.0.0	b515c332194bd4182d094015a1eba45bd165ebe6dc85e0bd79954cb1be1f6b86
+optional-skills/mcp/fastmcp/SKILL.md	fastmcp	Build, test, and deploy Python MCP servers.	1.0.0	5da1df0c29cf810eafc05ea62b5aa02a3b880f7f28d290a6233fe010a7faf0f9
+optional-skills/mcp/mcp-oauth-remote-gateway/SKILL.md	mcp-oauth-remote-gateway	Manual OAuth for remote MCP servers on headless gateways.	1.0.0	0668eb87209b8d0ca5a5e02e71d1d7f0b2cac7abf9682cae0b6ff52132c3dc84
+optional-skills/mcp/mcporter/SKILL.md	mcporter	List, auth, and call MCP servers/tools from the terminal.	1.0.0	1dbc3b179eefe35f3b93e5c30f39f60513199c847259fdade7ec7781644589eb
+optional-skills/migration/openclaw-migration/SKILL.md	openclaw-migration	Import an OpenClaw setup (memories, skills) into Hermes.	1.0.0	2022e44fdfc5a407325fc1bc729b02754596bda1c02eb07654b416a4832a1136
+optional-skills/mlops/accelerate/SKILL.md	accelerate	Run PyTorch training across GPUs with minimal changes.	1.0.0	559736c6dfab908a8c9ce2e85ed3da13dabe9825b19e87e4bf4561280ca2120f
+optional-skills/mlops/chroma/SKILL.md	chroma	Embedding database for RAG and semantic search.	1.0.0	9d69a518a0d92cb7ae8c8c74a3230e12713a9cedc4bc791c6bce8dcd70b1fd48
+optional-skills/mlops/clip/SKILL.md	clip	Zero-shot image classification and image-text search.	1.0.0	916d263e714ae172ce0522a79bd10b2241fe5742100548c972abec6b3e739c84
+optional-skills/mlops/evaluation/evaluating-llms-harness/SKILL.md	evaluating-llms-harness	lm-eval-harness: benchmark LLMs (MMLU, GSM8K, etc.).	1.0.0	d92c5aa7b52fd4ae0e19c8daab95aaa21c0531d88bdf13d2af8bb36f03b036b4
+optional-skills/mlops/evaluation/weights-and-biases/SKILL.md	weights-and-biases	W&B: log ML experiments, sweeps, model registry, dashboards.	1.0.0	8db7d6f6d8688f4d79045cc15fa0fae54bd9bf2ee0c68a70f42732bb3be2f83b
+optional-skills/mlops/faiss/SKILL.md	faiss	Fast vector similarity search at billion scale.	1.0.0	ccefa5c5b0d6bdadbb291a6e8fcf520c7f9baefedceb274f4ab15551a0efe676
+optional-skills/mlops/flash-attention/SKILL.md	flash-attention	Speed up long-sequence transformer training and inference.	1.0.0	b89807062f6b0c5bb844fe61653d163fef26d47a63d64c5bebd9a85a47ae45d8
+optional-skills/mlops/guidance/SKILL.md	guidance	Constrain LLM output with grammars; guarantee valid JSON.	1.0.0	3708af6279d9e5525c64a76e0972573188784fdfa9107e7ecbf829e445b12df9
+optional-skills/mlops/huggingface-tokenizers/SKILL.md	huggingface-tokenizers	Fast BPE/WordPiece tokenization and custom vocab training.	1.0.0	80f3610c6ab3595dfe792784b83567dc29d2d76d2800607cfe779b0b1504fac9
+optional-skills/mlops/inference/llama-cpp/SKILL.md	llama-cpp	llama.cpp local GGUF inference + HF Hub model discovery.	1.0.0	956e09df13bcb3e80f2813e257ccc40f9fe2f1adb21eaeda91e6a76ec4e61d15
+optional-skills/mlops/inference/outlines/SKILL.md	outlines	Outlines: structured JSON/regex/Pydantic LLM generation.	1.0.0	51b04349355003e837580a2d0b757bf6652c1892ff4b6ebe11bf79f7abe994e2
+optional-skills/mlops/inference/serving-llms-vllm/SKILL.md	serving-llms-vllm	vLLM: high-throughput LLM serving, OpenAI API, quantization.	1.0.0	ac14b09de47d671dce111ec01c2333c25d1f91e208b2e18482452326ea3187c9
+optional-skills/mlops/instructor/SKILL.md	instructor	Structured LLM outputs validated with Pydantic.	1.0.0	a72ae848e17858fe1e70f3099c9e93dda848e3f7346f37cffc6d9c793519a1e2
+optional-skills/mlops/lambda-labs/SKILL.md	lambda-labs	On-demand GPU cloud instances for ML training.	1.0.0	5446f61d056b8480245d6a35c10c2dafd4b279cc896e373693e4e5b4ed352844
+optional-skills/mlops/llava/SKILL.md	llava	Vision-language chat: VQA, captioning, image dialogue.	1.0.0	ef1d164405406a8ae6f820097c5bbeac7f41262f956913acdd191e8c22464e20
+optional-skills/mlops/modal/SKILL.md	modal	Serverless GPU cloud for ML jobs and model APIs.	1.0.0	558214a587aa56bab1a2fced4f7350be8a87b3b73b2b7646a1bd702727389579
+optional-skills/mlops/models/huggingface-hub/SKILL.md	huggingface-hub	HuggingFace hf CLI: search/download/upload models, datasets.	1.0.0	abc4b36c4b150c783643c447f08c31b6ab08ceeb3f7adc378d7dd5999328ff1c
+optional-skills/mlops/models/segment-anything-model/SKILL.md	segment-anything-model	SAM: zero-shot image segmentation via points, boxes, masks.	1.0.0	80754c47d250f4ffc459def828fe6e8c6a097595a42313c4f8adfc6fb3233271
+optional-skills/mlops/nemo-curator/SKILL.md	nemo-curator	Curate LLM training data: dedupe, filter, PII redaction.	1.0.0	1aca64743e73c4a1b4786034dbeb3693e1e80dfe6ecde80453b3647fd218ba1f
+optional-skills/mlops/obliteratus/SKILL.md	obliteratus	OBLITERATUS: abliterate LLM refusals (diff-in-means).	1.0.0	149a799d1a5e9133525602ed900a0c4bebfc891c1642be8e6bc88522155e34ec
+optional-skills/mlops/peft/SKILL.md	peft	Fine-tune large LLMs with LoRA on limited GPU memory.	1.0.0	c4e37411d49686912d233cc3f65c1291d906f38b6c7d5a0d03c45c827b01c5bf
+optional-skills/mlops/pinecone/SKILL.md	pinecone	Managed vector DB for production RAG and search.	1.0.0	8282474f7d148ab5311f766d901b0b28e8be941b95f193799877162cf5173536
+optional-skills/mlops/pytorch-fsdp/SKILL.md	pytorch-fsdp	Fully sharded data-parallel training for large models.	1.0.0	2f35d6faf896a7bcd9367bbc6cc29fb4641f0b5aa3a80af9a23cc493207f1f40
+optional-skills/mlops/pytorch-lightning/SKILL.md	pytorch-lightning	Clean training loops with built-in distributed support.	1.0.0	cc379571d38d7cddf4fba49f66a48b596020a7b80e402d482fcdd2c821f90719
+optional-skills/mlops/qdrant/SKILL.md	qdrant	Vector search engine for production RAG systems.	1.0.0	883746cfacd8c542e232dfebdd8d923263eb41b63aeb5ba583955114640479d7
+optional-skills/mlops/research/dspy/SKILL.md	dspy	DSPy: declarative LM programs, auto-optimize prompts, RAG.	1.0.0	f265d0cdc85c28cbdeb30d35660bd328401df4a4a9aaf6d09365b02caeccebff
+optional-skills/mlops/saelens/SKILL.md	saelens	Train sparse autoencoders to interpret model features.	1.0.0	68514bd3d38151b786588cf3c760bfdcb38e66eb37e78526f51d43cc0c8b1c45
+optional-skills/mlops/simpo/SKILL.md	simpo	Reference-free preference alignment, simpler than DPO.	1.0.0	fa9c5950944caf08bfbd1f17fbff62929010bdaa866ceadd71771f39ae2b1a57
+optional-skills/mlops/slime/SKILL.md	slime	RL post-training for LLMs with Megatron and SGLang.	1.0.0	d808f34c68a1bd85eaf9287ceb2bc7cee8ac206430f2136ea4c028a98b4fc18b
+optional-skills/mlops/stable-diffusion/SKILL.md	stable-diffusion	Text-to-image generation, inpainting, and img2img.	1.0.0	d6f358091730170dae3f9a0231f637f88e7405307bc50d3bbe42e588e3ac2002
+optional-skills/mlops/tensorrt-llm/SKILL.md	tensorrt-llm	High-throughput LLM inference on NVIDIA GPUs.	1.0.0	4e30b9e6fdda4ca3de6bc0ed29aead8a058704dd85fd0d6eaabc0ac2d9939fbf
+optional-skills/mlops/torchtitan/SKILL.md	torchtitan	Pretrain LLMs at scale with PyTorch 4D parallelism.	1.0.0	11c9e653ce2c265343e0ec4e722f6218221c7c0f201293c120ea9142044d05fb
+optional-skills/mlops/training/axolotl/SKILL.md	axolotl	Axolotl: YAML LLM fine-tuning (LoRA, DPO, GRPO).	1.0.0	0990a120747738bb8d5c08cf86fece69708a0e2631b7f3a92cf782a5a2006fc0
+optional-skills/mlops/training/trl-fine-tuning/SKILL.md	trl-fine-tuning	TRL: SFT, DPO, GRPO, RLOO reward modeling for LLM RLHF.	1.0.0	6197dabc8a5c93d2281e8a1e427519ff4d11f487135bf1b6efb1a4758e49e9f7
+optional-skills/mlops/training/unsloth/SKILL.md	unsloth	Unsloth: 2-5x faster LoRA/QLoRA fine-tuning, less VRAM.	1.0.0	5d2bde53bc8256c6bfb4f1c7ab1970bdfc03fd58885a3ffea36a9f79713513b4
+optional-skills/mlops/whisper/SKILL.md	whisper	Transcribe and translate speech in 99 languages.	1.0.0	bc74e8a0dd8a57432b3b0acc8d3d16d5cd36aac20b0544acbc03b29e8180a92a
+optional-skills/payments/mpp-agent/SKILL.md	mpp-agent	Pay HTTP 402 APIs via Machine Payments Protocol (MPP).	1.0.0	6e075804247738d5df98d19dc57c0187dd52044c3a16b9c9f511515c95d2e75f
+optional-skills/payments/stripe-link-cli/SKILL.md	stripe-link-cli	Agent payments via Stripe Link — cards, SPT, approvals.	1.0.0	1cb35b68c00040fdbfd5ef2d5178036d4c7948013eef7efceab0b9330171d772
+optional-skills/payments/stripe-projects/SKILL.md	stripe-projects	Provision SaaS services + sync creds via Stripe Projects.	1.0.0	6a0dcabd0ad90be632de5b1cec9ed6291b0cbb025238627068f1c1f68604b865
+optional-skills/productivity/canvas/SKILL.md	canvas	Fetch Canvas LMS courses and assignments via API token.	1.0.0	8fec1b3497c202bc9564b54aa17d614070c7747ad6d0e6016a6730da828f4631
+optional-skills/productivity/decision-questionnaire/SKILL.md	decision-questionnaire	Turn an unanswerable decision into a questionnaire doc.	1.0.0	f983a99bf7abc2e729dc18e0e88b631c367cb26470057f585e10de231f92d7bd
+optional-skills/productivity/here-now/SKILL.md	here-now	Publish sites to {slug}.here.now and store files in Drives.	1.0.0	b802eaad2892ea70a0da4b6426eb67430b9e380574170e52d2a74e97e44c77fb
+optional-skills/productivity/live-dashboard/SKILL.md	live-dashboard	Build self-updating dashboards from live sources.	1.0.0	67d09d59a5113c8023f394be68c216023a5b96d7467f5d01c503dae1d352b831
+optional-skills/productivity/memento-flashcards/SKILL.md	memento-flashcards	Spaced-repetition flashcards: create, review, quiz, export.	1.0.0	ebdb029c1dd88bb1ebcab2434b88bef9cdd7c530c7a3e9e3f2c38466bf53f5a8
+optional-skills/productivity/property-listings/SKILL.md	property-listings	Present property and rental listings as desktop cards.	1.0.0	4ae5af2aedbf5c6da21d324b9779f26738042b74c31b7d6a0abe99e16fac39e9
+optional-skills/productivity/shop/SKILL.md	shop	Shop catalog search, checkout, order tracking, returns.	1.0.0	596c87698ba4ba3759f90f2922bcef61a08800d2b9440ebb53e3544f4ac5a417
+optional-skills/productivity/shopify/SKILL.md	shopify	Query Shopify Admin/Storefront GraphQL APIs via curl.	1.0.0	0dd75f2ca9482d3fe3a8d72f86c71e4407f18d845aded3eff195c06d98f31d56
+optional-skills/productivity/siyuan/SKILL.md	siyuan	Query and edit a SiYuan knowledge base via its API.	1.0.0	0d55155c0c0bc662df314f62234defabc940b85ac1d4e030bec16733e0d3ad79
+optional-skills/productivity/telephony/SKILL.md	telephony	Provision Twilio numbers, SMS/MMS, and AI outbound calls.	1.0.0	97575146b776e467e3b0d8185e3a829cb0e8ed05de48ffc895609e5573c3f44a
+optional-skills/research/bioinformatics/SKILL.md	bioinformatics	Gateway to 400+ genomics and computational biology skills.	1.0.0	ee94d1fe8deb39d2fe21f2d19f8cb069bc9a93f3717d9e632f0a0fe534a4c056
+optional-skills/research/blogwatcher/SKILL.md	blogwatcher	Monitor blogs and RSS/Atom feeds via blogwatcher-cli tool.	1.0.0	eadf899aa05c66210c2996fa7736245b0334cb191f4dd1f263e417fba8c71ebf
+optional-skills/research/darwinian-evolver/SKILL.md	darwinian-evolver	Evolve prompts/regex/SQL/code with Imbue's evolution loop.	1.0.0	ff53fc69eb946c22bf030dc4cc547ccc3b62923698a47841318acbb6910fd9a0
+optional-skills/research/domain-intel/SKILL.md	domain-intel	Passive recon of subdomains, SSL certs, WHOIS, and DNS.	1.0.0	b950033ce8cd7f1d30d9e7ca112112a1f52bd722ed8f695bf4bce434b62a7428
+optional-skills/research/drug-discovery/SKILL.md	drug-discovery	Drug discovery: ChEMBL search, drug-likeness, interactions.	1.0.0	631d412b50e222068243c7db3905c5689ea89ad70966aa44937fadabe98965f5
+optional-skills/research/duckduckgo-search/SKILL.md	duckduckgo-search	Free keyless web, news, and image search via ddgs.	1.0.0	5fe49aca4a7e41f7928bad29828c92bd3a57676fe73086b440037599c9d50074
+optional-skills/research/gitnexus-explorer/SKILL.md	gitnexus-explorer	Serve an interactive codebase knowledge graph web UI.	1.0.0	6f34ca87aa2bb8d3515c743e5defdde3d2cc58e0954da9352f996d4fa1f1b453
+optional-skills/research/osint-investigation/SKILL.md	osint-investigation	Follow the money via public records and sanctions data.	1.0.0	cb433ab01c67d95de77cdec20cdc2aeb3aeb087091456d0c74bf780e4e0cf596
+optional-skills/research/parallel-cli/SKILL.md	parallel-cli	Agent-native web search, deep research, and enrichment.	1.0.0	97cf95137e47b593da7d08db2114c787136ef48dfb3c352aeba3d43f20c5f6be
+optional-skills/research/pinecone-research/SKILL.md	pinecone-research	Agent RAG and long-term memory with Pinecone.	1.0.0	feb692885b8ae767f2d977434168c2b8a215c0bcc08e5694b4d44c4070385094
+optional-skills/research/qmd/SKILL.md	qmd	Hybrid local search over notes, docs, and transcripts.	1.0.0	f8bb888fc8f31d69fe7bb1cbd3d4040bb35ce63954fee7e12f0da2ff0256cac8
+optional-skills/research/research-paper-writing/SKILL.md	research-paper-writing	Write ML papers for NeurIPS/ICML/ICLR: design→submit.	1.0.0	08b2858d26aebaa3701a2bd601e52eb6796bfbb1e1802967ee2a61fdaefc40cc
+optional-skills/research/rss-feeds/SKILL.md	rss-feeds	Read RSS, Atom, JSON feeds; discover feeds behind a page.	1.0.0	6eb67df9d525a7b58dd0a436fd738c2b0ea926823fda3b69e9fee311018e7e3d
+optional-skills/research/scrapling/SKILL.md	scrapling	Scrape sites with stealth browsing and Cloudflare bypass.	1.0.0	ba1de5670f95f1f8164022a86a9be999522453a7de571bd3f13172b192ae262d
+optional-skills/research/searxng-search/SKILL.md	searxng-search	Free keyless meta-search aggregating 70+ engines.	1.0.0	78de4a029b2d63535ac15a8dc9835368f92f8aaf24fe106dfd67c97851e95b5b
+optional-skills/security/1password/SKILL.md	1password	Set up op CLI, sign in, and read or inject secrets.	1.0.0	a5cd0bfd3084e5be41c2818ad074811fe8192ba24540dab653fdbee5fe43eeac
+optional-skills/security/godmode/SKILL.md	godmode	Jailbreak LLMs: Parseltongue, GODMODE, ULTRAPLINIAN.	1.0.0	7ca0f1e94141c0da9c3afb605b534c8d2c6433b6425f5695062ad87a68eb73ba
+optional-skills/security/oss-forensics/SKILL.md	oss-forensics	GitHub supply-chain forensics: recovery, IOCs, reporting.	1.0.0	b5456fcdbf6b047bc8d1deab7839ae273daec9c44ecfde26482d90e82bd75b37
+optional-skills/security/sherlock/SKILL.md	sherlock	Find accounts for a username across 400+ platforms.	1.0.0	dba41582778a35f8e9a770b6f70b43cd113ae100ab40424ba4f1d4dae76d32ed
+optional-skills/security/unbroker/SKILL.md	unbroker	Autonomously remove your info from data-broker sites.	1.0.0	2b1170f2f76e91236f864d903ef61054315eb7271c6c2b791fff5cb1c62e783a
+optional-skills/security/web-pentest/SKILL.md	web-pentest	Authorized web pentest: recon, proof-based exploits, report.	1.0.0	ace48ac339441bbf89b4cd3c53390ec23d23de46444447fdcf0be9e7dc628b4e
+optional-skills/smart-home/openhue/SKILL.md	openhue	Control Philips Hue lights, scenes, rooms via OpenHue CLI.	1.0.0	52ea98be0fede43183f6b7a1646e4a10c1f5247dd4c40974bbe04d6710f1c712
+optional-skills/social-media/reddit-reading/SKILL.md	reddit-reading	Read Reddit: subreddits, search, threads, users. No browser.	1.0.0	fe1b584f82b896693622ec7de87248831b0b9bae34187953d3c8250da8818dc3
+optional-skills/software-development/ast-grep/SKILL.md	ast-grep	AST-aware structural code search and rewrite via ast-grep.	1.0.0	4adfa2e5b344ad0e9ebaf16e022b89daa0a038e793b74a116a5cdb11beeb07ce
+optional-skills/software-development/code-wiki/SKILL.md	code-wiki	Generate wiki docs + Mermaid diagrams for any codebase.	1.0.0	124536c720d77c69012b1369feeb17ea7ee7a859ad84eef5d31914ce6b1c9b22
+optional-skills/software-development/grill-me/SKILL.md	grill-me	Adversarial plan interview before implementation.	1.0.0	7997c44f4e2fed9b9b1c0c30f5256c33791fceaf8b618968d3cc87ef3a4a06f8
+optional-skills/software-development/pr-lens/SKILL.md	pr-lens	Draw code changes as animated architecture/data-flow SVGs.	1.0.0	7157c6fac68765d6d216c4996c9f6336f741dfb49b4682dbf45401543da7b3d4
+optional-skills/software-development/rest-graphql-debug/SKILL.md	rest-graphql-debug	Debug REST/GraphQL APIs: status codes, auth, schemas, repro.	1.0.0	dd361260d941610c0aba5db4861c1e8e7607322ce56089aeb7c501a0052aa98d
+optional-skills/software-development/subagent-driven-development/SKILL.md	subagent-driven-development	Execute plans via delegate_task subagents (2-stage review).	1.0.0	6deac0b97f3f6d2aa05b5b24cb7ae6a118426e49450d1960c8bc01d8ab093ab0
+optional-skills/web-development/cloudflare-temporary-deploy/SKILL.md	cloudflare-temporary-deploy	Deploy a Worker live, no account, via wrangler --temporary.	1.0.0	67fb2fc641594da1e8ca2e91845eaa0642ce8912dcebacbc739f76e2ed33e9b2
+optional-skills/web-development/har-derived-api-client/SKILL.md	har-derived-api-client	Record a site's XHR into a HAR, derive an HTTP client.	1.0.0	511c2dfc1c9eee2404cb8350f392c4494df7847528ae11b8f5e3c823c1ccc085
+optional-skills/web-development/page-agent/SKILL.md	page-agent	Embed an in-page natural-language GUI copilot in web apps.	1.0.0	09459602ce1031e3a285abdbbb5b5e344fc8a999c3a487dff0970d38f5e7c097
+optional-skills/web-development/publish-site/SKILL.md	publish-site	Versioned site deploys to GitHub/Cloudflare/Netlify Pages.	1.0.0	f1f093f81b41808265c8bb6a169a341b09294460315ab16a8fefe0d39ae8e875
+optional-skills/web-development/scrollcraft/SKILL.md	scrollcraft	Premium scroll-driven landing pages; scroll = timeline.	1.0.0	16c01d769468606c744661a62986f7e4808f0c2585a54868fa944e779482843f
+optional-skills/yuanbao/SKILL.md	yuanbao	Yuanbao (元宝) groups: @mention users, query info/members.	1.0.0	38993cfa6f4898a0512954b949a9ef979a6f29f61d37cd724c8b2732b04bfeb4
+skills/apple/apple-notes/SKILL.md	apple-notes	Manage Apple Notes via memo CLI: create, search, edit.	1.0.0	865451de5865f58495186273bb05109eaf08a9e7cc450af1fa9038f70f1c90c2
+skills/apple/apple-reminders/SKILL.md	apple-reminders	Apple Reminders via remindctl: add, list, complete.	1.0.0	66fdd0424dc7809f4c0af9b07c26b1564be401204a0e8370267e28cf7cf28ca9
+skills/apple/findmy/SKILL.md	findmy	Track Apple devices/AirTags via FindMy.app on macOS.	1.0.0	c49b04004e5a9c43c9fcc6acde06a1b140f2619071e56f59349bb5aed2216336
+skills/apple/imessage/SKILL.md	imessage	Send and receive iMessages/SMS via the imsg CLI on macOS.	1.0.0	b8ca3b4834258f37668f3112963656180a769b0ba893102b2622bc30e49665d5
+skills/autonomous-ai-agents/claude-code/SKILL.md	claude-code	Delegate coding to Claude Code CLI (features, PRs).	1.0.0	e56c42179a068b980ae6cbec978c42606de6263c460f670ee1c8b382a974bb7a
+skills/autonomous-ai-agents/codex/SKILL.md	codex	Delegate coding to OpenAI Codex CLI (features, PRs).	1.0.0	1632a86c9e6d55df94cd392063e6a9b3057be250a676734193f3630a41283369
+skills/autonomous-ai-agents/computer-use/SKILL.md	computer-use	Drive the desktop background-first; escalate on signal.	1.0.0	1df4cab1707cbdd770baddf69643f8ddc5e221add4d5f5fc10e3af9949c97eb0
+skills/autonomous-ai-agents/hermes-agent/SKILL.md	hermes-agent	Use, configure, theme, extend, and orchestrate Hermes Agent.	1.0.0	2097c23877600c71c3354b22d9f8643ae9243aad3e1747d4586e648969a77e9f
+skills/autonomous-ai-agents/opencode/SKILL.md	opencode	Delegate coding to OpenCode CLI (features, PR review).	1.0.0	770b7ccb75b874cbfb1015cce6b197efd0c0f1df04a56103aa0688c4c101ba51
+skills/creative/architecture-diagram/SKILL.md	architecture-diagram	Dark-themed SVG architecture/cloud/infra diagrams as HTML.	1.0.0	85743bf6a211c4d2c3a169b1619d356551ec3f73c27eb97a2cb3ba1faace6856
+skills/creative/ascii-video/SKILL.md	ascii-video	ASCII video: convert video/audio to colored ASCII MP4/GIF.	1.0.0	d990a4d2f44ba2bd59ca320f72ff7fecda9f3d4e5b72fadf224c7aca20a53680
+skills/creative/baoyu-infographic/SKILL.md	baoyu-infographic	Infographics: 21 layouts x 21 styles (信息图, 可视化).	1.0.0	74219e2e4bc47bbb51aef6521da48f368048cd64b7655e49ddaf346169979d58
+skills/creative/claude-design/SKILL.md	claude-design	Design one-off HTML artifacts (landing, deck, prototype).	1.0.0	56cf8fac145442d4f02ada73712037dd965195ca938cf1641b9e1c0d1f095b66
+skills/creative/design-md/SKILL.md	design-md	Author/validate/export Google's DESIGN.md token spec files.	1.0.0	b82c541af7e93dd0c3e76c5deb0234795e6ce65fb44bdd558a0dcbf5e8079edb
+skills/creative/humanizer/SKILL.md	humanizer	Humanize text: strip AI-isms and add real voice.	1.0.0	59010db5a88d6eb5062edaac6ad516fdf2ff5d108546c3f46d445b7a4712eaa5
+skills/creative/manim-video/SKILL.md	manim-video	Manim CE animations: 3Blue1Brown math/algo videos.	1.0.0	67495681a0cdae377b1a2e04e75ea8c716dfce3d6058149d177b38f42ebf30ec
+skills/creative/p5js/SKILL.md	p5js	p5.js sketches: gen art, shaders, interactive, 3D.	1.0.0	b3973196b3455836d1ea7bcc96ca88d1ca6ef495f5e6d0c6c40f1d0dd493d7db
+skills/creative/popular-web-designs/SKILL.md	popular-web-designs	54 real design systems (Stripe, Linear, Vercel) as HTML/CSS.	1.0.0	204ce69eac1bfaf99547b7f941dfc3ccb8d9d90ff0918124cc3569b34e91e392
+skills/creative/songwriting-and-ai-music/SKILL.md	songwriting-and-ai-music	Songwriting craft and Suno AI music prompts.	1.0.0	55fdf06743394a18dfc46d8c8eb93ffc95437d6944612077635d0908d3d4302c
+skills/devops/sdlc-review/SKILL.md	sdlc-review	Review Kanban handoffs and route verified outcomes.	1.0.0	524cc7d269c4a31531bf477bc6b87e36403e5b4be98ac5a7cf2e7d83157c64aa
+skills/email/email-inbox-triage/SKILL.md	email-inbox-triage	Triage an inbox: prioritize threads, draft replies safely.	1.0.0	2fc1e86884697cce3fd7dce4d6d3c26f8bfb6663e23cace9114f8597511a53de
+skills/email/himalaya/SKILL.md	himalaya	Himalaya CLI: IMAP/SMTP email from terminal.	1.0.0	91d59fabc07e82e883d930381bc70fb31ef8ebd7694a3265c2368e00c3143086
+skills/media/gif-search/SKILL.md	gif-search	Search/download GIFs from Tenor via curl + jq.	1.0.0	934ef9b7773b749a99aee973518e062b330f05b77aabd44a726325b40d869c2b
+skills/media/songsee/SKILL.md	songsee	Audio spectrograms/features (mel, chroma, MFCC) via CLI.	1.0.0	af79f035156561159e7095c8661611894c86c43b80f86b0a2a1cfcc3fb315aca
+skills/media/youtube-content/SKILL.md	youtube-content	YouTube transcripts to summaries, threads, blogs.	1.0.0	8385de5cfd8211f7681565ef9574599e00cbf416093916c4c0f6d606e17fb48d
+skills/note-taking/obsidian/SKILL.md	obsidian	Read, search, create, and edit notes in the Obsidian vault.	1.0.0	b2cf7a17c68da9896afe7a85ead8b3c66187d6ca9650c5f684a4d1f1ef3e5187
+skills/productivity/airtable/SKILL.md	airtable	Airtable REST API via curl. Records CRUD, filters, upserts.	1.0.0	330d88fd39373aa46b75bb7789c82de27f2bf9494489d4e27437d139590826c6
+skills/productivity/box/SKILL.md	box	Box manages cloud files, sharing, search, and metadata.	1.0.0	5384d9053a967307ac09e6c32b5ae2cbcb9a360e01a73d1209e65d08302df766
+skills/productivity/document-to-action-items/SKILL.md	document-to-action-items	Extract cited obligations, deadlines, tasks from documents.	1.0.0	b1b6c712b4ee405e6204aa89208158e0a6964f5b02a9da079617ba71669e2e93
+skills/productivity/docx/SKILL.md	docx	Create, read, edit, template, and review Word .docx files.	1.0.0	f8c9055213c4c9ed53c734ef4fb9bd964c199a558b43e05b1a06095586a51ba8
+skills/productivity/google-workspace/SKILL.md	google-workspace	Gmail, Calendar, Drive, Docs, Sheets via gws CLI or Python.	1.0.0	67c34c3238236e17a6a7e241238e705dec68d89eca71f2922a5b67a315053a44
+skills/productivity/maps/SKILL.md	maps	Geocode, POIs, routes, timezones via OpenStreetMap/OSRM.	1.0.0	b08cab91479c9bfa920e9532761788ff1c3b7f1d078544972af09d061d749483
+skills/productivity/meeting-action-items/SKILL.md	meeting-action-items	Turn meeting notes into cited decisions, owners, tickets.	1.0.0	41d1d9d30f71bc73441f5ab91403eefd1aa7557219fbe45c05011e4af1aea4be
+skills/productivity/notion/SKILL.md	notion	Notion API + ntn CLI: pages, databases, markdown, Workers.	1.0.0	b2694d869b3a189c7afe79300571c07523b482104e0e8f8d64f660dbe913939a
+skills/productivity/pdf/SKILL.md	pdf	PDF files: create, read, merge, fill, OCR, edit text.	1.0.0	06febbc776e9d00d094e0e96eb94c9b95b078408e034db297e9f6a4302bad01e
+skills/productivity/powerpoint/SKILL.md	powerpoint	Create, read, edit .pptx decks with python-pptx.	1.0.0	08abda33c52b4aac4b966d437afbd3fe9abdddc723a7ab77b53515cea46fad84
+skills/productivity/product-price-monitor/SKILL.md	product-price-monitor	Watch product, flight, or listing prices; alert on target.	1.0.0	85cdbdf651e7316d227a0abe1e6f6cbbe918a6f83c9ab7a35efe174769f67395
+skills/productivity/teams-meeting-pipeline/SKILL.md	teams-meeting-pipeline	Teams meeting summaries, job replay, Graph subscriptions.	1.0.0	26cda6b3a50c9acb6da35552f5afa5b56d73ec295709c1b16f9ebd73e3d994bb
+skills/productivity/weekly-review-planning/SKILL.md	weekly-review-planning	Weekly reset: commitments, stalled work, next-week plan.	1.0.0	28c037c8a002390fdde4492407a1d9c7b4ab515f0ff51056ec39254f2c6a039d
+skills/productivity/xlsx/SKILL.md	xlsx	Create, read, edit Excel .xlsx workbooks and CSVs.	1.0.0	7544c814a7b814b1761cca2c8ce55a7d5cdacada94902c890fdef960f5b6312b
+skills/research/arxiv/SKILL.md	arxiv	Search arXiv papers by keyword, author, category, or ID.	1.0.0	5c0ef891d19a2ce0525c3986e122bb6bed28ce3db3c8c85222b9e1c79c1ce36a
+skills/research/competitor-news-monitor/SKILL.md	competitor-news-monitor	Watch named companies for material news; cited digests.	1.0.0	2171a474ff0a1b8d64873cf15b633a2fbceda7a7e08e7f2e6f77c22e234f1239
+skills/research/grounded-citations/SKILL.md	grounded-citations	Ground answers and documents in cited, verifiable sources.	1.0.0	12734ca3c439430be9bb4dc4bcba897b23d68324ca1231cded0ab90da926686b
+skills/research/llm-wiki/SKILL.md	llm-wiki	Karpathy's LLM Wiki: build/query interlinked markdown KB.	1.0.0	345cd984c7ce61c22baf42b7688d253b51f39b487364cb4069c97cb02857fe4c
+skills/social-media/xurl/SKILL.md	xurl	X/Twitter via xurl CLI: raw post search, posting, DM, media.	1.0.0	d4142d8e589a949e7d37076604a917729755df630ae7e7c05d0651fb343adb2a
+skills/software-development/codebase-inspection/SKILL.md	codebase-inspection	Inspect codebases w/ pygount: LOC, languages, ratios.	1.0.0	35988d1b7b522913f687e30a031d7ba45bc1083c511be797d0b3d3bae08ca520
+skills/software-development/dogfood/SKILL.md	dogfood	Exploratory QA of web apps: find bugs, evidence, reports.	1.0.0	9d52f9593f452d6886da78c28c7588ff016fde6cfd8e996ab4dc233748f0008e
+skills/software-development/github/SKILL.md	github	GitHub via gh CLI: PRs, issues, reviews, repos, auth.	1.0.0	d386940b9f9dde2f1ee8486a7375e824178a90d4911587dec3616e2f1b472ab8
+skills/software-development/hermes-agent-skill-authoring/SKILL.md	hermes-agent-skill-authoring	Author in-repo SKILL.md files: frontmatter and structure.	1.0.0	ab85660dcccedb2c64216ed3e583c79db519db7ed9ca95bc90b02f13929dee03
+skills/software-development/inspecting-hermes-desktop-dom/SKILL.md	inspecting-hermes-desktop-dom	Read the live Hermes desktop DOM/CSS over CDP.	1.0.0	1e335c201b31828fea0177982bf691423a8991c0fbe08e2ad81b40f9e3d62abf
+skills/software-development/node-inspect-debugger/SKILL.md	node-inspect-debugger	Debug Node.js via --inspect + Chrome DevTools Protocol CLI.	1.0.0	ec143360a7813a47c1f4823d9f42146dee433f5bc1abb07b10cb4b46ca5c0a99
+skills/software-development/python-debugpy/SKILL.md	python-debugpy	Debug Python: pdb REPL + debugpy remote (DAP).	1.0.0	0bd0fbbbc21ed49b56badccb6c7860cf87f307c56414fc07f0a802b8765d8964
+skills/software-development/requesting-code-review/SKILL.md	requesting-code-review	Pre-commit review: security scan, quality gates, auto-fix.	1.0.0	9f6884f0541556bba9cc8ada45d519137145be555fc9b41c943c03a8e7f3dafd
+skills/software-development/simplify-code/SKILL.md	simplify-code	Parallel 4-agent cleanup of recent code changes.	1.0.0	f9e742a1c4ade92414626eac0d8fd53c788fc06b5dd63d2f64471de1dce3fe0e
+skills/software-development/spike/SKILL.md	spike	Throwaway experiments to validate an idea before build.	1.0.0	70939df8cff6f7449fbf0687f7e92ca760bfbb3612024a77a5b8bb0f20651f31
+skills/software-development/systematic-debugging/SKILL.md	systematic-debugging	4-phase root cause debugging: understand bugs before fixing.	1.0.0	c525f98288a0bc0e9622e1d067dc16c14069ef9e186b40bcf48eb8a09c375029
+skills/software-development/test-driven-development/SKILL.md	test-driven-development	TDD: enforce RED-GREEN-REFACTOR, tests before code.	1.0.0	d0c0a09b4e96a83b66b55c658df8b676242361eaca02a0c2710cc585d2ec4ae7
+skills/web/blocked-page-recovery/SKILL.md	blocked-page-recovery	Use when a fetch fails: 403/429, paywall, WAF, bot wall.	1.0.0	5d39fa2157e8759b2fca11be59d7bbb9ecd573761c2b5555d22b2508450261af

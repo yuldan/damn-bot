@@ -126,45 +126,45 @@ Kontrak: setiap entri hub membawa `tos_risk`/`tos_note` (GAP-GW-07), signature e
 
 ## 6. Ledger parity F8 — SKCAT (35)
 
-Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md valid; referensi `requires`/`skill://` dan path script ada (0 menggantung); threat scan §14.4; 0 nilai kosong di katalog i18n terkait.
+Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md valid; referensi `requires`/`skill://` dan path script ada (0 menggantung); threat scan §14.4; 0 nilai kosong di katalog i18n terkait. Baris SKCAT-001..035 dibuktikan katalog embedded `internal/skills/catalog` (211 entri, digest per baris, kategori tertutup) dan tes bernama per kategori; sinkron opsional/hub memakai entri yang sama.
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| SKCAT-001 | Bundled `apple` (4) | 4 skill tersinkron; frontmatter valid; 0 referensi menggantung | `TestF8SKCAT001Apple` | BELUM | bundled |
-| SKCAT-002 | Bundled `autonomous-ai-agents` (5) | 5 skill tersinkron; referensi valid | `TestF8SKCAT002AutonomousAIAgents` | BELUM | bundled |
-| SKCAT-003 | Bundled `creative` (10) | 10 skill tersinkron; referensi valid | `TestF8SKCAT003Creative` | BELUM | bundled |
-| SKCAT-004 | Bundled `devops` (1) | 1 skill tersinkron; referensi valid | `TestF8SKCAT004Devops` | BELUM | bundled |
-| SKCAT-005 | Bundled `email` (2) | 2 skill tersinkron; referensi valid | `TestF8SKCAT005Email` | BELUM | bundled |
-| SKCAT-006 | Bundled `media` (3) | 3 skill tersinkron; referensi valid | `TestF8SKCAT006Media` | BELUM | bundled |
-| SKCAT-007 | Bundled `note-taking` (1) | 1 skill tersinkron; referensi valid | `TestF8SKCAT007NoteTaking` | BELUM | bundled |
-| SKCAT-008 | Bundled `productivity` (14) | 14 skill tersinkron; referensi valid | `TestF8SKCAT008Productivity` | BELUM | bundled |
-| SKCAT-009 | Bundled `research` (4) | 4 skill tersinkron; referensi valid | `TestF8SKCAT009Research` | BELUM | bundled |
-| SKCAT-010 | Bundled `social-media` (1) | 1 skill tersinkron; referensi valid | `TestF8SKCAT010SocialMedia` | BELUM | bundled |
-| SKCAT-011 | Bundled `software-development` (12) | 12 skill tersinkron; referensi valid | `TestF8SKCAT011SoftwareDevelopment` | BELUM | bundled |
-| SKCAT-012 | Bundled `web` (1) | 1 skill tersinkron; referensi valid | `TestF8SKCAT012Web` | BELUM | bundled |
-| SKCAT-013 | Optional `autonomous-ai-agents` (7) | 7 skill opsional terpasang saat diminta; 0 auto-install | `TestF8SKCAT013OptionalAutonomousAIAgents` | BELUM | opt-in |
-| SKCAT-014 | Optional `blockchain` (3) | 3 skill opsional; default testnet/devnet (GAP-SEC-15) | `TestF8SKCAT014OptionalBlockchain` | BELUM | opt-in |
-| SKCAT-015 | Optional `communication` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT015OptionalCommunication` | BELUM | opt-in |
-| SKCAT-016 | Optional `creative` (31) | 31 skill opsional; referensi valid | `TestF8SKCAT016OptionalCreative` | BELUM | opt-in |
-| SKCAT-017 | Optional `data-science` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT017OptionalDataScience` | BELUM | opt-in |
-| SKCAT-018 | Optional `devops` (7) | 7 skill opsional; referensi valid | `TestF8SKCAT018OptionalDevops` | BELUM | opt-in |
-| SKCAT-019 | Optional `dogfood` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT019OptionalDogfood` | BELUM | opt-in |
-| SKCAT-020 | Optional `email` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT020OptionalEmail` | BELUM | opt-in |
-| SKCAT-021 | Optional `finance` (9) | 9 skill opsional; skill pembayaran `monetary` (GAP-SEC-15) | `TestF8SKCAT021OptionalFinance` | BELUM | opt-in |
-| SKCAT-022 | Optional `gaming` (2) | 2 skill opsional; referensi valid | `TestF8SKCAT022OptionalGaming` | BELUM | opt-in |
-| SKCAT-023 | Optional `health` (2) | 2 skill opsional; referensi valid | `TestF8SKCAT023OptionalHealth` | BELUM | opt-in |
-| SKCAT-024 | Optional `mcp` (3) | 3 skill opsional; referensi MCP valid | `TestF8SKCAT024OptionalMCP` | BELUM | opt-in |
-| SKCAT-025 | Optional `migration` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT025OptionalMigration` | BELUM | opt-in |
-| SKCAT-026 | Optional `mlops` (36) | 36 skill opsional; referensi valid | `TestF8SKCAT026OptionalMLOps` | BELUM | opt-in |
-| SKCAT-027 | Optional `payments` (3) | 3 skill opsional; pola pembayaran `tos_risk` medium | `TestF8SKCAT027OptionalPayments` | BELUM | opt-in |
-| SKCAT-028 | Optional `productivity` (10) | 10 skill opsional; referensi valid | `TestF8SKCAT028OptionalProductivity` | BELUM | opt-in |
-| SKCAT-029 | Optional `research` (15) | 15 skill opsional; referensi valid | `TestF8SKCAT029OptionalResearch` | BELUM | opt-in |
-| SKCAT-030 | Optional `security` (6) | 6 skill opsional; referensi valid | `TestF8SKCAT030OptionalSecurity` | BELUM | opt-in |
-| SKCAT-031 | Optional `smart-home` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT031OptionalSmartHome` | BELUM | opt-in |
-| SKCAT-032 | Optional `social-media` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT032OptionalSocialMedia` | BELUM | opt-in |
-| SKCAT-033 | Optional `software-development` (6) | 6 skill opsional; referensi valid | `TestF8SKCAT033OptionalSoftwareDevelopment` | BELUM | opt-in |
-| SKCAT-034 | Optional `web-development` (5) | 5 skill opsional; referensi valid | `TestF8SKCAT034OptionalWebDevelopment` | BELUM | opt-in |
-| SKCAT-035 | Optional `yuanbao` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT035OptionalYuanbao` | BELUM | opt-in |
+| SKCAT-001 | Bundled `apple` (4) | 4 skill tersinkron; frontmatter valid; 0 referensi menggantung | `TestF8SKCAT001Apple` | LULUS | bundled |
+| SKCAT-002 | Bundled `autonomous-ai-agents` (5) | 5 skill tersinkron; referensi valid | `TestF8SKCAT002AutonomousAIAgents` | LULUS | bundled |
+| SKCAT-003 | Bundled `creative` (10) | 10 skill tersinkron; referensi valid | `TestF8SKCAT003Creative` | LULUS | bundled |
+| SKCAT-004 | Bundled `devops` (1) | 1 skill tersinkron; referensi valid | `TestF8SKCAT004Devops` | LULUS | bundled |
+| SKCAT-005 | Bundled `email` (2) | 2 skill tersinkron; referensi valid | `TestF8SKCAT005Email` | LULUS | bundled |
+| SKCAT-006 | Bundled `media` (3) | 3 skill tersinkron; referensi valid | `TestF8SKCAT006Media` | LULUS | bundled |
+| SKCAT-007 | Bundled `note-taking` (1) | 1 skill tersinkron; referensi valid | `TestF8SKCAT007NoteTaking` | LULUS | bundled |
+| SKCAT-008 | Bundled `productivity` (14) | 14 skill tersinkron; referensi valid | `TestF8SKCAT008Productivity` | LULUS | bundled |
+| SKCAT-009 | Bundled `research` (4) | 4 skill tersinkron; referensi valid | `TestF8SKCAT009Research` | LULUS | bundled |
+| SKCAT-010 | Bundled `social-media` (1) | 1 skill tersinkron; referensi valid | `TestF8SKCAT010SocialMedia` | LULUS | bundled |
+| SKCAT-011 | Bundled `software-development` (12) | 12 skill tersinkron; referensi valid | `TestF8SKCAT011SoftwareDevelopment` | LULUS | bundled |
+| SKCAT-012 | Bundled `web` (1) | 1 skill tersinkron; referensi valid | `TestF8SKCAT012Web` | LULUS | bundled |
+| SKCAT-013 | Optional `autonomous-ai-agents` (7) | 7 skill opsional terpasang saat diminta; 0 auto-install | `TestF8SKCAT013OptionalAutonomousAIAgents` | LULUS | opt-in |
+| SKCAT-014 | Optional `blockchain` (3) | 3 skill opsional; default testnet/devnet (GAP-SEC-15) | `TestF8SKCAT014OptionalBlockchain` | LULUS | opt-in |
+| SKCAT-015 | Optional `communication` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT015OptionalCommunication` | LULUS | opt-in |
+| SKCAT-016 | Optional `creative` (31) | 31 skill opsional; referensi valid | `TestF8SKCAT016OptionalCreative` | LULUS | opt-in |
+| SKCAT-017 | Optional `data-science` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT017OptionalDataScience` | LULUS | opt-in |
+| SKCAT-018 | Optional `devops` (7) | 7 skill opsional; referensi valid | `TestF8SKCAT018OptionalDevops` | LULUS | opt-in |
+| SKCAT-019 | Optional `dogfood` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT019OptionalDogfood` | LULUS | opt-in |
+| SKCAT-020 | Optional `email` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT020OptionalEmail` | LULUS | opt-in |
+| SKCAT-021 | Optional `finance` (9) | 9 skill opsional; skill pembayaran `monetary` (GAP-SEC-15) | `TestF8SKCAT021OptionalFinance` | LULUS | opt-in |
+| SKCAT-022 | Optional `gaming` (2) | 2 skill opsional; referensi valid | `TestF8SKCAT022OptionalGaming` | LULUS | opt-in |
+| SKCAT-023 | Optional `health` (2) | 2 skill opsional; referensi valid | `TestF8SKCAT023OptionalHealth` | LULUS | opt-in |
+| SKCAT-024 | Optional `mcp` (3) | 3 skill opsional; referensi MCP valid | `TestF8SKCAT024OptionalMCP` | LULUS | opt-in |
+| SKCAT-025 | Optional `migration` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT025OptionalMigration` | LULUS | opt-in |
+| SKCAT-026 | Optional `mlops` (36) | 36 skill opsional; referensi valid | `TestF8SKCAT026OptionalMLOps` | LULUS | opt-in |
+| SKCAT-027 | Optional `payments` (3) | 3 skill opsional; pola pembayaran `tos_risk` medium | `TestF8SKCAT027OptionalPayments` | LULUS | opt-in |
+| SKCAT-028 | Optional `productivity` (10) | 10 skill opsional; referensi valid | `TestF8SKCAT028OptionalProductivity` | LULUS | opt-in |
+| SKCAT-029 | Optional `research` (15) | 15 skill opsional; referensi valid | `TestF8SKCAT029OptionalResearch` | LULUS | opt-in |
+| SKCAT-030 | Optional `security` (6) | 6 skill opsional; referensi valid | `TestF8SKCAT030OptionalSecurity` | LULUS | opt-in |
+| SKCAT-031 | Optional `smart-home` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT031OptionalSmartHome` | LULUS | opt-in |
+| SKCAT-032 | Optional `social-media` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT032OptionalSocialMedia` | LULUS | opt-in |
+| SKCAT-033 | Optional `software-development` (6) | 6 skill opsional; referensi valid | `TestF8SKCAT033OptionalSoftwareDevelopment` | LULUS | opt-in |
+| SKCAT-034 | Optional `web-development` (5) | 5 skill opsional; referensi valid | `TestF8SKCAT034OptionalWebDevelopment` | LULUS | opt-in |
+| SKCAT-035 | Optional `yuanbao` (1) | 1 skill opsional; referensi valid | `TestF8SKCAT035OptionalYuanbao` | LULUS | opt-in |
 
 ## 7. Ledger parity F8 — AUTO (12) dan UI (8)
 

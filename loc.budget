@@ -527,6 +527,13 @@ MODULE gwpeer     4000 internal/gwpeer
 MODULE connectors 6000 internal/connectors
 # ADR-333 (F8 AUTO): paket internal/auto (framework 12 fitur opt-in). Cap
 # SPEC §3.2.4 F8 `auto` 4.000; terukur 345 pada slice framework.
-# Sigma MODULE (108.400 + web 5.000 + connectors 6.000 + auto 4.000 = 123.400)
-# +backup 1.467 = 124.867 <= 132.000.
+# Sigma MODULE (108.400 + web 5.000 + connectors 6.000 + auto 4.000
+# + skillhub 2.500 = 125.900) + backup 1.467 = 127.367 <= 132.000.
 MODULE auto        4000 internal/auto
+
+# ADR-330 alokasi F8: skills-hub 3.500 = skillhub 2.500 + memprovider 1.000.
+# PR katalog/hub membukukan baris `skillhub` (cap tidak berubah): katalog
+# embedded 211 entri + hub unduh/karantina/install/sync. Directory berada di
+# bawah core `internal/skills`, jadi longest-prefix menagihnya ke MODULE ini
+# dan Σ core tidak berubah.
+MODULE skillhub 2500 internal/skills/catalog internal/skills/hub
