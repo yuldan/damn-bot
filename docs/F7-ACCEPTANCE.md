@@ -18,7 +18,7 @@ Aturan gate:
 |---|---|---|---|
 | PLAT 30/30 fake server | 29 baris PLAT berfase F7 `LULUS` (§2 dan §3) + PLAT-022 (Telegram, F4) yang sudah berjalan; setiap adapter menjawab fake server, 0 network tanpa config | §2/§3 `LULUS` + `TestPlatformAdapterContract` + `TestF7PlatformIdentityTable` | BELUM |
 | Smoke nyata nightly | adapter yang punya akun uji lulus smoke nightly; adapter tanpa akun → `N/A — no test account (nightly smoke)` | job `nightly` + `TestF7NightlySmokeMatrix` (daftar adapter × status akun) | BELUM |
-| EC-PLAT non-Telegram (5) | EC-PLAT-004/005/006/008/024 `covered` di katalog EC | §10 baris EC-PLAT-* | BELUM |
+| EC-PLAT non-Telegram (5) | EC-PLAT-004/005/006/008/024 `covered` di katalog EC | §10 baris EC-PLAT-* | LULUS |
 | EC-STATE/TERM/SEC F7 | EC-STATE-004, EC-TERM-004, EC-TERM-005, EC-SEC-006 `covered` | §10 baris EC-STATE-004/EC-TERM-004/EC-TERM-005/EC-SEC-006 | LULUS |
 | Budget modul & binary | `make loc` 0 GAGAL dengan baris F7 (ADR-326); P13 full ≤ 52.000.000 B dan minimal ≤ 22.100.000 B (ADR-325) | `TestLocBudgetModuleRows`, `TestBudgetTableSum`, `make size-check` di PR penutup | BELUM |
 | Ledger F7 | 103 baris parity F7 + 10 GAP + 9 EC tertutup; `PHASE` → F8 hanya setelahnya | `TestF7LedgerClosed`, `TestParityPhaseColumn`, `TestF7LedgerGateRules` | BELUM |
@@ -188,7 +188,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | EC-PLAT-005 | pesan baru setelah `/stop` selalu diproses (generasi baru), tidak dibuang | `TestEdgeCases/EC-PLAT-005` (`TestF7ECPLAT005AfterStop`) | LULUS |
 | EC-PLAT-006 | media hanya dari turn saat ini; gambar turn lama tidak menempel | `TestEdgeCases/EC-PLAT-006` (`TestF7ECPLAT006MediaIsolation`) | LULUS |
 | EC-PLAT-008 | edit pairing store diserialisasi lintas proses (dua proses, 0 lost update) | `TestEdgeCases/EC-PLAT-008` (`TestF7ECPLAT008PairingLock`) | LULUS |
-| EC-PLAT-024 | timeout baca body bridge tidak melepas ownership sesi; request lambat tetap milik satu owner | `TestEdgeCases/EC-PLAT-024` (`TestF7ECPLAT024BridgeOwnership`) | BELUM |
+| EC-PLAT-024 | timeout baca body bridge tidak melepas ownership sesi; request lambat tetap milik satu owner | `TestEdgeCases/EC-PLAT-024` (`TestF7ECPLAT024BridgeOwnership`) | LULUS |
 | EC-STATE-004 | multiplex banyak profil tidak menembus batas koneksi; EMFILE → fallback ke writer, bukan 500 | `TestEdgeCases/EC-STATE-004` (`TestF7ECSTATE004ReadPool`) | LULUS |
 | EC-TERM-004 | task id sama lintas profil tidak berbagi sandbox/cwd; kunci dikualifikasi per profil/sesi | `TestEdgeCases/EC-TERM-004` (`TestF7ECTERM004SandboxKey`) | LULUS |
 | EC-TERM-005 | policy terminal yang gagal resolve → fail closed, bukan nilai ambient | `TestEdgeCases/EC-TERM-005` (`TestF7ECTERM005PolicyResolve`) | LULUS |
