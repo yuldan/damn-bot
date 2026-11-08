@@ -1,8 +1,8 @@
 # F7-ACCEPTANCE — Ledger acceptance F7 (platform lain, api-server, kanban)
 
-Status: **ledger hidup** untuk `PHASE=F7` pada `origin/main` `8d482d4f`. Belum ada baris yang ditutup: seluruh 103 baris parity F7, 10 GAP, 9 EC, dan baris agregat masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; tidak ada status yang diubah oleh dokumen saja.
+Status: **ledger tertutup** untuk `PHASE=F8` pada `origin/main` `87122022`: 103 baris parity F7, 10 GAP, 9 EC, dan 6 baris agregat tertutup (129 `LULUS` + 2 `N/A — …`). Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; tidak ada status yang diubah oleh dokumen saja.
 
-Sumber normatif: ROADMAP F7 (docs/ROADMAP.md:196-204), 103 baris parity berfase F7 (docs/FEATURE-PARITY.md; semuanya `planned` kecuali `PLAT-025` bertanda `external-bridge (ADR-034)`), kontrak modul SPEC §3.2.4 (SPEC.md:299-302), 10 baris GAP F7 (SPEC.md:2929,2961,2966-2976; docs/ROADMAP.md:240), EC F7 (docs/ROADMAP.md:61,63,65,67; docs/EDGE-CASES-hermes.md:136,181-182,218-238,262), dan carryover F6 (docs/F6-ACCEPTANCE.md:40,46,48; ADR-323 §12). Nama paket dan baris budget mengikuti ADR-326 (docs/DECISIONS.md).
+Sumber normatif: ROADMAP F7 (docs/ROADMAP.md:196-204), 103 baris parity berfase F7 (docs/FEATURE-PARITY.md; seluruhnya `LULUS`, termasuk `PLAT-025` yang catatan `external-bridge (ADR-034)`-nya dipertahankan), kontrak modul SPEC §3.2.4 (SPEC.md:299-302), 10 baris GAP F7 (SPEC.md:2929,2961,2966-2976; docs/ROADMAP.md:240), EC F7 (docs/ROADMAP.md:61,63,65,67; docs/EDGE-CASES-hermes.md:136,181-182,218-238,262), dan carryover F6 (docs/F6-ACCEPTANCE.md:40,46,48; ADR-323 §12). Nama paket dan baris budget mengikuti ADR-326 (docs/DECISIONS.md).
 
 Aturan gate:
 
@@ -16,12 +16,12 @@ Aturan gate:
 
 | Item ROADMAP F7 | Kriteria | Tes yang harus ada | Status |
 |---|---|---|---|
-| PLAT 30/30 fake server | 29 baris PLAT berfase F7 `LULUS` (§2 dan §3) + PLAT-022 (Telegram, F4) yang sudah berjalan; setiap adapter menjawab fake server, 0 network tanpa config | §2/§3 `LULUS` + `TestPlatformAdapterContract` + `TestF7PlatformIdentityTable` | BELUM |
+| PLAT 30/30 fake server | 29 baris PLAT berfase F7 `LULUS` (§2 dan §3) + PLAT-022 (Telegram, F4) yang sudah berjalan; setiap adapter menjawab fake server, 0 network tanpa config | §2/§3 `LULUS` + `TestPlatformAdapterContract` + `TestF7PlatformIdentityTable` | LULUS |
 | Smoke nyata nightly | adapter yang punya akun uji lulus smoke nightly; adapter tanpa akun → `N/A — no test account (nightly smoke)` | job `nightly` + `TestF7NightlySmokeMatrix` (daftar adapter × status akun) | N/A — no test account for any adapter (nightly smoke) (carryover F8) |
 | EC-PLAT non-Telegram (5) | EC-PLAT-004/005/006/008/024 `covered` di katalog EC | §10 baris EC-PLAT-* | LULUS |
 | EC-STATE/TERM/SEC F7 | EC-STATE-004, EC-TERM-004, EC-TERM-005, EC-SEC-006 `covered` | §10 baris EC-STATE-004/EC-TERM-004/EC-TERM-005/EC-SEC-006 | LULUS |
 | Budget modul & binary | `make loc` 0 GAGAL dengan baris F7 (ADR-326); P13 full ≤ 52.000.000 B dan minimal ≤ 22.100.000 B (ADR-325) | `TestLocBudgetModuleRows`, `TestBudgetTableSum`, `make size-check` di PR penutup | LULUS |
-| Ledger F7 | 103 baris parity F7 + 10 GAP + 9 EC tertutup; `PHASE` → F8 hanya setelahnya | `TestF7LedgerClosed`, `TestParityPhaseColumn`, `TestF7LedgerGateRules` | BELUM |
+| Ledger F7 | 103 baris parity F7 + 10 GAP + 9 EC tertutup; `PHASE` → F8 hanya setelahnya | `TestF7LedgerClosed`, `TestParityPhaseColumn`, `TestF7LedgerGateRules` | LULUS |
 
 Catatan **PLAT 30/30**: `docs/FEATURE-PARITY.md` memuat 30 baris PLAT; `PLAT-022` (Telegram) berfase F4 dan sudah berjalan (ADR-020), sehingga ledger F7 menagih 29 baris (26 adapter — termasuk `PLAT-025` WhatsApp Web bridge — ditambah tiga surface core gateway `PLAT-028/029/030`). `PLUG-024` (plugin platforms, 27 adapter) dihitung di §2.
 
@@ -211,14 +211,21 @@ Catatan **Q14 image preflight**: `N/A` di sini hanya soal mesin pengukuran — `
 ## 12. Perintah bukti
 
 ```sh
-# Gate fase saat ini mensertifikasi F6 (ADR-176); F7 menjadi gate saat PHASE->F8.
-PHASE=F7 make phase-acceptance
+# PHASE kini F8: acceptance mensertifikasi fase yang ditinggalkan, F7 (ADR-176).
+# Jalankan di mesin dengan alamat virtual >= 8 GiB; internal/ctxdb chaos OOM di 4 GiB.
+make phase-acceptance
+
+# Katalog EC (EC-SEC-006) dibaca dari paket pemilik tes, bukan dari dokumen.
+DAMNBOT_PHASE_ACCEPTANCE=1 go test -tags goolm -count=1 ./internal/testutil/phase
 
 # Baris yang disentuh satu PR (contoh).
 go test -race -count=1 -run 'TestF7|TestPlatformAdapterContract|TestIRCAccountAuth|TestIdentityStrengthTable' ./internal/gateway/... ./cmd/damnbot
 
-# Gate penutupan ADR-326: hijau selama PHASE=F7; menolak sisa BELUM/planned saat PHASE>F7.
+# Gate penutupan ADR-326: aktif sejak PHASE=F8; hijau hanya tanpa BELUM/planned.
 go test -count=1 -run 'TestF7LedgerClosed|TestF6LedgerClosed|TestParityPhaseColumn|TestF7LedgerGateRules' ./internal/archtest
+
+# E2E F7 (fake server/gateway, tanpa akun nyata).
+go test -tags goolm -count=1 -run '^TestF7' ./internal/e2e
 
 # Budget/arsitektur tetap hijau setelah paket F7 bertambah.
 make loc
