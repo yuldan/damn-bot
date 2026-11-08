@@ -418,7 +418,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TSET-053 | toolset `hermes-matrix` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:218` | sesuai platform/posture | — |  | F7 | LULUS |
 | TSET-054 | toolset `hermes-dingtalk` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:219` | sesuai platform/posture | — |  | F7 | LULUS |
 | TSET-055 | toolset `hermes-feishu` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:220` | sesuai platform/posture | — |  | F7 | LULUS |
-| TSET-056 | toolset `hermes-weixin` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:221` | sesuai platform/posture | — |  | F7 | planned |
+| TSET-056 | toolset `hermes-weixin` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:221` | sesuai platform/posture | — |  | F7 | LULUS |
 | TSET-057 | toolset `hermes-qqbot` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:222` | sesuai platform/posture | — |  | F7 | LULUS |
 | TSET-058 | toolset `hermes-wecom` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:223` | sesuai platform/posture | — |  | F7 | LULUS |
 | TSET-059 | toolset `hermes-wecom-callback` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:224` | sesuai platform/posture | — |  | F7 | LULUS |

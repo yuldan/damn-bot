@@ -169,7 +169,7 @@ func f7ModuleImports(m map[string][]string) {
 	m["internal/gwmatrix/e2ee"] = nil // pure-Go Matrix E2EE leaf
 	m["internal/gwplat/discord"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...)
 	m["internal/gwplat/photon"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
-	m["internal/gwplat/weixin"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/media/silk"}, groupNetx()...)
+	m["internal/gwplat/weixin"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/media/silk", "internal/toolset"}, groupNetx()...)
 	// P4 REST/webhook adapters: subpackages share the gwplat contract and a
 	// loopback-default netx client; no other sibling edge is allowed.
 	for _, name := range []string{"bluebubbles", "line", "sms", "qqbot", "dingtalk", "feishu", "googlechat", "mattermost", "slack", "teams", "wecom"} {
