@@ -234,7 +234,12 @@ func platformDescriptors() []Descriptor {
 		plainSecret("photon", TransportLongPoll, "photon_project_secret"),
 		plainSecret("weixin", TransportLongPoll, "weixin_token"),
 	}
-	return append(out, p4Descriptors()...)
+	return append(append(out, p4Descriptors()...), p10Descriptors()...)
+}
+
+// p10Descriptors carries the P10 A2A/Yuanbao rows; each slice appends its own.
+func p10Descriptors() []Descriptor {
+	return []Descriptor{plainSecret("a2a", TransportJSONRPC, "a2a_token")}
 }
 
 // simple is the descriptor of a plain-text adapter without secrets.
