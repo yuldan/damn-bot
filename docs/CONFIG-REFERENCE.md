@@ -212,6 +212,11 @@ config_version = 1
     env = []
     action_timeout_ms = 0
     max_screenshot_bytes = 0
+  [modules.connectors]
+    enabled = false
+    timeout_s = 0
+    max_retries = 0
+    max_response_bytes = 0
 
 [providers]
   custom = []

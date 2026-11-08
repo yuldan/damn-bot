@@ -6604,3 +6604,14 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Konsekuensi.** (+) Satu sumber kebenaran config dan satu pembaca; bind publik tidak mungkin tanpa dua opt-in (`allow_remote` + TLS) dan tanpa allowlist `Host`. (+) `internal/web` tinggal memakai `config.Web` tanpa membaca env langsung. (−) Section 11 kunci menambah 216 baris core sehingga headroom core tinggal 91: kunci config berikutnya butuh ADR dengan angka terukur. (−) Kredensial basic/OIDC harus dibuat pengguna sebelum mode itu aktif (fail-closed, bukan autodetect). Tidak ada dependency baru, migrasi, `//nolint`, atau baris ledger/parity yang di-flip di PR ini.
 
 **Amandemen (F8 slice 2a, PR #814).** Baris `MODULE web 5000 internal/web` dibukukan di `loc.budget` saat paketnya lahir (terukur 230 pada head slice 2a); pagu `maxModuleLOC` 132.000, `maxF8ModuleLOC` 21.800 dan `wantCaps` `web` 5.000 sudah disediakan ADR-330, jadi tidak ada kenaikan pagu dan Σ core tidak berubah.
+## ADR-332 — Modul `connectors` F8: registry tertutup, egress per konektor, dan gating default-off
+
+**Status:** Accepted 2026-11-08 (F8; melanjutkan ADR-330). Dipakai oleh seluruh slice `internal/connectors`.
+
+**Konteks.** SPEC §9.9 menetapkan tujuh konektor tool HTTP deferred (MS Graph mail/calendar/files, Teams pipeline, Feishu doc/drive, Google Meet Q9, X search, Discord, OSV) dengan satu baris `MODULE connectors` 6.000 (SPEC §3.2.4:303). Belum ada paket maupun aturan bersama untuk timeout, retry, batas respons, redaksi token, dan gating; tanpa registry tertutup, config dapat menamai konektor yang tidak ada di binary.
+
+**Keputusan.** (1) `internal/connectors` memiliki tabel tertutup `Builtin()` berisi tujuh descriptor (nama, scope, deskripsi, tool); `Registry` hanya menerima nama dari tabel itu dan tool di luar descriptor ditolak. (2) Modul default-off; connector yang belum dikompilasi tidak diatach dan menjawab `module_unavailable`. (3) Section `[modules.connectors]` membawa switch dan batas keras (timeout ≤120 s, retry ≤3, respons ≤8 MiB); tiap konektor memiliki sub-section mentahnya sendiri yang divalidasi saat konektornya aktif. (4) Baris `MODULE connectors 6000 internal/connectors` dibukukan oleh slice ini, di luar Σ core.
+
+**Anggaran (terukur).** C1: `config` **2.714 → 2.740** (terukur scc 2.739; Σ core **57.109 → 57.135** ≤ **57.200**); `MODULE connectors` terukur 469/6.000. Tidak ada lane `netx`, dependency, atau wiring `cmd` baru di slice ini.
+
+**Konsekuensi.** (+) Satu tempat untuk aturan egress/redaksi/gating dan satu tabel nama yang tidak bisa diperluas config. (−) Tujuh lane `netx` ditambahkan bertahap saat konektornya mendarat; pagu 1.900 hanya menyisakan 8 baris, jadi setiap lane wajib satu baris registry.
