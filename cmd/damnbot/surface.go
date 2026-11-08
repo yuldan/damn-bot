@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+
+	"github.com/damnbot/damnbot/internal/i18n"
 )
 
 // Fase pemilik setiap bentuk permukaan (ADR-064, ADR-080). PHASE repo = F4.
@@ -104,9 +106,10 @@ func lookupSurface(name string) (surfaceEntry, bool) {
 // `damnbot <cmd> --help`. Topik yang terdokumentasi tetapi belum ada
 // dilaporkan apa adanya (exit 0); topik tak dikenal exit 2.
 func surfaceHelp(stdout, stderr io.Writer, topic []string) int {
+	locale := currentLocale()
 	switch len(topic) {
 	case 0:
-		writeSurfaceList(stdout)
+		writeSurfaceList(stdout, locale)
 		return 0
 	case 1:
 	default:
@@ -115,11 +118,11 @@ func surfaceHelp(stdout, stderr io.Writer, topic []string) int {
 	}
 	e, ok := lookupSurface(topic[0])
 	if !ok {
-		sessionsPrintf(stderr, "help: unknown topic %q\n", cleanArg(topic[0]))
-		sessionsPrintf(stderr, "help: run `damnbot help` for the command list\n")
+		sessionsPrintf(stderr, "%s\n", i18n.T(locale, i18n.KeyHelpUnknownTopic, cleanArg(topic[0])))
+		sessionsPrintf(stderr, "%s\n", i18n.T(locale, i18n.KeyHelpUnknownHint))
 		return 2
 	}
-	sessionsPrintf(stdout, "damnbot %s - %s\n", e.Name, e.Summary)
+	sessionsPrintf(stdout, "%s\n", i18n.T(locale, i18n.KeyHelpTopicHeader, e.Name, e.Summary))
 	sessionsPrintf(stdout, "phase: F%d (%s)\n\n", e.Phase, e.Status())
 	switch {
 	case e.Usage != nil:
@@ -134,21 +137,21 @@ func surfaceHelp(stdout, stderr io.Writer, topic []string) int {
 
 // writeSurfaceList mencetak perintah yang bisa dipanggil sekarang. Bentuk
 // berfase > PHASE tidak muncul sampai fasenya tiba (ADR-080).
-func writeSurfaceList(w io.Writer) {
+func writeSurfaceList(w io.Writer, locale string) {
 	entries := callableSurfaces()
 	width := 0
 	for i := range entries {
 		width = max(width, len(entries[i].Name))
 	}
-	sessionsPrintf(w, "usage: damnbot <command> [flags]\n\nCommands:\n")
+	sessionsPrintf(w, "%s\n\n%s\n", i18n.T(locale, i18n.KeyHelpUsage), i18n.T(locale, i18n.KeyHelpCommands))
 	for i := range entries {
 		sessionsPrintf(w, "  %-*s  %s\n", width, entries[i].Name, entries[i].Summary)
 	}
-	sessionsPrintf(w, "\nGlobal flags:\n")
-	sessionsPrintf(w, "  --profile <name>  use a separate config and data profile\n")
-	sessionsPrintf(w, "  -h, --help        print help for a command\n")
-	sessionsPrintf(w, "  --version         print the version (alias of `damnbot version`)\n")
-	sessionsPrintf(w, "\nRun `damnbot help <command>` for details.\n")
+	sessionsPrintf(w, "\n%s\n", i18n.T(locale, i18n.KeyHelpGlobalFlags))
+	sessionsPrintf(w, "  --profile <name>  %s\n", i18n.T(locale, i18n.KeyHelpProfile))
+	sessionsPrintf(w, "  -h, --help        %s\n", i18n.T(locale, i18n.KeyHelpHelp))
+	sessionsPrintf(w, "  --version         %s\n", i18n.T(locale, i18n.KeyHelpVersion))
+	sessionsPrintf(w, "\n%s\n", i18n.T(locale, i18n.KeyHelpDetails))
 }
 
 // callableSurfaces mengembalikan entri yang punya Run, urut §10.

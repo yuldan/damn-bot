@@ -22,6 +22,7 @@ import (
 
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/gwapi"
+	"github.com/damnbot/damnbot/internal/i18n"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/obs"
@@ -111,7 +112,7 @@ func apiServerRun(ctx context.Context, o *apiServerOptions, stdout, _ io.Writer)
 		return 1, err
 	}
 	if token == "" && !o.allowUnauthenticated {
-		return 2, fmt.Errorf("bearer token required: set DAMNBOT_API_TOKEN or --token-secret (or pass --allow-unauthenticated explicitly)")
+		return 2, apiTokenError(cfg.UI.Language)
 	}
 	cfg.Toolsets.Active = []string{"hermes-api-server"}
 	apiCfg := gwapi.Config{
@@ -155,6 +156,12 @@ func apiServerToken(ctx context.Context, secretName string) (string, error) {
 		return strings.TrimSpace(tok), nil
 	}
 	return strings.TrimSpace(config.LookupSecret("DAMNBOT_API_TOKEN")), nil
+}
+
+// apiTokenError is the web API's unauthenticated-start message, localized by
+// [ui].language (the F8 web UI reuses the same catalog key).
+func apiTokenError(language string) error {
+	return errors.New(i18n.T(i18n.Resolve(language), i18n.KeyAPIAuthRequired))
 }
 
 // apiEngine adapts gwapi turns onto the existing loop/provider pipeline.
