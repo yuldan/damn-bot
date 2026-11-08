@@ -1,13 +1,16 @@
 // Package weixin implements the PLAT-024 adapter: the iLink Bot API long-poll
-// with a persisted cursor. Voice messages are not decoded here; MEDIA-031 is
-// the audio decoder the pipeline uses.
+// with a persisted cursor, and voice messages decoded through the external SILK
+// decoder (MEDIA-031, ADR-001) before STT.
 package weixin
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -18,10 +21,16 @@ import (
 
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gwplat"
+	"github.com/damnbot/damnbot/internal/media/silk"
 )
 
 // ErrConfig rejects an unusable activation.
 var ErrConfig = errors.New("weixin: invalid config")
+
+// VoiceSTT transcribes decoded PCM16 audio to text (F6 STT seam).
+type VoiceSTT interface {
+	Transcribe(ctx context.Context, pcm io.Reader) (string, error)
+}
 
 // CursorStore persists the iLink cursor across restarts.
 type CursorStore interface {
@@ -37,8 +46,17 @@ type Config struct {
 	HTTPClient *http.Client
 	Backoff    gwplat.Backoff
 	Cursor     CursorStore
-	Log        *slog.Logger
-	Now        func() time.Time
+	// SilkDecoder is the absolute external decoder path (ADR-001, adapter
+	// seam like the other F7 adapters). When set together with STT it composes
+	// VoiceToText in New; a missing decoder surfaces
+	// module_unavailable{silk_decoder_missing} on poll.
+	SilkDecoder string
+	// STT transcribes decoded PCM16; nil leaves voice messages undecoded.
+	STT VoiceSTT
+	// VoiceToText overrides the composed decoder+STT seam (tests, wiring).
+	VoiceToText func(ctx context.Context, payload []byte) (string, error)
+	Log         *slog.Logger
+	Now         func() time.Time
 }
 
 // Adapter long-polls one iLink account.
@@ -70,11 +88,12 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 	if err != nil {
 		return nil, fmt.Errorf("weixin: secret: %w", err)
 	}
-	logger := cfg.Log
+	local := prepare(cfg)
+	logger := local.Log
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	now := cfg.Now
+	now := local.Now
 	if now == nil {
 		now = time.Now
 	}
@@ -83,11 +102,11 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 	}
 	client := cfg.HTTPClient
 	ad := &Adapter{
-		cfg: *cfg, out: out, handler: h, token: values["weixin_token"],
+		cfg: local, out: out, handler: h, token: values["weixin_token"],
 		dedupe: gwplat.NewDedupe(8192, 30*time.Minute), log: logger, now: now, client: client,
 	}
-	if cfg.Cursor != nil {
-		cursor, found, err := cfg.Cursor.Load(ctx)
+	if local.Cursor != nil {
+		cursor, found, err := local.Cursor.Load(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("weixin: cursor: %w", err)
 		}
@@ -162,6 +181,7 @@ type message struct {
 	Chat      string `json:"chat_id"`
 	From      string `json:"from"`
 	Text      string `json:"text"`
+	VoiceB64  string `json:"voice_b64"`
 	Type      string `json:"msg_type"`
 	Group     bool   `json:"group"`
 	Mentioned bool   `json:"mentioned"`
@@ -201,12 +221,74 @@ func (a *Adapter) saveCursor(ctx context.Context) error {
 }
 
 func (a *Adapter) dispatch(ctx context.Context, msg *message) error {
-	if msg.ID == "" || strings.TrimSpace(msg.Text) == "" || !a.dedupe.Claim("weixin:"+msg.ID, a.now()) {
+	if msg.ID == "" || !a.dedupe.Claim("weixin:"+msg.ID, a.now()) {
+		return nil
+	}
+	if msg.Type == "voice" {
+		return a.dispatchVoice(ctx, msg)
+	}
+	if strings.TrimSpace(msg.Text) == "" {
 		return nil
 	}
 	in := &gateway.Inbound{
 		Platform: "weixin", Account: a.cfg.Account, ChatID: msg.Chat, SenderID: msg.From,
 		UpdateID: "weixin:" + msg.ID, Text: msg.Text, Group: msg.Group, Mentioned: msg.Mentioned,
+	}
+	if err := gwplat.Dispatch(ctx, a.handler, in); err != nil {
+		return fmt.Errorf("weixin: dispatch: %w", err)
+	}
+	return nil
+}
+
+// prepare copies cfg and composes the decoder+STT seam when both are set.
+func prepare(cfg *Config) Config {
+	local := *cfg
+	if local.VoiceToText == nil && local.SilkDecoder != "" && local.STT != nil {
+		local.VoiceToText = composeVoice(local.SilkDecoder, local.STT)
+	}
+	return local
+}
+
+// composeVoice wires the external SILK decoder to STT: a missing decoder is
+// ErrDecoderMissing before any STT call, and a corrupt payload is ErrSilkCorrupt.
+func composeVoice(decoder string, stt VoiceSTT) func(context.Context, []byte) (string, error) {
+	return func(ctx context.Context, payload []byte) (string, error) {
+		var pcm bytes.Buffer
+		if err := silk.Decode(ctx, payload, &pcm, &silk.Config{Argv: []string{decoder}}); err != nil {
+			return "", fmt.Errorf("weixin: %w", err)
+		}
+		text, err := stt.Transcribe(ctx, bytes.NewReader(pcm.Bytes()))
+		if err != nil {
+			return "", fmt.Errorf("weixin: stt: %w", err)
+		}
+		return text, nil
+	}
+}
+
+// dispatchVoice decodes one voice message through the injected seam and
+// dispatches the transcript. Typed errors reach the caller.
+func (a *Adapter) dispatchVoice(ctx context.Context, msg *message) error {
+	if a.cfg.VoiceToText == nil {
+		return nil
+	}
+	payload, err := base64.StdEncoding.DecodeString(msg.VoiceB64)
+	if err != nil || len(payload) == 0 {
+		return fmt.Errorf("%w: base64 voice payload", silk.ErrSilkCorrupt)
+	}
+	return a.transcribeVoice(ctx, msg, payload)
+}
+
+func (a *Adapter) transcribeVoice(ctx context.Context, msg *message, payload []byte) error {
+	text, err := a.cfg.VoiceToText(ctx, payload)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	in := &gateway.Inbound{
+		Platform: "weixin", Account: a.cfg.Account, ChatID: msg.Chat, SenderID: msg.From,
+		UpdateID: "weixin:" + msg.ID, Text: text, Group: msg.Group, Mentioned: msg.Mentioned,
 	}
 	if err := gwplat.Dispatch(ctx, a.handler, in); err != nil {
 		return fmt.Errorf("weixin: dispatch: %w", err)

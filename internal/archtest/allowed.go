@@ -169,7 +169,7 @@ func f7ModuleImports(m map[string][]string) {
 	m["internal/gwmatrix/e2ee"] = nil // pure-Go Matrix E2EE leaf
 	m["internal/gwplat/discord"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...)
 	m["internal/gwplat/photon"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
-	m["internal/gwplat/weixin"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
+	m["internal/gwplat/weixin"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/media/silk"}, groupNetx()...)
 }
 
 // f6ModuleImports mendaftarkan baris modul F6 (ADR-310). SPEC §3.2.4 `web`
@@ -189,6 +189,7 @@ func f6ModuleImports(m map[string][]string) {
 	// Cache/repair gateway (MEDIA-030): module host store, stdlib only.
 	m["internal/media/cache"] = []string{"internal/modules/host"}
 	m["internal/media/gen"] = []string{"internal/modules/host"}
+	m["internal/media/silk"] = nil // SILK subprocess decoder (ADR-001): stdlib only
 	// Voice root (ADR-319): host seam, netx TTS egress, and the three leaves.
 	// Daun voice (ADR-309, F6-V1): provider contracts and implementations.
 	// The root aliases their types and imports all three; leaves import only
