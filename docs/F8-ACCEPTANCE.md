@@ -202,7 +202,7 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | PLUG-019 | Plugin: hermes-achievements | achievement/gamifikasi dashboard; event lokal 0 LLM call | `TestF8PLUG019Achievements` | BELUM | — |
 | PLUG-022 | Plugin: memory | slot/plugin memory provider (Honcho); provider tunggal; ByteRover/RetainDB drop | `TestF8PLUG022MemoryProvider` | BELUM | MEM-005; NP-21 |
 | PLUG-025 | Plugin: security-guidance | peringatan keamanan pada hasil write file; non-blokir | `TestF8PLUG025SecurityGuidance` | BELUM | — |
-| PLUG-026 | Plugin: teams_pipeline | pipeline rapat MS Teams via Graph; subscription renew | `TestF8PLUG026TeamsPipeline` | BELUM | PLAT-030 |
+| PLUG-026 | Plugin: teams_pipeline | pipeline rapat MS Teams via Graph; subscription renew | `TestF8PLUG026TeamsPipeline` | LULUS | PLAT-030 |
 | PLUG-035 | Connectors (hosted) | connector app hosted + akun via `manage_connections`; OAuth referensi saja | `TestF8PLUG035Connectors` | BELUM | CLI-056 |
 | OPS-010 | Debug upload / dump | laporan debug ter-redaksi; tautan sekali pakai; 0 host pastebin | `TestF8OPS010DebugUpload` | BELUM | GAP-SEC-17 |
 | OPS-016 | Insights | analitik pemakaian; agregat dari ledger; 0 secret | `TestF8OPS016Insights` | BELUM | CLI-058 |

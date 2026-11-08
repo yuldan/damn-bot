@@ -38,6 +38,7 @@ func Registry() map[string]Egress {
 			Trigger: "a due cron monitor gate before the prompt runs (COST-13)",
 		},
 		"graph": {Purpose: Tool, Host: "graph.microsoft.com and login.microsoftonline.com/<tenant>", Trigger: "an approved ms_graph_mail, ms_graph_calendar or ms_graph_files call"},
+		"teams": {Purpose: Tool, Host: "graph.microsoft.com", Trigger: "an approved teams_pipeline call"},
 		"mcp": {
 			Purpose: Tool,
 			Host:    "server url from [modules.mcp.servers.<name>].url (public addresses only)",
