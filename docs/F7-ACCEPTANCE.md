@@ -40,7 +40,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-007 | Feishu/Lark | WS long connection + webhook fallback; tenant token cache; dedupe `event_id` | `TestF7PLAT007Feishu` | BELUM | — |
 | PLAT-008 | Google Chat | callback HTTP terverifikasi (JWT Google) atau Pub/Sub pull; payload tak terverifikasi → 0 turn | `TestF7PLAT008GoogleChat`, `TestF7GoogleChatVerify` | BELUM | — |
 | PLAT-009 | IRC | wajib SASL PLAIN/EXTERNAL + CAP `account-notify`/`account-tag`; tanpa itu `module_unavailable{irc_no_account_auth}` | `TestF7PLAT009IRC`, `TestIRCAccountAuth` | LULUS | GAP-SEC-10 |
-| PLAT-010 | LINE | webhook HMAC-SHA256 constant-time; reply token sekali pakai | `TestF7PLAT010LINE`, `TestF7LINEHMAC` | BELUM | — |
+| PLAT-010 | LINE | webhook HMAC-SHA256 constant-time; reply token sekali pakai | `TestF7PLAT010LINE`, `TestF7LINEHMAC` | LULUS | — |
 | PLAT-011 | Matrix | homeserver + access token; E2EE pure Go (`goolm`); edit-stream default mati (GW-10) | `TestF7PLAT011Matrix`, `TestF7MatrixNoEditStream` | LULUS | budget `gwmatrix` |
 | PLAT-012 | Mattermost | REST v4 + WebSocket; token dari secret; reconnect backoff netx | `TestF7PLAT012Mattermost` | BELUM | — |
 | PLAT-013 | ntfy | subscribe topic + publish; topic dari config; isi pesan tidak masuk log INFO | `TestF7PLAT013Ntfy` | LULUS | — |
@@ -50,7 +50,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-017 | Signal | daemon signal-cli (SSE + JSON-RPC); account → session key; plaintext tidak dipersist | `TestF7PLAT017Signal` | LULUS | — |
 | PLAT-018 | SimpleX | daemon WS lokal; reconnect; 0 tulis plaintext | `TestF7PLAT018Simplex` | LULUS | — |
 | PLAT-019 | Slack | Socket Mode; ack < 3 s; retry envelope didedupe; mrkdwn renderer | `TestF7PLAT019Slack`, `TestF7SlackAck` | BELUM | renderer GW-04 |
-| PLAT-020 | SMS (Twilio) | REST send + webhook signature; segmen GSM-7/UCS-2 (GW-09) | `TestF7PLAT020SMS`, `TestF7GAPGW09SMSSegments` | BELUM | GAP-GW-09 |
+| PLAT-020 | SMS (Twilio) | REST send + webhook signature; segmen GSM-7/UCS-2 (GW-09) | `TestF7PLAT020SMS`, `TestF7GAPGW09SMSSegments` | LULUS | GAP-GW-09 |
 | PLAT-021 | Microsoft Teams | Bot Framework JWT (issuer/audience/exp) divalidasi; activity dedupe; tenant allowlist | `TestF7PLAT021Teams`, `TestF7TeamsJWT` | BELUM | — |
 | PLAT-023 | WeCom | smart robot WS + callback app; XML parser hardened (tanpa entity eksternal) | `TestF7PLAT023WeCom`, `TestF7WeComXML` | BELUM | dua surface |
 | PLAT-024 | Weixin/WeChat | iLink long-poll; kursor persist; audio SILK → MEDIA-031 | `TestF7PLAT024Weixin` | LULUS | — |
@@ -176,7 +176,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | GAP-GW-04 | satu parse AST → renderer Telegram entities/Slack mrkdwn/WhatsApp/Discord/Matrix HTML/plain; fence terpotong dibuka ulang; `FuzzRenderTelegram` 10.000 input 0 penolakan; golden per renderer | `FuzzRenderTelegram`, `TestF7RenderGoldens` | LULUS |
 | GAP-GW-05 | matriks `TestGroupMentionPolicy` semua adapter: pesan grup tanpa mention → 0 turn (default); `stt_echo` default `dm` | `TestGroupMentionPolicy` | LULUS |
 | GAP-GW-08 | Email XOAUTH2; kursor `UIDVALIDITY`+`UID` di `gateway_cursors`; `BODY.PEEK[]` tanpa `\Seen`; email ditolak tetap UNSEEN; IDLE dipakai ulang; login/hari < 10 | `TestF7GAPGW08EmailIMAP`, `TestF7EmailCursorPersist` | LULUS |
-| GAP-GW-09 | segmen GSM-7 160/153 dan UCS-2 70/67; cap 3 segmen + "balas MORE"; biaya per segmen masuk ledger `tool:sms`; `damnbot usage --by feature` menampilkannya | `TestF7GAPGW09SMSSegments`, `TestF7SMSLedger` | BELUM |
+| GAP-GW-09 | segmen GSM-7 160/153 dan UCS-2 70/67; cap 3 segmen + "balas MORE"; biaya per segmen masuk ledger `tool:sms`; `damnbot usage --by feature` menampilkannya | `TestF7GAPGW09SMSSegments`, `TestF7SMSLedger` | LULUS |
 | GAP-GW-10 | `Caps.MinEditInterval`/`MaxEditsPerMessage` dideklarasikan dan dipatuhi; Telegram 1,5 s; Matrix tanpa edit-stream | `TestF7GAPGW10EditStreamCaps`, `TestF7MatrixNoEditStream` | LULUS |
 | GAP-GW-11 | breaker per kelas disconnect (`logged_out`/`banned`/401/Discord 4004) → berhenti reconnect + `needs_attention` + notice owner; disconnect 10 menit ≤ 15 percobaan; `TestBridgeProtocolConformance` memetakan `health.reason`; 0 fetch versi protokol WA saat runtime | `TestF7GAPGW11Breaker`, `TestBridgeProtocolConformance` | LULUS |
 
