@@ -22,6 +22,7 @@
 /internal/compaction/ @yuldan
 /internal/delegate/ @yuldan
 /internal/config/ @yuldan
+/internal/connectors/ @yuldan
 /internal/codetools/ @yuldan
 /internal/ctxdb/ @yuldan
 /internal/e2e/ @yuldan

@@ -47,6 +47,15 @@ func p6ModuleImports(m map[string][]string) {
 	m["internal/gwapi/webhook"] = []string{"internal/gateway", "internal/gwplat"}
 	m["internal/gwplat/whatsapp_cloud"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/netx"}
 	m["internal/gwplat/whatsapp_web"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/gwwa"}
+	m["internal/codeintel"] = append(moduleImports(), "internal/codeintel/ts")
+	m["internal/codeintel/ts"] = nil
+	m["internal/codeintel/lsp"] = []string{"internal/netx/jsonrpc"}
+}
+
+// f8ModuleImports registers the F8 connector module edge: the module talks to
+// its own netx egress clients and the host seam only (E-06).
+func f8ModuleImports(m map[string][]string) {
+	m["internal/connectors"] = []string{"internal/modules/host", "internal/netx", "internal/schema"}
 }
 
 func allowedImports() map[string][]string {
@@ -71,10 +80,7 @@ func allowedImports() map[string][]string {
 		"internal/mcp/catalog": nil, // signature verifier: stdlib only
 		// Delegasi (F5-12, ADR-273): orchestration over the tool pipeline; its
 		// tests exercise the codetools lease guard directly.
-		"internal/delegate":  {"internal/tools", "internal/codetools", "internal/sandbox", "internal/redact"},
-		"internal/codeintel": append(moduleImports(), "internal/codeintel/ts"),
-		// Sibling parser/client packages: ts is stdlib-only, lsp reaches netx/jsonrpc.
-		"internal/codeintel/ts": nil, "internal/codeintel/lsp": {"internal/netx/jsonrpc"},
+		"internal/delegate":                 {"internal/tools", "internal/codetools", "internal/sandbox", "internal/redact"},
 		"internal/gateway" + moduleWildcard: moduleImports(),
 		"internal/gwplat":                   {"internal/gateway", "internal/gateway/outq", "internal/gateway/render"},
 		"internal/gwplat" + moduleWildcard:  append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...),
@@ -150,6 +156,7 @@ func allowedImports() map[string][]string {
 	f6ModuleImports(m)
 	f7ModuleImports(m)
 	p6ModuleImports(m)
+	f8ModuleImports(m)
 	return m
 }
 

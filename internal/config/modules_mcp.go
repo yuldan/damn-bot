@@ -23,6 +23,7 @@ type Modules struct {
 	Media       ModulesMedia       `toml:"media"`
 	Voice       ModulesVoice       `toml:"voice"`
 	ComputerUse ModulesComputerUse `toml:"computer_use"`
+	Connectors  ModulesConnectors  `toml:"connectors"`
 }
 
 // ModulesMCP is [modules.mcp]: the client-wide opt-in and one section per
