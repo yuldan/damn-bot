@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -313,7 +314,7 @@ func TestWeixinRunStopsOnContext(t *testing.T) {
 // subprocess helper and then "runs STT" by hex-encoding the PCM.
 func voiceSeam(t *testing.T, mode string) func(context.Context, []byte) (string, error) {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "silk-decoder")
+	bin := filepath.Join(t.TempDir(), "silk-decoder"+exeSuffix())
 	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./testdata/decoder") // #nosec G204 -- fixed go tool
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("build decoder: %v", err)
@@ -532,7 +533,7 @@ func TestWeixinDecoderMissing(t *testing.T) {
 	stt := &fakeSTT{}
 	cfg := &Config{
 		Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(),
-		SilkDecoder: filepath.Join(t.TempDir(), "absent-decoder"), STT: stt,
+		SilkDecoder: filepath.Join(t.TempDir(), "absent-decoder"+exeSuffix()), STT: stt,
 	}
 	rec := newRecorder()
 	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
@@ -546,4 +547,12 @@ func TestWeixinDecoderMissing(t *testing.T) {
 	if rec.count() != 0 || stt.calls != 0 {
 		t.Fatalf("missing decoder dispatched %d turns, stt %d", rec.count(), stt.calls)
 	}
+}
+
+// exeSuffix keeps the built helper executable name portable.
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
 }

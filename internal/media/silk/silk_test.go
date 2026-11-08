@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -18,7 +19,7 @@ func goldenPCM() []byte {
 // helperBinary builds testdata/decoder into the test temp dir.
 func helperBinary(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), "silk-decoder")
+	bin := filepath.Join(t.TempDir(), "silk-decoder"+exeSuffix())
 	cmd := exec.CommandContext(t.Context(), "go", "build", "-o", bin, "./testdata/decoder") // #nosec G204 -- fixed go tool
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("build helper: %v", err)
@@ -82,4 +83,12 @@ func TestSilkDecoderMissing(t *testing.T) {
 	if err := Decode(context.Background(), []byte("x"), &out, nil); !errors.Is(err, ErrDecoderMissing) {
 		t.Fatalf("nil config = %v", err)
 	}
+}
+
+// exeSuffix keeps the built helper executable name portable.
+func exeSuffix() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
 }
