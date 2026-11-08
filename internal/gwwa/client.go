@@ -34,7 +34,10 @@ type Client struct {
 	done   chan struct{}
 	err    error
 
-	callMu    sync.Mutex
+	// own is the single ownership token of the session. A call takes it
+	// before it writes a frame and holds it until the response body is read
+	// or the context ends, so a slow request can never grow a second owner.
+	own       chan struct{}
 	next      atomic.Uint64
 	closeOnce sync.Once
 }
@@ -99,6 +102,7 @@ func Connect(ctx context.Context, tr Transport) (*Client, error) {
 		hello:  h,
 		events: make(chan Event, 32),
 		done:   make(chan struct{}),
+		own:    make(chan struct{}, 1),
 	}
 	go c.pump(ctx, stream)
 	return c, nil
@@ -148,8 +152,12 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 		return fmt.Errorf("%w: %w", ErrClosed, c.err)
 	default:
 	}
-	c.callMu.Lock()
-	defer c.callMu.Unlock()
+	select {
+	case c.own <- struct{}{}:
+		defer func() { <-c.own }()
+	case <-ctx.Done():
+		return fmt.Errorf("%w: %w", ErrOwned, ctx.Err())
+	}
 	frame, err := json.Marshal(request{JSONRPC: "2.0", ID: c.next.Add(1), Method: method, Params: params})
 	if err != nil {
 		return fmt.Errorf("gwwa: encode %s: %w", method, err)

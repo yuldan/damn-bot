@@ -30,6 +30,9 @@ var (
 	// is pointless until the operator fixes it (GAP-GW-11).
 	ErrUnauthorized = errors.New("gwwa: bridge unauthorized")
 	ErrNoHandshake  = errors.New("gwwa: bridge.hello missing")
+	// ErrOwned reports that another in-flight call still owns the session and
+	// the caller's context ended before the ownership token was handed over.
+	ErrOwned = errors.New("gwwa: session owned")
 )
 
 // Capabilities is the `hello.capabilities` object. `wa_version` is pinned by
