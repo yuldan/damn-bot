@@ -257,6 +257,8 @@ flowchart TD
     PLAIO --> NET
     PLAS --> PLA
     PLAS --> NET
+    PLA2["gwplat/a2a (server F7)"] --> PLA
+    PLA2 --> NET
     GWM --> PLA
     GWM --> GW
     GWM --> NET
