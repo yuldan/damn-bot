@@ -84,6 +84,7 @@ func registerModules() error {
 				})
 			},
 		},
+		connectorsDescriptor(),
 		{
 			ID:        f6ComputerUseID,
 			Group:     "computer_use",
@@ -226,6 +227,9 @@ func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config
 func moduleEnabled(cfg *config.Config) func(string) bool {
 	web, br, md, vc, cu := cfg.Modules.Web, cfg.Modules.Browser, cfg.Modules.Media, cfg.Modules.Voice, cfg.Modules.ComputerUse
 	return func(id string) bool {
+		if id == f8ConnectorsID {
+			return connectorsEnabled(cfg)
+		}
 		switch id {
 		case f6WebModuleID:
 			return web.Enabled
@@ -278,6 +282,8 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 		WakeKeywords: vc.WakeKeywords, WakeKeyEnv: vc.WakeKeyEnv,
 		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
 	})
+	connRaw, connErr := connectorsSection(cfg)
+	connJSON, connJSONErr := json.Marshal(connRaw)
 	cuRaw, cuErr := json.Marshal(computeruse.Section{
 		Enabled: cu.Enabled, Backend: cu.Backend, Endpoint: cu.Endpoint,
 		Command: cu.Command, Env: cu.Env, ActionTimeoutMS: cu.ActionTimeoutMS,
@@ -293,6 +299,8 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 			return host.Config{Key: "modules.media", Raw: mdRaw}
 		case id == f6VoiceModuleID && vcErr == nil:
 			return host.Config{Key: "modules.voice", Raw: vcRaw}
+		case id == f8ConnectorsID && connErr == nil && connJSONErr == nil:
+			return host.Config{Key: "modules.connectors", Raw: connJSON}
 		case id == f6ComputerUseID && cuErr == nil:
 			return host.Config{Key: "modules.computer_use", Raw: cuRaw}
 		}
