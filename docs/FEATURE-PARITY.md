@@ -748,7 +748,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | PLUG-021 | Plugin: kanban (dashboard, systemd) | UI dashboard kanban & unit systemd | `plugins/kanban/dashboard`, `plugins/kanban/systemd` | opt-in | systemd |  | F7 | LULUS |
 | PLUG-022 | Plugin: memory | Slot/plugin memory provider (Honcho) (V-30/ADR-054; byterover/retaindb = MEM-006/MEM-007, NP-21) | `plugins/memory/__init__.py` | off | lihat MEM |  | F8 | planned |
 | PLUG-023 | Plugin: model-providers | 41 direktori profil provider model | `plugins/model-providers/README.md` | on (bundled) | lihat PROV |  | F5 | planned |
-| PLUG-024 | Plugin: platforms | 27 adapter platform chat | `gateway/platforms/ADDING_A_PLATFORM.md` | per-platform | lihat PLAT |  | F7 | planned |
+| PLUG-024 | Plugin: platforms | 27 adapter platform chat | `gateway/platforms/ADDING_A_PLATFORM.md` | per-platform | lihat PLAT |  | F7 | LULUS |
 | PLUG-025 | Plugin: security-guidance | Peringatan keamanan pada hasil write file | `plugins/security-guidance/plugin.yaml`, `plugins/security-guidance/patterns.py` | opt-in | — |  | F8 | planned |
 | PLUG-026 | Plugin: teams_pipeline | Pipeline rapat Microsoft Teams via Graph | `plugins/teams_pipeline/plugin.yaml`, `plugins/teams_pipeline/pipeline.py` | opt-in | Microsoft Graph creds |  | F8 | planned |
 | PLUG-027 | Plugin: video_gen | 4 backend generate video | `plugins/video_gen/xai/plugin.yaml` | opt-in | lihat MEDIA |  | F6 | LULUS |

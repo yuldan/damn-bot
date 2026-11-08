@@ -143,7 +143,22 @@ func (r *Registry) Len() int {
 // Descriptors returns the adapters this slice ships. It is a function, not a
 // variable, so the registry stays the only registration path.
 func Descriptors() []Descriptor {
-	return append(plainDescriptors(), platformDescriptors()...)
+	out := append(plainDescriptors(), platformDescriptors()...)
+	return append(out, telegramDescriptor())
+}
+
+// telegramDescriptor is PLUG-024 registry metadata for the F4 Telegram adapter
+// (internal/gateway/telegram, ADR-020). It adds no adapter, no secret seam and
+// no env discovery; the F4 wiring keeps its own explicit activation and this
+// row stays default-off.
+func telegramDescriptor() Descriptor {
+	return Descriptor{
+		Name:       "telegram",
+		Transport:  TransportLongPoll,
+		Caps:       capsOf("telegram"),
+		Render:     render.PlatformTelegram,
+		DefaultOff: true,
+	}
 }
 
 // plainDescriptors is the secret-less plain-text group.

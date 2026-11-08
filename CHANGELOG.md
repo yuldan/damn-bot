@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/gwplat` (F7 P12d, PLUG-024): registry tertutup kini memuat 27 plugin (= `gateway.PlatformNames()` dikurangi tiga surface core `api_server`/`webhook`/`msgraph_webhook`), dengan descriptor deklaratif `telegram` sebagai metadata adapter F4 (default-off, tanpa autodetect env, tanpa adapter/logika baru). Tes `TestF7PLUG024PlatformPlugins` (27 plugin terdaftar, caps SEC-10, env beracun tidak mengubah registry) dan `TestF7PlatformRegistryClosed` (nama asing, duplikat, default-on ditolak); baris ledger/parity `PLUG-024` menjadi `LULUS`.
+
 - `internal/gwplat/yuanbao` tools (F7 P10c-2, TOOL-049..053/TSET-032): lima tool yb_* + toolset hermes-yuanbao default-off, DM non-allowlist & stiker asing ditolak; tes TestF7TOOL049..053, TestF7TSET032Yuanbao.
 
 - `internal/gwplat/yuanbao` (F7 P10c-1, PLAT-027): adapter WS app id/secret dari seam, grup/DM mapping, dedupe event_id, outbound render→outq, ws loopback-only; tes TestF7PLAT027Yuanbao.
