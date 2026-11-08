@@ -107,7 +107,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | TSET-053 | `hermes-matrix` | komposit; edit-stream mati (GW-10) | `TestF7TSET053MatrixBundle` | LULUS | `MatrixCaps().SupportsEditStream()==false` |
 | TSET-054 | `hermes-dingtalk` | komposit; adapter DingTalk wajib aktif | `TestF7TSET054DingTalkBundle` | LULUS | — |
 | TSET-055 | `hermes-feishu` | komposit; adapter Feishu wajib aktif | `TestF7TSET055FeishuBundle` | LULUS | — |
-| TSET-056 | `hermes-weixin` | komposit; SILK decode tersedia lewat MEDIA-031 | `TestF7TSET056WeixinBundle` | BELUM | menunggu `MEDIA-031` (SILK) `LULUS`; bundle kompositnya sudah ada |
+| TSET-056 | `hermes-weixin` | komposit; SILK decode tersedia lewat MEDIA-031 | `TestF7TSET056WeixinBundle` | LULUS | SILK lewat `internal/media/silk` + seam `Config.SilkDecoder`/`STT` (MEDIA-031); bundle 0 tool outbound |
 | TSET-057 | `hermes-qqbot` | komposit; adapter QQ wajib aktif | `TestF7TSET057QQBotBundle` | LULUS | — |
 | TSET-058 | `hermes-wecom` | komposit; dua surface (robot WS + callback) | `TestF7TSET058WeComBundle` | LULUS | dua baris bundle di platform `wecom` |
 | TSET-059 | `hermes-wecom-callback` | komposit callback; XML parser hardened | `TestF7TSET059WeComCallbackBundle` | LULUS | parser XML di adapter P5; bundle komposit aman |

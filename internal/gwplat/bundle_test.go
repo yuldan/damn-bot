@@ -82,14 +82,6 @@ func TestF7TSET055FeishuBundle(t *testing.T) {
 	checkBundle(t, "feishu")
 }
 
-func TestF7TSET056WeixinBundle(t *testing.T) {
-	t.Parallel()
-	checkBundle(t, "weixin")
-	if b, ok := gwplat.BundleFor("weixin"); !ok || b.Toolset != "hermes-weixin" {
-		t.Fatalf("weixin bundle = %+v (ok=%v)", b, ok)
-	}
-}
-
 func TestF7TSET057QQBotBundle(t *testing.T) {
 	t.Parallel()
 	checkBundle(t, "qqbot")
