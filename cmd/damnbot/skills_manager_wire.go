@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -20,6 +22,34 @@ import (
 	"github.com/damnbot/damnbot/internal/skills"
 	"github.com/damnbot/damnbot/internal/tools"
 )
+
+// emptyFS is a readable root with no files, used for a hub skill whose only
+// verified artifact is SKILL.md. Open(".") is a real empty directory so the
+// lint walker sees zero script references instead of a missing root.
+type emptyFS struct{}
+
+func (emptyFS) Open(name string) (fs.File, error) {
+	if name != "." {
+		return nil, fs.ErrNotExist
+	}
+	return emptyDir{}, nil
+}
+
+type emptyDir struct{}
+
+func (emptyDir) Stat() (fs.FileInfo, error)         { return emptyDirInfo{}, nil }
+func (emptyDir) Read([]byte) (int, error)           { return 0, io.EOF }
+func (emptyDir) Close() error                       { return nil }
+func (emptyDir) ReadDir(int) ([]fs.DirEntry, error) { return nil, nil }
+
+type emptyDirInfo struct{}
+
+func (emptyDirInfo) Name() string       { return "." }
+func (emptyDirInfo) Size() int64        { return 0 }
+func (emptyDirInfo) Mode() fs.FileMode  { return fs.ModeDir | 0o500 }
+func (emptyDirInfo) ModTime() time.Time { return time.Time{} }
+func (emptyDirInfo) IsDir() bool        { return true }
+func (emptyDirInfo) Sys() any           { return nil }
 
 type skillStore struct {
 	db   *ctxdb.Store
@@ -160,18 +190,32 @@ func newSkillManager(ctx context.Context, db *ctxdb.Store, dataDir, configDir st
 // sync the bundled corpus: that is the manager's startup job, and a command
 // that only installs imported skills must not copy or index anything else.
 func newSkillService(ctx context.Context, db *ctxdb.Store, red *redact.Redactor) (*skills.Service, error) {
+	return newSkillServiceScan(ctx, db, red, func(sk *skills.Skill) (string, string, error) {
+		scan := memory.ScanText(red, sk.Description+"\n"+sk.Body)
+		b, jerr := scan.JSON()
+		return string(scan.Severity), b, jerr
+	})
+}
+
+// newSkillServiceScan is newSkillService with the threat scanner injected, so
+// the hub install path can compose its grep scan with the shared memory scan
+// without changing any other caller's scanner.
+func newSkillServiceScan(ctx context.Context, db *ctxdb.Store, red *redact.Redactor, scan skills.Scanner) (*skills.Service, error) {
 	svc, err := skills.New(skillStore{db: db, host: skillHost()}, skills.Config{
 		Redact: func(s string) string { return red.String(s) },
-		Scan: func(sk *skills.Skill) (string, string, error) {
-			scan := memory.ScanText(red, sk.Description+"\n"+sk.Body)
-			b, jerr := scan.JSON()
-			return string(scan.Severity), b, jerr
-		},
+		Scan:   scan,
 		Known: func(name string) bool {
 			_, found, kerr := skillstore.ByName(ctx, db, name)
 			return kerr == nil && found
 		},
 		Files: func(sk *skills.Skill) (fs.FS, error) {
+			if sk.Source == skills.SourceHub {
+				// A hub install downloads only SKILL.md; there is no directory
+				// to open yet. An empty FS makes every script reference a
+				// dangling reference, so Lint fails closed instead of trusting
+				// files the index did not pin.
+				return emptyFS{}, nil
+			}
 			skillDir := filepath.Dir(sk.Path)
 			if _, statErr := os.Stat(skillDir); statErr != nil {
 				return nil, fmt.Errorf("skill directory: %w", statErr)
