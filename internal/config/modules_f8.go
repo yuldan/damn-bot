@@ -2,6 +2,11 @@
 
 package config
 
+import (
+	"net"
+	"net/url"
+)
+
 // ModulesConnectors is [modules.connectors] (SPEC §9.9): the F8 connector
 // module. Every connector owns its own sub-section, added by the slice that
 // implements it; this core only carries the module switch and hard limits.
@@ -76,6 +81,81 @@ type ModulesConnectorOSV struct {
 	BaseURL string `toml:"base_url"`
 }
 
+// ModulesMemory is [modules.memory] (MEM-005/008/009, ADR-338). The section
+// is default off: an empty provider means no external call and no credential
+// read. ByteRover and RetainDB never decode into a working provider (NP-21).
+type ModulesMemory struct {
+	Provider      string              `toml:"provider"`
+	QueryRewrite  bool                `toml:"query_rewrite"`
+	ContextEngine string              `toml:"context_engine"`
+	Honcho        ModulesMemoryHoncho `toml:"honcho"`
+}
+
+// ModulesMemoryHoncho is [modules.memory.honcho]. TokenSecret is a keychain
+// entry name, never the token.
+type ModulesMemoryHoncho struct {
+	Enabled     bool   `toml:"enabled"`
+	BaseURL     string `toml:"base_url"`
+	TokenSecret string `toml:"token_secret"`
+	Workspace   string `toml:"workspace"`
+	SessionID   string `toml:"session_id"`
+	PeerID      string `toml:"peer_id"`
+}
+
+// validateMemory enforces the closed provider table and the default-off
+// combinations. It never resolves the credential.
+func (m *Modules) validateMemory() error {
+	mem := m.Memory
+	switch mem.Provider {
+	case "", "off":
+		if mem.Honcho.Enabled {
+			return invalid("modules.memory.honcho.enabled", "requires provider = \"honcho\"")
+		}
+	case "honcho":
+		if !mem.Honcho.Enabled {
+			return invalid("modules.memory.honcho.enabled", "must be true when provider = \"honcho\"")
+		}
+	case "byterover", "retaindb":
+		return invalid("modules.memory.provider", "%q is not ported: upstream removal 2026-10-15 (NP-21, ADR-033)", mem.Provider)
+	default:
+		return invalid("modules.memory.provider", "unknown provider %q", mem.Provider)
+	}
+	switch mem.ContextEngine {
+	case "", "compressor":
+	default:
+		return invalid("modules.memory.context_engine", "unknown engine %q (default off)", mem.ContextEngine)
+	}
+	if !mem.Honcho.Enabled {
+		return nil
+	}
+	if mem.Honcho.TokenSecret == "" {
+		return invalid("modules.memory.honcho.token_secret", "must name a keychain entry")
+	}
+	if mem.Honcho.BaseURL != "" && !validMemoryBaseURL(mem.Honcho.BaseURL) {
+		return invalid("modules.memory.honcho.base_url", "must be https or a loopback http URL")
+	}
+	return nil
+}
+
+func validMemoryBaseURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // validateF8 keeps the module-level limits inside the framework bounds.
 func (m *Modules) validateF8() error {
 	c := m.Connectors
@@ -88,5 +168,5 @@ func (m *Modules) validateF8() error {
 	if c.MaxResponseBytes < 0 || c.MaxResponseBytes > 8<<20 {
 		return invalid("modules.connectors.max_response_bytes", "must be 1..8388608")
 	}
-	return nil
+	return m.validateMemory()
 }

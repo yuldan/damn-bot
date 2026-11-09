@@ -337,6 +337,7 @@ type assemblerAdapter struct {
 	maxTokens   int
 	window      int64 // effective model window (registry.Limits); < assemble.DegradedWindow = degraded and the loop guard budget (0 = unknown)
 	store       *ctxStore
+	memoryHook
 }
 
 func attachHistory(history, out []loop.Message) {
@@ -386,6 +387,7 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 	if err != nil {
 		return loop.Prompt{}, err
 	}
+	hits = a.mergeExternal(ctx, req.Input.Text, &history, hits)
 	r, est, err := a.asm.Build(ctx, &assemble.SessionView{
 		Phase:     assemble.PhaseF1,
 		Context:   a.contextTier,

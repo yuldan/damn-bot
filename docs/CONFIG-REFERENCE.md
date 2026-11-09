@@ -313,6 +313,17 @@ config_version = 1
       daily_tokens = 0
       daily_usd = 0.0
       min_interval_s = 0
+  [modules.memory]
+    provider = ""
+    query_rewrite = false
+    context_engine = ""
+    [modules.memory.honcho]
+      enabled = false
+      base_url = ""
+      token_secret = ""
+      workspace = ""
+      session_id = ""
+      peer_id = ""
 
 [providers]
   custom = []
