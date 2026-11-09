@@ -37,6 +37,8 @@ type f8PetsState struct {
 }
 
 // runPets implements `damnbot pets` (CLI-050).
+//
+//nolint:dupl // runner load/store identik dengan runProject; boilerplate sengaja eksplisit per surface.
 func runPets(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pets", flag.ContinueOnError)
 	fs.SetOutput(stderr)
