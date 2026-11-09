@@ -63,6 +63,7 @@ func f8ModuleImports(m map[string][]string) {
 	m["internal/skills/hub"] = []string{"internal/skills"}
 	m["internal/batch"] = nil                                              // F8 batch runner (OPS-020/021/022): stdlib only
 	m["internal/evals"] = []string{"internal/batch", "internal/scorecard"} // OPS-023/024
+	m["internal/obs"] = []string{"internal/netx"}                          // OPS-018: loopback client only
 }
 
 func allowedImports() map[string][]string {

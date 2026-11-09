@@ -358,6 +358,10 @@ config_version = 1
   oidc_issuer = ""
   oidc_client_id = ""
   oidc_client_secret_secret = ""
+
+[telemetry]
+  otlp_enabled = false
+  otlp_endpoint = ""
 ```
 
 ## Keys
@@ -433,3 +437,5 @@ config_version = 1
 | `web.oidc_issuer` | string | `` | `DAMNBOT_WEB_OIDC_ISSUER` |
 | `web.oidc_client_id` | string | `` | `DAMNBOT_WEB_OIDC_CLIENT_ID` |
 | `web.oidc_client_secret_secret` | string | `` | `DAMNBOT_WEB_OIDC_CLIENT_SECRET_SECRET` |
+| `telemetry.otlp_enabled` | bool | `false` | `DAMNBOT_TELEMETRY_OTLP_ENABLED` |
+| `telemetry.otlp_endpoint` | string | `` | `DAMNBOT_TELEMETRY_OTLP_ENDPOINT` |

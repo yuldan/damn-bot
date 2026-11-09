@@ -6691,3 +6691,12 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Konsekuensi.** (+) OPS-020/021/023/024 mendapat baris budget resmi. (−) Headroom keluarga MODULE F8 tinggal 1.800 LOC.
 
 - Amandemen (ADR-326/ADR-330, F8 web CLI): **CLI-069** dan **UI-016** menjadi `LULUS` (parity + ledger) lewat `TestF8CLI069Serve`/`TestF8UI016Headless`: `damnbot serve` tanpa `--web` hanya membuka listener observabilitas loopback (`127.0.0.1`) tanpa web UI, sedangkan `serve --web` mewajibkan sesi. `serve open [--remote]` meminta URL sekali pakai ke proses berjalan lewat kontrol loopback ber-secret 0600 (`POST /auth/link`, constant-time, hanya loopback), dan `serve sessions ls|revoke [--all|<hex>]` mengelola `web_sessions`; tes `TestWebControlLink`, `TestRemoteLinkOneTime`, `TestWebStateRoundTrip`, `TestServeSessionsRevoke`. `GAP-SEC-09` dan `GAP-UX-10` tetap `BELUM` (OIDC end_session, PWA/responsif belum).
+## ADR-337 — F8 OPS-018: `[telemetry]` opt-in dan config cap 2.869 → 2.870
+
+**Status:** Accepted 2026-11-09 (F8 OTLP, melanjutkan ADR-336).
+
+**Konteks.** CROSS-CUTTING §5 memakai `[telemetry] otlp_endpoint` dengan default kosong = 0 koneksi. Config belum punya section itu, dan baris `config` 2.869 hanya menyisakan 4 baris headroom (ADR-335).
+
+**Keputusan.** `[telemetry] otlp_enabled`/`otlp_endpoint` menambah `config` **2.869 → 2.870** (terukur scc 2.870); Σ core menjadi **57.265** ≤ plafon **57.300** sehingga `maxCoreLOC` tidak berubah. Exporter memakai `netx.LoopbackClient` dengan endpoint loopback tervalidasi (tanpa lane egress baru; `netx` tetap 1.899/1.900) dan OTLP/HTTP protobuf ditulis minimal di `internal/obs/otlp.go`, tanpa dependency baru. `docs/ENGINEERING.md` dan `docs/CONFIG-REFERENCE.md` disinkronkan.
+
+**Konsekuensi.** (+) Kunci telemetri resmi dengan default nol koneksi. (−) Baris `config` tanpa headroom; kunci config berikutnya butuh ADR terukur. Endpoint OTLP non-loopback belum didukung sampai ada lane egress khusus.
