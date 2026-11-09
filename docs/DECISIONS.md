@@ -6672,3 +6672,5 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Keputusan.** `loc.budget` baris `config` **2.819 → 2.869** (terukur scc 2.869). Σ core menjadi **57.264**, tetap di bawah plafon **57.300** (ADR-334), sehingga `maxCoreLOC` tidak berubah. `docs/ENGINEERING.md` dan `docs/CONFIG-REFERENCE.md` disinkronkan.
 
 **Konsekuensi.** (+) Kunci config connector dapat divalidasi ketat oleh loader tanpa membebani plafon core. (−) Baris `config` kembali tanpa headroom; kenaikan kunci config berikutnya butuh ADR terukur.
+
+- Amandemen (ADR-326/ADR-330, F8 slice 2c): **UI-014** menjadi `LULUS` (parity + ledger) lewat `TestF8UI014WebDashboard` — `serve --web` menyajikan dashboard/aset embedded dengan auth wajib, CSP GAP-SEC-06, SSE `/api/events`, dan e2e biner nyata (401 tanpa token, nonce sekali pakai ditolak pada replay, Host asing 421, remote tanpa `allow_remote` ditolak exit 78). Baris budget tidak berubah: `MODULE web` terukur 782/5.000; minimal tetap 22.077.602 B/22.100.000 (aset hanya `!minimal`). UI-015 tetap `BELUM` (provider drain/Nous OAuth belum ada).

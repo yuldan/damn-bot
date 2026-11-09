@@ -53,8 +53,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case p == "/healthz":
 		s.healthz(w)
+	case strings.HasPrefix(p, "/assets/"):
+		s.asset(w, r)
 	case s.authRoute(w, r, p):
 	case s.apiRoute(w, r, p):
+	case s.pageRoute(w, r, p):
 	default:
 		http.NotFound(w, r)
 	}
@@ -89,7 +92,7 @@ func (s *Server) authRoute(w http.ResponseWriter, r *http.Request, p string) boo
 	return true
 }
 
-// apiRoute serves the session API; both endpoints require a session.
+// apiRoute serves the session API and the SSE stream.
 func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request, p string) bool {
 	switch p {
 	case "/api/session":
@@ -102,10 +105,71 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request, p string) bool
 		if s.mutation(w, r) {
 			s.withSession(w, r, s.logout)
 		}
+	case "/api/events":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return true
+		}
+		s.withSession(w, r, s.events)
 	default:
 		return false
 	}
 	return true
+}
+
+// pageRoute serves the dashboard, the login exchange page and settings.
+func (s *Server) pageRoute(w http.ResponseWriter, r *http.Request, p string) bool {
+	switch p {
+	case "/auth":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return true
+		}
+		if s.cfg.Auth == ModeOIDC {
+			state := s.nonces.mint(s.now(), s.cfg.NonceTTL)
+			http.Redirect(w, r, s.cfg.OIDC.AuthorizeURL(state, newNonce()), http.StatusSeeOther)
+			return true
+		}
+		s.render(w, s.tmpl.auth, pageData{})
+	case "/":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return true
+		}
+		s.withSession(w, r, s.index)
+	case "/settings":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return true
+		}
+		s.withSession(w, r, s.settings)
+	default:
+		return false
+	}
+	return true
+}
+
+// index serves the dashboard shell; the CSRF token reaches the page through a
+// meta tag so the cookie can stay HttpOnly.
+func (s *Server) index(w http.ResponseWriter, r *http.Request, _ *Session) {
+	s.render(w, s.tmpl.index, pageData{CSRF: csrfOf(r)})
+}
+
+// settings renders the current UI language and the catalog locales read-only.
+func (s *Server) settings(w http.ResponseWriter, r *http.Request, _ *Session) {
+	s.render(w, s.tmpl.settings, pageData{
+		CSRF:     csrfOf(r),
+		Language: s.cfg.Language,
+		Locales:  s.cfg.Locales,
+	})
+}
+
+// csrfOf returns the CSRF cookie value for the meta tag.
+func csrfOf(r *http.Request) string {
+	if c, err := r.Cookie(csrfCookie); err == nil {
+		return c.Value
+	}
+	return ""
 }
 
 // mutation guards a state-changing request: same-origin fetch metadata plus the

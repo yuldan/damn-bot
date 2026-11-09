@@ -3,7 +3,9 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -509,5 +511,104 @@ func TestWebListenUnix(t *testing.T) {
 	})
 	if ln.Addr().Network() != "unix" {
 		t.Fatalf("network = %q", ln.Addr().Network())
+	}
+}
+
+// TestWebAssetsUnderLimit keeps the embedded set inside SPEC §13.2.
+func TestWebAssetsUnderLimit(t *testing.T) {
+	t.Parallel()
+	assets, err := defaultAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	err = fs.WalkDir(assets, ".", func(_ string, d fs.DirEntry, werr error) error {
+		if werr != nil || d.IsDir() {
+			return werr
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return fmt.Errorf("stat %s: %w", d.Name(), ierr)
+		}
+		n += info.Size()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 || n > MaxAssetBytes {
+		t.Fatalf("embedded assets = %d B (max %d)", n, MaxAssetBytes)
+	}
+}
+
+// TestWebPagesAndAssets: the login page and assets are public, the dashboard
+// and settings require a session, and templates are never served as assets.
+func TestWebPagesAndAssets(t *testing.T) {
+	t.Parallel()
+	_, ts := newTestServer(t, nil)
+	if got := get(t, ts, "/auth").status; got != http.StatusOK {
+		t.Fatalf("/auth = %d", got)
+	}
+	for _, p := range []string{"/", "/settings"} {
+		if got := get(t, ts, p).status; got != http.StatusUnauthorized {
+			t.Errorf("%s = %d, want 401", p, got)
+		}
+	}
+	for _, p := range []string{"/assets/app.js", "/assets/app.css", "/assets/login.js"} {
+		if got := get(t, ts, p).status; got != http.StatusOK {
+			t.Errorf("%s = %d", p, got)
+		}
+	}
+	if got := get(t, ts, "/assets/index.html").status; got != http.StatusNotFound {
+		t.Errorf("index.html as asset = %d", got)
+	}
+}
+
+// TestWebDashboardRender: an authenticated dashboard carries the CSRF meta tag
+// and the settings page lists the catalog locales.
+func TestWebDashboardRender(t *testing.T) {
+	t.Parallel()
+	srv, ts := newTestServer(t, nil)
+	session, _ := signIn(t, srv, ts)
+	page := get(t, ts, "/", session)
+	if page.status != http.StatusOK || !strings.Contains(page.body, `name="damnbot-csrf"`) ||
+		!strings.Contains(page.body, "/assets/app.js") {
+		t.Fatalf("dashboard = %d %q", page.status, page.body[:min(80, len(page.body))])
+	}
+	settings := get(t, ts, "/settings", session)
+	if settings.status != http.StatusOK || !strings.Contains(settings.body, "Language") {
+		t.Fatalf("settings = %d", settings.status)
+	}
+}
+
+// TestWebSSE: the stream opens for a session and sends the hello event.
+func TestWebSSE(t *testing.T) {
+	t.Parallel()
+	srv, ts := newTestServer(t, nil)
+	session, _ := signIn(t, srv, ts)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(session)
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content-type = %q", ct)
+	}
+	buf := make([]byte, 64)
+	n, rerr := resp.Body.Read(buf)
+	if cerr := resp.Body.Close(); cerr != nil {
+		t.Errorf("close stream: %v", cerr)
+	}
+	if rerr != nil {
+		t.Fatalf("read hello: %v", rerr)
+	}
+	if !strings.HasPrefix(string(buf[:n]), "event: hello\ndata: {") {
+		t.Fatalf("first event = %q", buf[:n])
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -20,6 +21,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/i18n"
 )
 
 // Authentication modes (SPEC §13.2). Token and Once are loopback modes; Basic
@@ -62,6 +65,12 @@ type Config struct {
 	OIDC OIDCProvider
 	// NonceTTL is the one-use link lifetime; 0 means 60 s.
 	NonceTTL time.Duration
+	// Assets overrides the embedded FS (tests); nil uses the embedded set.
+	Assets fs.FS
+	// Language is the resolved UI language shown on the settings page.
+	Language string
+	// Locales is the settings-page language list; nil uses the i18n catalog.
+	Locales []string
 	// DataDir expands the <state_dir> placeholder of a unix listen.
 	DataDir string
 	// Now is the clock seam; the default is time.Now.
@@ -76,6 +85,8 @@ type Server struct {
 	now    func() time.Time
 	srv    *http.Server
 	ln     net.Listener
+	assets fs.FS
+	tmpl   *templateSet
 	nonces nonceSet
 }
 
@@ -106,7 +117,16 @@ func New(cfg *Config) (*Server, error) {
 	if c.Sessions == nil {
 		return nil, errors.New("web: no session store wired")
 	}
-	s := &Server{cfg: c, now: c.Now}
+	s := &Server{cfg: c, now: c.Now, assets: c.Assets}
+	if aerr := s.initAssets(); aerr != nil {
+		return nil, aerr
+	}
+	if c.Language == "" {
+		s.cfg.Language = "auto"
+	}
+	if c.Locales == nil {
+		s.cfg.Locales = i18n.Locales()
+	}
 	s.srv = &http.Server{
 		Handler:           s,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -117,6 +137,23 @@ func New(cfg *Config) (*Server, error) {
 	}
 	s.nonces.init(c.Now)
 	return s, nil
+}
+
+// initAssets loads the embedded (or injected) asset tree and its templates.
+func (s *Server) initAssets() error {
+	if s.assets == nil {
+		assets, err := defaultAssets()
+		if err != nil {
+			return err
+		}
+		s.assets = assets
+	}
+	tmpl, err := parseTemplates(s.assets)
+	if err != nil {
+		return err
+	}
+	s.tmpl = tmpl
+	return nil
 }
 
 // validateAuth refuses a mode whose verifier is missing instead of serving

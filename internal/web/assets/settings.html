@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>damnbot settings</title>
+<meta name="damnbot-csrf" content="{{.CSRF}}">
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<header class="bar">
+  <h1>Settings</h1>
+  <a href="/">Dashboard</a>
+</header>
+<main>
+  <section class="card">
+    <h2>Language</h2>
+    <p class="muted">Current: <strong id="language">{{.Language}}</strong> (set <code>ui.language</code> in config.toml; edits are applied by the CLI).</p>
+    <ul id="locales">
+      {{range .Locales}}<li>{{.}}</li>{{end}}
+    </ul>
+  </section>
+  <section class="card">
+    <h2>Theme</h2>
+    <p class="muted">The dashboard follows the terminal theme family (`tern-dark` by default).</p>
+  </section>
+</main>
+</body>
+</html>
