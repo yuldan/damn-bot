@@ -18,10 +18,11 @@
 #
 # ADR-324 (dua tingkat + smoke, 2026-11-04; menggantikan ADR-179 butir 8): `pull_request` = tier `pr`
 # — matrix `test` dua target (ubuntu-latest dan windows-latest, keduanya `-race`/cgo) + gate murah
-# (`lint`, `static`, `phase`, `e2e`, `bench`, `supply`, `skill-refs`, `sqlite-engine`). `push: main` =
-# tier `smoke` (ADR-181): `lint`, `static`, `smoke` (`make build`, `make vet-cross`, suite paket inti
-# cepat) = 5 instance `ci` — bukan tier penuh, karena run main tidak bisa dibatalkan dan tidak boleh
-# menyerap biaya gate PR. `merge_group`, nightly (`workflow_call`), dan `workflow_dispatch` = tier
+# (`lint`, `static`, `phase`, `e2e`, `bench`, `supply`, `skill-refs`, `sqlite-engine`, `deadcode-linux`).
+# `push: main` = tier `smoke` (ADR-181): `lint`, `static`, `smoke` (`make build`, `make vet-cross`, suite
+# paket inti cepat) = 5 instance `ci`, ditambah `deadcode-linux` (E-53 GOOS linux, ADR-324 amandemen
+# 2026-11-09) menjadi 6 saat kode berubah — bukan tier penuh, karena run main tidak bisa dibatalkan dan
+# tidak boleh menyerap biaya gate PR. `merge_group`, nightly (`workflow_call`), dan `workflow_dispatch` = tier
 # `full`: matrix enam target + seluruh gate berat (`test-timing`, `deadcode`, `portability` =
 # vet-cross + build-matrix, `fuzz`, `perf`, `coverage`, `bench-parity`). Merge queue menjalankan tier
 # penuh SEBELUM merge; selama queue belum aktif (repo user-owned), regresi OS-spesifik/gate berat
@@ -278,6 +279,33 @@ jobs:
             tools/go.sum
       - name: Kode mati, 3 GOOS digabung (E-53)
         run: make deadcode
+
+  # ADR-324 amandemen (2026-11-09): gate E-53 GOOS linux berjalan di SETIAP tier yang mengubah kode,
+  # termasuk `pr`. Gate 3-GOOS tier `full` tidak berjalan di PR, sehingga fungsi tak terjangkau
+  # `internal/connectors/token.go:91` (`tokenCache.Calls`) lolos ke main lewat #817/#818 (PR #819
+  # memperbaikinya). Satu GOOS = biaya `deadcode` terukur (~39 s, ADR-179), bukan gate berat.
+  deadcode-linux:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOMEMLIMIT: 1500MiB
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - name: Kode mati GOOS linux (E-53, ADR-324 amandemen)
+        run: |
+          ulimit -v 8388608
+          make deadcode-linux
 
   # ADR-073 (AUD-033) + E-39/E-65: `go vet` lintas OS/arch dan build 8 target kanonik
   # (CGO_ENABLED=0 -tags goolm). ADR-324: dipindah dari PR ke tier `full`; keduanya memblokir merge
@@ -618,6 +646,7 @@ jobs:
       - test-timing
       - static
       - deadcode
+      - deadcode-linux
       - portability
       - fuzz
       - phase

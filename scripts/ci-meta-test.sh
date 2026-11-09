@@ -17,7 +17,7 @@ trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
 PATH="$(cd "$root" && go env GOROOT)/bin:$PATH"
 export GOTOOLCHAIN=local
 GATES=(
-	lint depguard lint-anchor vet-custom test race timing vet-cross build-matrix build-minimal-all fuzz coverage deadcode flake perf
+	lint depguard lint-anchor vet-custom test race timing vet-cross build-matrix build-minimal-all fuzz coverage deadcode deadcode-linux flake perf
 	size-check loc loc-unmapped loc-ratio loc-ratio-testonly deps-check vuln licenses tidy-check mod-verify bench-budget
 	sqlite-engine skill-refs
 	phase-file phase-acceptance
@@ -70,6 +70,7 @@ marker() {
 	fuzz) echo 'FUZZ GAGAL .*FuzzMeta' ;;
 	coverage) echo 'COVERAGE GAGAL .*metaviolation' ;;
 	deadcode) echo 'DEADCODE GAGAL internal/metaviolation/v\.go:[0-9]+: Dead' ;;
+	deadcode-linux) echo 'DEADCODE GAGAL internal/metaviolation/v\.go:[0-9]+: Dead' ;;
 	flake) echo 'TestMetaFlake' ;;
 	perf) echo 'timing budget meta perf' ;;
 	size-check) echo 'SIZE GAGAL full' ;;
@@ -328,7 +329,7 @@ func Uncovered(n int) int {
 }
 EOF
 		;;
-	deadcode)
+	deadcode | deadcode-linux)
 		gofile "$d/internal/metaviolation/v.go" <<'EOF'
 // Package metaviolation is a synthetic E-53 violation.
 package metaviolation
