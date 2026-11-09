@@ -56,6 +56,11 @@ func p6ModuleImports(m map[string][]string) {
 // its own netx egress clients and the host seam only (E-06).
 func f8ModuleImports(m map[string][]string) {
 	m["internal/connectors"] = []string{"internal/modules/host", "internal/netx", "internal/schema"}
+	// F8 skills: catalog metadata is stdlib-only; hub reaches the parent
+	// package's Service and injects its own fetcher (no netx edge).
+	m["internal/skills"] = []string{"internal/schema"}
+	m["internal/skills/catalog"] = nil
+	m["internal/skills/hub"] = []string{"internal/skills"}
 }
 
 func allowedImports() map[string][]string {
@@ -101,7 +106,6 @@ func allowedImports() map[string][]string {
 		"internal/doctor":            {"internal/ctxdb", "internal/gateway"},
 		"internal/compaction":        {"internal/loop/event", "internal/budget"},
 		"internal/memory":            {"internal/redact"},
-		"internal/skills":            {"internal/schema"}, "internal/skills/catalog": nil,
 
 		"internal/journal":   {"internal/loop/event", "internal/sandbox"},
 		"internal/budget":    nil,
