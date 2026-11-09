@@ -28,6 +28,7 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb/limitstore"
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
+	"github.com/damnbot/damnbot/internal/i18n"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/netx"
@@ -507,7 +508,7 @@ func loadRunConfig(loader *config.Loader, path string) (config.Config, error) {
 		cfg, err = config.Default(), nil
 	}
 	if err != nil {
-		return config.Config{}, fmt.Errorf("load config: %w", err)
+		return config.Config{}, fmt.Errorf("%s: %w", i18n.T(localeFromFile(path), i18n.KeyConfigLoad), err)
 	}
 	// The F3 environment override (GAP-OPS-02) is applied here, not by Load,
 	// so a stale variable never beats the file (EC-CFG-001).
