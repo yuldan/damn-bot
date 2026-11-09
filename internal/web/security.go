@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/damnbot/damnbot/internal/i18n"
 )
 
 // ContentSecurityPolicy is the exact GAP-SEC-06 header, with one nonce per
@@ -135,7 +137,7 @@ func (s *Server) pageRoute(w http.ResponseWriter, r *http.Request, p string) boo
 			http.Redirect(w, r, s.cfg.OIDC.AuthorizeURL(state, newNonce()), http.StatusSeeOther)
 			return true
 		}
-		s.render(w, s.tmpl.auth, pageData{})
+		s.render(w, s.tmpl.auth, s.page(r))
 	case "/":
 		if r.Method != http.MethodGet {
 			methodNotAllowed(w)
@@ -154,23 +156,33 @@ func (s *Server) pageRoute(w http.ResponseWriter, r *http.Request, p string) boo
 	return true
 }
 
-// index serves the dashboard shell; the CSRF token reaches the page through a
-// meta tag so the cookie can stay HttpOnly.
-func (s *Server) index(w http.ResponseWriter, r *http.Request, _ *Session) {
-	s.render(w, s.tmpl.index, pageData{CSRF: csrfOf(r)})
-}
-
-// settings renders the current UI language and the catalog locales read-only.
-func (s *Server) settings(w http.ResponseWriter, r *http.Request, _ *Session) {
+// page builds the localized template input for r; no token material leaks in.
+// The language is read under mu because applySettings updates it at runtime.
+func (s *Server) page(r *http.Request) *pageData {
 	s.mu.Lock()
 	language := s.cfg.Language
 	s.mu.Unlock()
-	s.render(w, s.tmpl.settings, pageData{
+	lang := i18n.Resolve(language)
+	return &pageData{
 		CSRF:     csrfOf(r),
-		Language: language,
+		Lang:     lang,
+		Dir:      dirOf(lang),
+		Language: lang,
 		Locales:  s.cfg.Locales,
 		Writable: s.cfg.Settings != nil,
-	})
+	}
+}
+
+// index serves the dashboard shell; the CSRF token reaches the page through a
+// meta tag so the cookie can stay HttpOnly.
+func (s *Server) index(w http.ResponseWriter, r *http.Request, _ *Session) {
+	s.render(w, s.tmpl.index, s.page(r))
+}
+
+// settings renders the current UI language, the catalog locales and, when the
+// build has a settings writer, the localized preview/apply form.
+func (s *Server) settings(w http.ResponseWriter, r *http.Request, _ *Session) {
+	s.render(w, s.tmpl.settings, s.page(r))
 }
 
 // csrfOf returns the CSRF cookie value for the meta tag.

@@ -1,8 +1,8 @@
 # F8-ACCEPTANCE — Ledger acceptance F8 (web UI, ekosistem, otomatisasi)
 
-Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `cb7755167`. Dari 167 baris data, **75 `LULUS`** (72 parity + 3 GAP), **90 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
+Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `323ce9f68`. Dari 167 baris data, **77 `LULUS`** (73 parity + 4 GAP), **88 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
 
-Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 72 `LULUS`, 76 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
+Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 73 `LULUS`, 75 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
 
 Aturan gate:
 
@@ -188,7 +188,7 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | UI-016 | Headless backend | `damnbot serve` tanpa UI untuk desktop/remote; bind loopback default | `TestF8UI016Headless` | LULUS | CLI-069 |
 | UI-017 | Desktop app (Electron) | diganti web UI: pane terminal/preview + projects tanpa runtime Node | `TestF8UI017DesktopWeb` | BELUM | ADR-330; 0 Electron |
 | UI-022 | Local OAuth proxy | proxy OpenAI-compatible lokal ke provider OAuth; 0 token bocor | `TestF8UI022LocalProxy` | BELUM | CLI-012 |
-| UI-023 | i18n (18 bahasa) | 18 locale identik; 0 key hilang/kosong; `lang`/`dir=rtl` benar | `TestF8UI023I18n`, `TestI18nNoEmpty`, `TestLocaleSetIdentical` | BELUM | GAP-INF-08/09 |
+| UI-023 | i18n (18 bahasa) | 18 locale identik; 0 key hilang/kosong; `lang`/`dir=rtl` benar | `TestF8UI023I18n`, `TestI18nNoEmpty`, `TestLocaleSetIdentical` | LULUS | GAP-INF-08/09; katalog `internal/i18n/locales/*.toml` (30 key web), render `lang`/`dir` per locale + form settings ter-lokalisasi di `internal/web/i18n_assets_test.go:153` |
 
 ## 8. Ledger parity F8 — PLUG (10) dan OPS (9)
 
@@ -232,8 +232,8 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | GAP-UX-08 | 0 URL eksternal di aset/template/ekspor; font system stack; sesi export HTML self-contained; docs embedded ≤ 250 KB brotli | `TestWebAssetsNoExternalURL`, `TestHelpOffline` | BELUM | — |
 | GAP-UX-09 | kontrak server-request tunggal × 5 frontend dirender atau fallback terdefinisi; docs tergenerasi sinkron | `TestSurfaceParity`, `TestSurfaceDocSync` | BELUM | — |
 | GAP-UX-10 | web responsif ≥ 360 px, target ≥ 44 px, PWA installable, service worker cache-only aset; remote link sekali pakai | `TestRemoteLinkOneTime`, `TestF8WebResponsive` | BELUM | — |
-| GAP-INF-06 | suite eval deterministik seed tetap; regresi > 2 pp absolut/3% relatif gagal; run live ≤ `max_cost_usd` | `TestF8EvalDeterministic`, `TestF8EvalCostCap` | LULUS |
-| GAP-INF-08 | 0 nilai i18n kosong; 0 literal UI di luar katalog; key `critical` terisi di 18 locale; set locale identik | `TestI18nNoEmpty`, `TestNoUILiterals`, `TestCriticalKeysAllLocales`, `TestLocaleSetIdentical` | BELUM | — |
+| GAP-INF-06 | suite eval deterministik seed tetap; regresi > 2 pp absolut/3% relatif gagal; run live ≤ `max_cost_usd` | `TestF8EvalDeterministic`, `TestF8EvalCostCap` | LULUS | — |
+| GAP-INF-08 | 0 nilai i18n kosong; 0 literal UI di luar katalog; key `critical` terisi di 18 locale; set locale identik | `TestI18nNoEmpty`, `TestNoUILiterals`, `TestCriticalKeysAllLocales`, `TestLocaleSetIdentical`, `TestSettingsWritableLocalized`, `TestSettingsReadOnlyFallbackLocalized` | LULUS | `internal/i18n/i18n_test.go:238`; `internal/web/i18n_assets_test.go:26`; set tunggal `cmd/damnbot/locale_set_test.go:19` |
 | GAP-INF-09 | `[ui] reply_language` auto/follow_ui/kode; instruksi stable ≤ 12 tok; copy locale identik-en < 2% | `TestReplyLanguageLine`, `TestLocaleNotEnglishCopy` | BELUM | — |
 ## 10. EC F8 (0)
 
@@ -284,4 +284,4 @@ Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 
 - Baris agregat §1: **7**. Jumlah baris data ledger: **167** (148 parity + 17 GAP + 0 EC + 2 carryover); total baris ledger termasuk agregat: **174**.
 - Katalog SKCAT: **58 bundled + 153 optional = 211** skill; PLUG-009 = **645** entri.
 - Budget F8: **21.800 Go** (`maxF8ModuleLOC`) + **≈9.900 JS/CSS** (≤ 10.000, SPEC §3.2.4); `maxModuleLOC` **132.000**.
-- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada `cb7755167`: 167 baris data dengan **75 `LULUS`** (72 parity + 3 GAP), **90 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.
+- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada `323ce9f68`: 167 baris data dengan **77 `LULUS`** (73 parity + 4 GAP), **88 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.

@@ -17,6 +17,14 @@ func usedKeys() []string {
 		KeyHelpHelp, KeyHelpVersion, KeyHelpDetails, KeyHelpUnknownTopic,
 		KeyHelpUnknownHint, KeyHelpTopicHeader, KeyConfigLoad,
 		KeyAPIAuthRequired, KeyWebAuthUnauthorized,
+		"web.title", "web.settings", "web.dashboard", "web.sign_out",
+		"web.session", "web.events", "web.connecting", "web.waiting",
+		"web.signed_in", "web.expired", "web.stream_open", "web.reconnecting",
+		"web.language", "web.current", "web.theme", "web.theme_note",
+		"web.signin", "web.signing_in", "web.no_nonce", "web.link_used",
+		"web.unreachable", "web.auto", "web.preview", "web.apply",
+		"web.readonly", "web.preview_refused", "web.review_diff",
+		"web.applied", "web.apply_expired",
 	}
 }
 
@@ -56,6 +64,33 @@ func TestI18nNoMissingKeys(t *testing.T) {
 	for _, key := range usedKeys() {
 		if _, ok := base[key]; !ok {
 			t.Errorf("wired key %q is missing from the catalog", key)
+		}
+	}
+}
+
+// TestLocaleNotEnglishCopy is GAP-INF-08: the settings surface is genuinely
+// translated, not an English copy. The product name (`web.title`) is exempt
+// because a brand is the same everywhere; every settings key must differ.
+func TestLocaleNotEnglishCopy(t *testing.T) {
+	t.Parallel()
+	catalogs, err := parseCatalogs()
+	if err != nil {
+		t.Fatalf("load embedded catalogs: %v", err)
+	}
+	base := catalogs[Default]
+	settingsKeys := []string{
+		"web.auto", "web.preview", "web.apply", "web.readonly",
+		"web.preview_refused", "web.review_diff", "web.applied",
+		"web.apply_expired",
+	}
+	for _, locale := range Locales() {
+		if locale == Default {
+			continue
+		}
+		for _, key := range settingsKeys {
+			if catalogs[locale][key] == base[key] {
+				t.Errorf("%s: %q still carries the English copy %q", locale, key, base[key])
+			}
 		}
 	}
 }
@@ -191,5 +226,56 @@ func TestI18nCatalogValid(t *testing.T) {
 	t.Parallel()
 	if err := Validate(); err != nil {
 		t.Fatalf("embedded catalog invalid: %v", err)
+	}
+}
+
+// criticalPrefix is the catalog namespace whose keys may never be empty: the
+// approval, preview, error, destructive, budget and SAFE MODE surfaces
+// (GAP-INF-08). The prefix is the marker; a new critical surface must use it.
+const criticalPrefix = "critical."
+
+// TestI18nNoEmpty is GAP-INF-08: no locale ships an empty value.
+func TestI18nNoEmpty(t *testing.T) {
+	t.Parallel()
+	catalogs, err := parseCatalogs()
+	if err != nil {
+		t.Fatalf("load embedded catalogs: %v", err)
+	}
+	for _, locale := range Locales() {
+		for key, text := range catalogs[locale] {
+			if strings.TrimSpace(text) == "" {
+				t.Errorf("%s: empty value for %q", locale, key)
+			}
+		}
+	}
+}
+
+// TestCriticalKeysAllLocales is GAP-INF-08: every critical key is filled in
+// all 18 locales, and the six required surfaces are present.
+func TestCriticalKeysAllLocales(t *testing.T) {
+	t.Parallel()
+	catalogs, err := parseCatalogs()
+	if err != nil {
+		t.Fatalf("load embedded catalogs: %v", err)
+	}
+	required := []string{
+		"critical.approval.title", "critical.preview.title",
+		"critical.error.title", "critical.destructive.confirm",
+		"critical.budget.title", "critical.safe_mode.title",
+	}
+	for _, key := range required {
+		if _, ok := catalogs[Default][key]; !ok {
+			t.Errorf("required critical key %q is missing from the en catalog", key)
+		}
+	}
+	for key := range catalogs[Default] {
+		if !strings.HasPrefix(key, criticalPrefix) {
+			continue
+		}
+		for _, locale := range Locales() {
+			if strings.TrimSpace(catalogs[locale][key]) == "" {
+				t.Errorf("%s: critical key %q is empty", locale, key)
+			}
+		}
 	}
 }

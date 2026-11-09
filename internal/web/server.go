@@ -134,10 +134,11 @@ func New(cfg *Config) (*Server, error) {
 		return nil, aerr
 	}
 	if c.Language == "" {
-		s.cfg.Language = "auto"
+		s.cfg.Language = i18n.Auto
 	}
+	s.cfg.Language = i18n.Resolve(s.cfg.Language)
 	if c.Locales == nil {
-		s.cfg.Locales = i18n.Locales()
+		s.cfg.Locales = SupportedLocales()
 	}
 	s.srv = &http.Server{
 		Handler:           s,

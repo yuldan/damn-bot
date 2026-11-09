@@ -1,27 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{.Lang}}" dir="{{.Dir}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>damnbot</title>
+<title>{{.T "web.title"}}</title>
 <meta name="damnbot-csrf" content="{{.CSRF}}">
 <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body>
+<body data-msg-signed-in="{{.T "web.signed_in"}}" data-msg-expired="{{.T "web.expired"}}" data-msg-stream-open="{{.T "web.stream_open"}}" data-msg-reconnecting="{{.T "web.reconnecting"}}">
 <header class="bar">
-  <h1>damnbot</h1>
-  <p id="principal" class="muted">…</p>
-  <a href="/settings">Settings</a>
-  <button id="logout" type="button">Sign out</button>
+  <h1>{{.T "web.title"}}</h1>
+  <p id="principal" class="muted"></p>
+  <a href="/settings">{{.T "web.settings"}}</a>
+  <button id="logout" type="button">{{.T "web.sign_out"}}</button>
 </header>
 <main id="app">
   <section class="card" id="session">
-    <h2>Session</h2>
-    <p id="session-state" class="muted">Connecting…</p>
+    <h2>{{.T "web.session"}}</h2>
+    <p id="session-state" class="muted">{{.T "web.connecting"}}</p>
   </section>
   <section class="card" id="events">
-    <h2>Events</h2>
-    <p id="events-state" class="muted">Waiting for the stream…</p>
+    <h2>{{.T "web.events"}}</h2>
+    <p id="events-state" class="muted">{{.T "web.waiting"}}</p>
   </section>
 </main>
 <script type="module" src="/assets/app.js"></script>

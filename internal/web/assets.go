@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"path"
 	"strings"
+
+	"github.com/damnbot/damnbot/internal/i18n"
 )
 
 // MaxAssetBytes is the SPEC §13.2 ceiling for the embedded asset set.
@@ -57,16 +59,37 @@ func parseTemplates(fsys fs.FS) (*templateSet, error) {
 	return &templateSet{index: index, auth: auth, settings: settings}, nil
 }
 
+// SupportedLocales is the embedded catalog's locale set (SPEC §9.12): the web
+// UI, CLI, TUI and gateway all read this one list (GAP-INF-08).
+func SupportedLocales() []string { return i18n.Locales() }
+
+// dirOf returns the HTML text direction of a locale. Arabic is the only RTL
+// locale of the §9.12 set (UI-023).
+func dirOf(locale string) string {
+	if locale == "ar" {
+		return "rtl"
+	}
+	return "ltr"
+}
+
 // pageData is the only template input; it never carries a session token.
+// Templates call [pageData.T] for every visible string, so no UI copy lives in
+// the HTML or JS assets (GAP-INF-08).
 type pageData struct {
 	CSRF     string
+	Lang     string
+	Dir      string
 	Language string
 	Locales  []string
 	Writable bool
 }
 
+// T translates key in the page locale through the embedded catalog, applying
+// fmt args when given.
+func (p *pageData) T(key string, args ...any) string { return i18n.T(p.Lang, key, args...) }
+
 // render writes one HTML page; a template failure is a plain 500.
-func (s *Server) render(w http.ResponseWriter, t *template.Template, data pageData) {
+func (s *Server) render(w http.ResponseWriter, t *template.Template, data *pageData) {
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, data); err != nil {
 		s.logWarn("render", err)
