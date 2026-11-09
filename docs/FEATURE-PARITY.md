@@ -935,13 +935,13 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | OPS-015 | Usage pricing / cost | Estimasi biaya per model | `agent/usage_pricing.py`, `hermes_cli/models_pricing.py` | on | models.dev data |  | F3 | planned |
 | OPS-016 | Insights | Analitik penggunaan | `agent/insights.py` | opt-in | — | `hermes insights` | F8 | planned |
 | OPS-017 | Prompt size | Rincian byte system prompt + schema tool | `hermes_cli/prompt_size.py` | opt-in | — |  | F3 | planned |
-| OPS-018 | Monitoring & OTLP export | Health gateway, export OTLP | `agent/monitoring/otlp_exporter.py`, `agent/monitoring/gateway_health.py` | off (`monitoring.export.otlp.enabled`) | extra `otlp` |  | F8 | planned |
+| OPS-018 | Monitoring & OTLP export | Health gateway, export OTLP | `agent/monitoring/otlp_exporter.py`, `agent/monitoring/gateway_health.py` | off (`monitoring.export.otlp.enabled`) | extra `otlp` |  | F8 | LULUS |
 | OPS-019 | Telemetry shared metrics | Metrik bersama ke Nous | `hermes_cli/config_defaults.py:2328` | off | Network |  | — | dropped-with-approval (NP-19) |
-| OPS-020 | Batch runner | Jalankan prompt massal paralel → trajectory | `batch_runner.py`, `toolset_distributions.py` | opt-in (skrip) | — | research/RL data | F8 | planned |
-| OPS-021 | Trajectory save & compressor | Simpan & kompres trajectory untuk training | `agent/trajectory.py`, `trajectory_compressor.py` | opt-in | — |  | F8 | planned |
+| OPS-020 | Batch runner | Jalankan prompt massal paralel → trajectory | `batch_runner.py`, `toolset_distributions.py` | opt-in (skrip) | — | research/RL data | F8 | LULUS |
+| OPS-021 | Trajectory save & compressor | Simpan & kompres trajectory untuk training | `agent/trajectory.py`, `trajectory_compressor.py` | opt-in | — |  | F8 | LULUS |
 | OPS-022 | Trace upload (HF) | Upload trace ke Hugging Face | `agent/trace_upload.py` | opt-in | extra `trace-upload` |  | F8 | planned |
-| OPS-023 | Mini SWE runner | Runner tugas SWE format trajectory Hermes | `mini_swe_runner.py` | opt-in (skrip) | Docker/Modal opsional |  | F8 | planned |
-| OPS-024 | Evals | Suite evaluasi/probe perilaku | `evals/__init__.py` | dev only | — | 74 entri di `evals/` | F8 | planned |
+| OPS-023 | Mini SWE runner | Runner tugas SWE format trajectory Hermes | `mini_swe_runner.py` | opt-in (skrip) | Docker/Modal opsional |  | F8 | LULUS |
+| OPS-024 | Evals | Suite evaluasi/probe perilaku | `evals/__init__.py` | dev only | — | 74 entri di `evals/` | F8 | LULUS |
 | OPS-025 | Verify | Deteksi resep run proyek & smoke test | `hermes_cli/verify_cmd.py`, `agent/verify` | opt-in | — | `hermes verify` | F3 | planned |
 | OPS-026 | Service manager (systemd/launchd/Windows) | Install gateway sebagai service | `hermes_cli/service_manager.py`, `hermes_cli/gateway_launchd.py`, `hermes_cli/gateway_windows.py` | opt-in | systemd/launchd/Task Scheduler | systemd user (ADR-250), launchd LaunchAgent (ADR-256), Task Scheduler (ADR-251) | F4 | planned |
 | OPS-027 | Startup watchdog & bootstrap | Watchdog startup, UTF-8 stdio Windows | `hermes_startup_watchdog.py`, `hermes_bootstrap.py` | on | — |  | F4 | planned |

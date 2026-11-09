@@ -206,12 +206,12 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | PLUG-035 | Connectors (hosted) | connector app hosted + akun via `manage_connections`; OAuth referensi saja | `TestF8PLUG035Connectors` | BELUM | CLI-056 |
 | OPS-010 | Debug upload / dump | laporan debug ter-redaksi; tautan sekali pakai; 0 host pastebin | `TestF8OPS010DebugUpload` | BELUM | GAP-SEC-17 |
 | OPS-016 | Insights | analitik pemakaian; agregat dari ledger; 0 secret | `TestF8OPS016Insights` | BELUM | CLI-058 |
-| OPS-018 | Monitoring & OTLP export | health gateway + export OTLP; endpoint opt-in; 0 konten pesan | `TestF8OPS018OTLP` | BELUM | CLI-060 |
-| OPS-020 | Batch runner | prompt massal paralel → trajectory; batas paralel + biaya | `TestF8OPS020BatchRunner` | BELUM | — |
-| OPS-021 | Trajectory save & compressor | simpan & kompres trajectory; format OpenAI/ShareGPT valid | `TestF8OPS021Trajectory` | BELUM | — |
+| OPS-018 | Monitoring & OTLP export | health gateway + export OTLP; endpoint opt-in; 0 konten pesan | `TestF8OPS018OTLP`, `TestOPS018DisabledNoConnect` | LULUS | CLI-060 belum (surface monitoring) |
+| OPS-020 | Batch runner | prompt massal paralel → trajectory; batas paralel + biaya | `TestF8OPS020BatchRunner`, `TestF8OPS020BatchRun` | LULUS | e2e `TestF8OPS020EvalBatch` |
+| OPS-021 | Trajectory save & compressor | simpan & kompres trajectory; format OpenAI/ShareGPT valid | `TestF8OPS021Trajectory`, `TestF8OPS021BatchCompress` | LULUS | `TestF8OPS022Trajectory` |
 | OPS-022 | Trace upload (HF) | upload trace ke Hugging Face; opt-in; 0 transcript user | `TestF8OPS022TraceUpload` | BELUM | — |
-| OPS-023 | Mini SWE runner | runner tugas SWE format trajectory Hermes; sandbox | `TestF8OPS023MiniSWE` | BELUM | — |
-| OPS-024 | Evals | suite evaluasi/probe perilaku deterministik; baseline ter-commit | `TestF8OPS024Evals`, `TestF8EvalDeterministic` | BELUM | GAP-INF-06 |
+| OPS-023 | Mini SWE runner | runner tugas SWE format trajectory Hermes; sandbox | `TestF8OPS023MiniSWE` | LULUS | subset in-memory (tanpa Docker) |
+| OPS-024 | Evals | suite evaluasi/probe perilaku deterministik; baseline ter-commit | `TestF8OPS024Evals`, `TestF8EvalDeterministic` | LULUS | GAP-INF-06 |
 | OPS-038 | Projects | workspace multi-folder bernama; path divalidasi | `TestF8OPS038Projects` | BELUM | CLI-030 |
 
 ## 9. GAP F8 (17) — SPEC §22.1
@@ -232,10 +232,9 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | GAP-UX-08 | 0 URL eksternal di aset/template/ekspor; font system stack; sesi export HTML self-contained; docs embedded ≤ 250 KB brotli | `TestWebAssetsNoExternalURL`, `TestHelpOffline` | BELUM | — |
 | GAP-UX-09 | kontrak server-request tunggal × 5 frontend dirender atau fallback terdefinisi; docs tergenerasi sinkron | `TestSurfaceParity`, `TestSurfaceDocSync` | BELUM | — |
 | GAP-UX-10 | web responsif ≥ 360 px, target ≥ 44 px, PWA installable, service worker cache-only aset; remote link sekali pakai | `TestRemoteLinkOneTime`, `TestF8WebResponsive` | BELUM | — |
-| GAP-INF-06 | suite eval deterministik seed tetap; regresi > 2 pp absolut/3% relatif gagal; run live ≤ `max_cost_usd` | `TestF8EvalDeterministic`, `TestF8EvalCostCap` | BELUM | — |
+| GAP-INF-06 | suite eval deterministik seed tetap; regresi > 2 pp absolut/3% relatif gagal; run live ≤ `max_cost_usd` | `TestF8EvalDeterministic`, `TestF8EvalCostCap` | LULUS |
 | GAP-INF-08 | 0 nilai i18n kosong; 0 literal UI di luar katalog; key `critical` terisi di 18 locale; set locale identik | `TestI18nNoEmpty`, `TestNoUILiterals`, `TestCriticalKeysAllLocales`, `TestLocaleSetIdentical` | BELUM | — |
 | GAP-INF-09 | `[ui] reply_language` auto/follow_ui/kode; instruksi stable ≤ 12 tok; copy locale identik-en < 2% | `TestReplyLanguageLine`, `TestLocaleNotEnglishCopy` | BELUM | — |
-
 ## 10. EC F8 (0)
 
 Tidak ada EC F8: `docs/ROADMAP.md:58-67` hanya memetakan `EC-PROV`, `EC-TCALL`, `EC-CTX`, `EC-STATE`, `EC-FIO`, `EC-TERM`, `EC-WIN`, `EC-PLAT`, `EC-CFG`, dan `EC-SEC` ke F1–F7; katalog EC tidak memuat fase F8. Karena itu tabel ini sengaja kosong dan tidak boleh diisi dengan status F7; baris EC F7 tetap milik `docs/F7-ACCEPTANCE.md` §10. `TestEdgeCaseCatalogSync` tetap berlaku: tidak ada `pending:F8` baru tanpa ADR.
