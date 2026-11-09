@@ -6680,3 +6680,12 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 - Amandemen (ADR-326/ADR-330, F8 slice 2c): **UI-014** menjadi `LULUS` (parity + ledger) lewat `TestF8UI014WebDashboard` — `serve --web` menyajikan dashboard/aset embedded dengan auth wajib, CSP GAP-SEC-06, SSE `/api/events`, dan e2e biner nyata (401 tanpa token, nonce sekali pakai ditolak pada replay, Host asing 421, remote tanpa `allow_remote` ditolak exit 78). Baris budget tidak berubah: `MODULE web` terukur 782/5.000; minimal tetap 22.077.602 B/22.100.000 (aset hanya `!minimal`). UI-015 tetap `BELUM` (provider drain/Nous OAuth belum ada).
 
 - Amandemen (ADR-326/ADR-330, F8 web CLI): **CLI-068** dan **CLI-070** menjadi `LULUS` (parity + ledger). `damnbot dashboard` = `serve --web` (satu daemon, satu model auth, aset embedded, 0 URL eksternal) dan `damnbot desktop` (+ alias `gui` yang di-resolve eksplisit di dispatch, bukan alias diam-diam) menyajikan web UI serta mencetak URL sekali pakai tanpa runtime Node/Electron; di build minimal keduanya menolak lewat jalur `--web` yang typed. Tes: `TestF8CLI068Dashboard`, `TestF8CLI070Desktop`. `UI-017` tetap `BELUM` karena pane terminal/preview + projects belum ada. Baris budget tidak berubah (`MODULE web` tetap di bawah 5.000; wiring CLI dihitung di baris cmd yang sudah ada).
+## ADR-336 — F8 batch/evals/trajectory: booking `MODULE batch`
+
+**Status:** Accepted 2026-11-09 (F8 batch/evals/trajectory).
+
+**Konteks.** SPEC §9.13/§18.5 dan GAP-INF-06 membutuhkan runner batch, trajectory, mini SWE subset, dan evals deterministik (OPS-020..OPS-024). ADR-330 sudah mengalokasikan `batch/evals/trajectory` 2.500 di keluarga MODULE F8, tetapi barisnya belum dibukukan.
+
+**Keputusan.** `loc.budget` membukukan `MODULE batch 2500 internal/batch internal/evals` (terukur scc 772; Σ kelas MODULE +2.500 tetap ≤ `maxModuleLOC` 132.000 dan keluarga F8 20.000/21.800). Tidak ada dependency baru, lane egress, atau perubahan Σ core.
+
+**Konsekuensi.** (+) OPS-020/021/023/024 mendapat baris budget resmi. (−) Headroom keluarga MODULE F8 tinggal 1.800 LOC.
