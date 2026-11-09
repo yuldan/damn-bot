@@ -65,6 +65,10 @@ type Config struct {
 	OIDC OIDCProvider
 	// NonceTTL is the one-use link lifetime; 0 means 60 s.
 	NonceTTL time.Duration
+	// RemoteTTL is the lifetime of a `--remote` link; 0 means 10 min.
+	RemoteTTL time.Duration
+	// ControlSecret enables POST /auth/link for `serve open`; empty disables it.
+	ControlSecret string
 	// Assets overrides the embedded FS (tests); nil uses the embedded set.
 	Assets fs.FS
 	// Language is the resolved UI language shown on the settings page.
@@ -98,6 +102,9 @@ func New(cfg *Config) (*Server, error) {
 	}
 	if c.NonceTTL <= 0 {
 		c.NonceTTL = 60 * time.Second
+	}
+	if c.RemoteTTL <= 0 {
+		c.RemoteTTL = 10 * time.Minute
 	}
 	local, err := listenIsLocal(c.Listen)
 	if err != nil {
@@ -264,8 +271,11 @@ func (s *Server) listenUnix(ctx context.Context) (net.Listener, error) {
 // The nonce travels in the fragment, so the server never logs or receives it
 // until the page exchanges it.
 func (s *Server) OpenURL(remote bool) string {
-	_ = remote // local and remote links differ only in the caller's TTL choice
-	nonce := s.nonces.mint(s.now(), s.cfg.NonceTTL)
+	ttl := s.cfg.NonceTTL
+	if remote {
+		ttl = s.cfg.RemoteTTL
+	}
+	nonce := s.nonces.mint(s.now(), ttl)
 	scheme, host := "http", s.cfg.Listen
 	if s.cfg.TLSCert != "" {
 		scheme = "https"

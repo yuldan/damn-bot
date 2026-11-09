@@ -75,6 +75,9 @@ func serveUsage(w io.Writer) {
 
 // runServe is the surface entry point (SPEC §10: `serve`).
 func runServe(args []string, stdout, stderr io.Writer) int {
+	if code, handled := runServeSub(args, stdout, stderr); handled {
+		return code
+	}
 	var o serveOptions
 	fs := serveFlagSet(&o, stderr)
 	if err := fs.Parse(args); err != nil {
