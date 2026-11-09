@@ -149,9 +149,9 @@ Deskripsi = teks `help` hermes (verbatim, dipotong 15 kata) agar dapat dicocokka
 | CLI-065 | `hermes acp` | Run Hermes Agent as an ACP (Agent Client Protocol) server | `hermes_cli/subcommands/acp.py:12` | tersedia | extra `acp` |  | F3 | planned |
 | CLI-066 | `hermes profile` | Manage profiles — multiple isolated Hermes instances | `hermes_cli/subcommands/profile.py:10` | tersedia | — | 15 sub: list, use, create, delete, describe, show, alias, rename, purge-identity, migrate-identity, export, import, install, update, info | F3 | planned |
 | CLI-067 | `hermes completion` | Print shell completion script (bash, zsh, or fish) | `hermes_cli/subcommands/completion.py:10` | tersedia | — |  | F3 | planned |
-| CLI-068 | `hermes dashboard` | Start the web UI dashboard | `hermes_cli/subcommands/dashboard.py:79` | tersedia | extra `web`, Node (build web) | 1 sub: register | F8 | planned |
+| CLI-068 | `hermes dashboard` | Start the web UI dashboard | `hermes_cli/subcommands/dashboard.py:79` | tersedia | extra `web`, Node (build web) | 1 sub: register | F8 | LULUS |
 | CLI-069 | `hermes serve` | Start the Hermes backend server (headless; powers the desktop app and remote backends) | `hermes_cli/subcommands/dashboard.py:95` | tersedia | extra `web` |  | F8 | planned |
-| CLI-070 | `hermes desktop` | Build and launch the native desktop app | `hermes_cli/subcommands/gui.py:10` | tersedia | Node.js, Electron | alias: gui | F8 | planned |
+| CLI-070 | `hermes desktop` | Build and launch the native desktop app | `hermes_cli/subcommands/gui.py:10` | tersedia | Node.js, Electron | alias: gui | F8 | LULUS |
 | CLI-071 | `hermes logs` | View and filter Hermes log files | `hermes_cli/subcommands/logs.py:11` | tersedia | — |  | F3 | planned |
 | CLI-072 | `hermes prompt-size` | Show a byte breakdown of the system prompt + tool schemas | `hermes_cli/subcommands/prompt_size.py:12` | tersedia | — |  | F3 | planned |
 | CLI-073 | `hermes help` | Alias bantuan (ditangani khusus, bukan subparser) | `hermes_cli/main.py:2797` | tersedia | — | ada di `_BUILTIN_SUBCOMMANDS`, tidak via add_parser | F1 | planned |

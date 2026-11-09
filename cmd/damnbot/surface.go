@@ -71,6 +71,8 @@ func surface() []surfaceEntry {
 		{Name: "skills", Summary: "Local skills: list, install, update, trust", Phase: phaseF2, Run: skillsCommand, Usage: skillsUsage},
 		{Name: "bundles", Summary: "Skill bundles: list, show, create, delete, reload", Phase: phaseF2, Run: runBundles, Usage: bundlesUsage},
 		{Name: "api-server", Summary: "OpenAI-compatible HTTP API server", Phase: phaseF7, Run: runAPIServer, Usage: apiServerUsage},
+		{Name: "dashboard", Summary: "Web UI dashboard (embedded assets)", Phase: phaseF8, Run: runDashboard, Usage: dashboardUsage},
+		{Name: "desktop", Summary: "Web UI desktop replacement (alias: gui)", Phase: phaseF8, Run: runDesktop, Usage: desktopUsage},
 		{Name: "gateway", Summary: "Messaging gateway", Phase: phaseF4, Run: runGateway, Usage: gatewayUsage},
 		{Name: "send", Summary: "Send one message to a configured platform", Phase: phaseF4, Run: runSend, Usage: sendUsage},
 		{Name: "whatsapp", Summary: "WhatsApp setup: Cloud API, Web only behind --accept-ban-risk", Phase: phaseF7, Run: runWhatsApp, Usage: whatsappUsage},

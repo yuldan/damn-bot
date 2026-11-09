@@ -108,7 +108,14 @@ func TestF8WebServe(t *testing.T) {
 // startWebServe launches `serve --web` and returns the base URL and nonce.
 func startWebServe(t *testing.T, e *Env) (string, string) {
 	t.Helper()
-	args := []string{"serve", "--web", "--data-dir", e.DataDir, "--config", e.cfg, "--bind", "127.0.0.1:0"}
+	return startWebCmd(t, e, "serve", "--web")
+}
+
+// startWebCmd launches one web-serving command and returns base URL and nonce.
+func startWebCmd(t *testing.T, e *Env, command string, extra ...string) (string, string) {
+	t.Helper()
+	args := append([]string{command}, extra...)
+	args = append(args, "--data-dir", e.DataDir, "--config", e.cfg, "--bind", "127.0.0.1:0")
 	cmd := exec.CommandContext(t.Context(), binPaths.main, args...) // #nosec G204 -- this package's temp build
 	cmd.Dir = e.Workdir
 	cmd.Env = e.childEnv()
@@ -280,4 +287,58 @@ func freePort(t *testing.T) int {
 		t.Fatalf("addr = %T", ln.Addr())
 	}
 	return addr.Port
+}
+
+// TestF8CLI068Dashboard: `damnbot dashboard` serves the embedded dashboard with
+// auth required and no external URL in the HTML.
+func TestF8CLI068Dashboard(t *testing.T) {
+	e := newEnv(t)
+	port := freePort(t)
+	if err := os.WriteFile(e.cfg, []byte(fmt.Sprintf("[network]\noffline = true\n\n[web]\nlisten = \"127.0.0.1:%d\"\n", port)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base, nonce := startWebCmd(t, e, "dashboard")
+	client := netx.New(netx.Config{}).Client("e2e-dashboard", netx.Background)
+	if anon := webGet(t, client, base+"/", ""); anon.status != http.StatusUnauthorized {
+		t.Fatalf("anonymous dashboard = %d", anon.status)
+	}
+	if asset := webGet(t, client, base+"/assets/app.js", ""); asset.status != http.StatusOK {
+		t.Fatalf("asset = %d", asset.status)
+	}
+	session, _ := exchangeNonce(t, client, base, nonce)
+	page := webGet(t, client, base+"/", "", session)
+	if page.status != http.StatusOK {
+		t.Fatalf("dashboard = %d", page.status)
+	}
+	for _, external := range []string{"http://", "https://", "//cdn.", "<iframe"} {
+		if strings.Contains(page.body, external) || strings.Contains(readAsset(t, client, base), external) {
+			t.Fatalf("dashboard references %q (0 external URL required)", external)
+		}
+	}
+}
+
+// readAsset fetches the dashboard script for the external-URL scan.
+func readAsset(t *testing.T, client *netx.Client, base string) string {
+	t.Helper()
+	return webGet(t, client, base+"/assets/app.js", "").body
+}
+
+// TestF8CLI070Desktop: `desktop` and its `gui` alias serve the web UI and
+// print a one-use URL without any Node/Electron runtime.
+func TestF8CLI070Desktop(t *testing.T) {
+	for _, command := range []string{"desktop", "gui"} {
+		e := newEnv(t)
+		port := freePort(t)
+		if err := os.WriteFile(e.cfg, []byte(fmt.Sprintf("[network]\noffline = true\n\n[web]\nlisten = \"127.0.0.1:%d\"\n", port)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		base, nonce := startWebCmd(t, e, command)
+		if nonce == "" || base == "" {
+			t.Fatalf("%s did not print a one-use URL", command)
+		}
+		client := netx.New(netx.Config{}).Client("e2e-desktop", netx.Background)
+		if anon := webGet(t, client, base+"/", ""); anon.status != http.StatusUnauthorized {
+			t.Fatalf("%s anonymous dashboard = %d", command, anon.status)
+		}
+	}
 }
