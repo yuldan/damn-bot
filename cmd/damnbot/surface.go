@@ -88,6 +88,7 @@ func surface() []surfaceEntry {
 		{Name: "version", Summary: "Version, commit, DB schema, compiled-in modules", Phase: phaseF1, Run: runVersion, Builtin: true},
 	}
 	entries = append(entries, mcpSurface()...)
+	entries = append(entries, pluginsSurface()...)
 	entries = append(entries, peerSurface()...)
 	entries = append(entries, cuaSurface()...)
 	entries = append(entries, f8Surfaces()...)

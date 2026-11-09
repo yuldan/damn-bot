@@ -1,14 +1,14 @@
 # F8-ACCEPTANCE — Ledger acceptance F8 (web UI, ekosistem, otomatisasi)
 
-Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `3125d87ec`. Dari 167 baris data, **78 `LULUS`** (73 parity + 5 GAP), **87 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
+Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `d7e143ba0`. Dari 167 baris data, **79 `LULUS`** (74 parity + 5 GAP), **86 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
 
-Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 73 `LULUS`, 75 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
+Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 74 `LULUS`, 74 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
 
 Aturan gate:
 
 - **Penutupan (ADR-330, melanjutkan ADR-326/ADR-323).** Baris hanya `LULUS` bila PR yang sama menambah tes bernama, mengubah baris parity F8 menjadi `LULUS`, dan mengubah baris ledger `BELUM`→`LULUS`. Baris yang tidak dapat dibuktikan ditulis `N/A — <alasan teknis> (carryover F9)`, bukan `BELUM`. Baris agregat hanya `LULUS` setelah semua anggota tertutup.
 - **Gate mesin.** Selama `PHASE=F8` gate tidak aktif (ledger hidup). Begitu `PHASE` > F8, `TestF8LedgerClosed` menolak `BELUM`, `N/A` telanjang (< 8 karakter alasan), dan baris parity F8 yang bukan `LULUS`/`N/A — …`; `TestParityPhaseColumn` memeriksa hal yang sama dari sisi parity. `TestF8LedgerGateRules` adalah kontrol negatifnya.
-- **Budget.** `maxF8ModuleLOC` = 21.800 (ROADMAP F8) dan `maxModuleLOC` = 132.000 (ADR-330); baris `MODULE` F8 berada di luar Σ core (ADR-196). Naikkan angka hanya lewat ADR terukur.
+- **Budget.** `maxF8ModuleLOC` = 22.800 (ROADMAP F8, ADR-340) dan `maxModuleLOC` = 132.000 (ADR-330); baris `MODULE` F8 berada di luar Σ core (ADR-196). Naikkan angka hanya lewat ADR terukur.
 - Tidak ada `t.Skip` runtime (REL-15). Web UI diuji dengan `httptest`/Chromium headless dan fake server; binary nyata hanya dipakai harness `internal/e2e`. Network keluar (petdex, skills hub, connector, upload debug) memakai fake server dan tidak pernah menjadi default.
 - Nama tes bersifat target, bukan implementasi. Nama yang sudah diwajibkan SPEC dipertahankan apa adanya: `TestWebCSPHeaders`, `TestWebCSRF`, `TestWebSessionRevoke`, `TestContrastTokens`, `TestWebAssetsNoExternalURL`, `TestHelpOffline`, `TestSurfaceParity`, `TestSurfaceDocSync`, `TestRemoteLinkOneTime`, `TestI18nNoEmpty`, `TestNoUILiterals`, `TestCriticalKeysAllLocales`, `TestLocaleSetIdentical`, `TestReplyLanguageLine`, `TestLocaleNotEnglishCopy`, `TestThreatScanDotenv`, `TestExternalMemoryUploadCap`, `TestWebSessionRevoke`.
 
@@ -194,7 +194,7 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| PLUG-009 | Plugin catalog (645 entri) | katalog pihak ketiga SHA-pinned; signature + anti-rollback; entri rusak ditolak | `TestF8PLUG009PluginCatalog`, `TestF8PluginCatalog645` | BELUM | GAP-SEC-20 |
+| PLUG-009 | Plugin catalog (645 entri) | katalog pihak ketiga SHA-pinned; signature + anti-rollback; entri rusak ditolak | `TestF8PLUG009PluginCatalog`, `TestF8PluginCatalog645` | LULUS | `internal/plugins/catalog` + `internal/plugins/resolve` + `damnbot plugins list\|show\|verify` (ADR-342, `internal/plugins/catalog/plugins.tsv`); signature/anti-rollback manifest provider/MCP: `internal/mcp/catalog` (GAP-SEC-20) |
 | PLUG-014 | Plugin: context_engine | slot engine konteks alternatif; default off; engine asing ditolak | `TestF8PLUG014ContextEngine` | BELUM | MEM-023 |
 | PLUG-016 | Plugin: dashboard_auth | 4 provider auth dashboard; token hanya cookie/session store | `TestF8PLUG016DashboardAuth` | BELUM | UI-015 |
 | PLUG-017 | Plugin: disk-cleanup | bersihkan file ephemeral; dry-run + allowlist path | `TestF8PLUG017DiskCleanup` | BELUM | AUTO-030 |
@@ -283,5 +283,5 @@ Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 
 - GAP F8: **17**; EC F8: **0**; carryover F7→F8: **2** (keduanya `N/A — … (carryover F9)`).
 - Baris agregat §1: **7**. Jumlah baris data ledger: **167** (148 parity + 17 GAP + 0 EC + 2 carryover); total baris ledger termasuk agregat: **174**.
 - Katalog SKCAT: **58 bundled + 153 optional = 211** skill; PLUG-009 = **645** entri.
-- Budget F8: **21.800 Go** (`maxF8ModuleLOC`) + **≈9.900 JS/CSS** (≤ 10.000, SPEC §3.2.4); `maxModuleLOC` **132.000**.
-- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada `3125d87ec`: 167 baris data dengan **78 `LULUS`** (73 parity + 5 GAP), **87 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.
+- Budget F8: **22.800 Go** (`maxF8ModuleLOC`, ADR-342) + **≈9.900 JS/CSS** (≤ 10.000, SPEC §3.2.4); `maxModuleLOC` **132.000**.
+- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada `d7e143ba0`: 167 baris data dengan **79 `LULUS`** (74 parity + 5 GAP), **86 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.

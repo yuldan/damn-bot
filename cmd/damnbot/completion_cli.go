@@ -27,6 +27,7 @@ func completionSubcommands() map[string][]string {
 	}
 	addAuthCompletion(m)
 	addEvalCompletion(m)
+	addPluginsCompletion(m)
 	return m
 }
 
