@@ -24,6 +24,7 @@ type Modules struct {
 	Voice       ModulesVoice       `toml:"voice"`
 	ComputerUse ModulesComputerUse `toml:"computer_use"`
 	Connectors  ModulesConnectors  `toml:"connectors"`
+	Auto        ModulesAuto        `toml:"auto"`
 }
 
 // ModulesMCP is [modules.mcp]: the client-wide opt-in and one section per
@@ -70,6 +71,7 @@ func defaultModules() Modules {
 		Gateway:     ModulesGateway{Telegram: ModulesTelegram{ThreadFallback: "fail"}},
 		Browser:     ModulesBrowser{AllowOrigins: []string{}, DialogAllow: []string{}},
 		ComputerUse: ModulesComputerUse{Command: []string{}, Env: []string{}},
+		Auto:        defaultAuto(),
 	}
 }
 

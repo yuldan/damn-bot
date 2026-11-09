@@ -6615,3 +6615,32 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Anggaran (terukur).** C1: `config` **2.714 → 2.740** (terukur scc 2.739; Σ core **57.109 → 57.135** ≤ **57.200**); `MODULE connectors` terukur 469/6.000. Tidak ada lane `netx`, dependency, atau wiring `cmd` baru di slice ini.
 
 **Konsekuensi.** (+) Satu tempat untuk aturan egress/redaksi/gating dan satu tabel nama yang tidak bisa diperluas config. (−) Tujuh lane `netx` ditambahkan bertahap saat konektornya mendarat; pagu 1.900 hanya menyisakan 8 baris, jadi setiap lane wajib satu baris registry.
+
+## ADR-333 — Framework `auto`: registry tertutup, config opt-in, dan budget per fitur
+
+**Status:** Accepted 2026-11-08 (F8 AUTO; melanjutkan ADR-330).
+
+**Konteks.** SPEC §9.11 menuntut semua fitur otomatisasi F8 **default OFF**, budget per fitur, call `purpose=auto feature=<id>` yang tidak pernah berada di jalur kritis turn (P28), serta `[modules.auto.<fitur>]` di SPEC §12. Sebelum PR ini tidak ada paket, config, maupun seam yang menegakkan empat hal itu; `provider.PurposeAuto` sudah ada tetapi belum punya pemanggil. Tabel `MODULE auto` 4.000 sudah dialokasikan gate ADR-330 (`maxF8ModuleLOC` 21.800), tetapi baris `loc.budget` belum dibukukan karena paketnya belum ada.
+
+**Keputusan.**
+
+1. **Registry tertutup 12 fitur.** `internal/auto` memuat tepat 12 baris parity: `review` (AUTO-001), `title` (002), `curator` (003), `compaction` (004), `blueprints` (012), `suggestions` (013), `goals` (014), `loops` (015), `heartbeat` (016), `disk_cleanup` (030), `maintenance` (031), `webhooks` (032). `Lookup`/`New` menolak nama asing; `[modules.auto.reviewx]` adalah `ErrUnknownKey` di build full (bukan `ErrModuleUnavailable`), dan `[modules.auto]` tetap `ErrModuleUnavailable` di build `minimal` (ADR-269).
+2. **Config default-off.** `internal/config` menambah `ModulesAuto` bertipe (bukan map longgar) dengan `enabled`, `daily_tokens`, `daily_usd`, `min_interval_s`. Semua `enabled=false` dan `daily_tokens=0`; nol berarti "pakai default registry" dan default SPEC §9.11 diisi runtime: review 50.000, curator 30.000, title 2.000, compaction 20.000, blueprints/suggestions 4.000, goals 20.000, loops/heartbeat 4.000, disk/maintenance/webhooks 1.000 token. Validasi fail-closed: budget negatif/NaN, `min_interval_s` loops < 30 atau heartbeat < 60, dan key yang tidak dipakai feature ditolak.
+3. **Satu jalur call.** `auto.Service.Call` menolak feature nonaktif (`ErrDisabled`), budget habis (`ErrBudget`), atau provider nil (`ErrNoClient`) **sebelum** provider disentuh, lalu mengirim `provider.Request{Origin:"auto"}` dengan `purpose=auto`. Budget token dihitung dari `Usage.Input+Output`; `MaxTokens` dipotong ke sisa budget sehingga pemanggil berhenti di batas, bukan melewatinya dengan satu call penuh. Bila `daily_usd` dipasang dan biaya call tidak diketahui, sisa hari itu fail-closed (`ErrBudget`), bukan dianggap gratis. Setiap keputusan memancarkan `Event` berisi `Feature`/`Purpose` untuk `llm_call`.
+4. **Scheduler non-kritis.** `Scheduler.Every/Tick/Run` memakai clock injeksi, menjalankan task due secara serial di goroutine pemanggil, dan `Run` kembali bersih saat context dibatalkan (tanpa timer/goroutine yatim). Error task dilaporkan, tidak menghentikan loop dan tidak menyentuh turn.
+5. **Tanpa jalur kritis dan tanpa egress baru.** Framework tidak dipanggil dari `internal/loop`; fitur F8 memanggilnya dari seam opsionalnya sendiri. Tidak ada entri `netx` baru: outbound webhook (AUTO-032) akan memakai klien `webhook-delivery` yang sudah terdaftar lewat `Sender` injeksi, sehingga headroom netx 1.892/1.900 tidak berubah.
+
+**Anggaran terukur (scc Code).** `config` **2.740 → 2.819** (+79: section/tipe/validasi), Σ core **57.135 → 57.214**, `maxCoreLOC` **57.200 → 57.300** (ADR-334; headroom 86), marker `arch-budgetsum` dan regex `budget_doc_test` tidak berubah; baris baru `MODULE auto` **4.000** (`internal/auto`, terukur 341), Σ MODULE **108.400 → 112.400** + backup 1.467 = **113.867 ≤ 132.000**. Tidak ada dependency baru, CGO, atau perubahan SPEC.
+
+**Konsekuensi.** (+) Default config terbukti 0 call `purpose=auto`; budget berhenti tepat di batas dan tercatat per feature; feature F8 dapat ditambahkan tanpa menyentuh gate config lagi. (−) Headroom core 85: kunci config berikutnya butuh ADR terukur. (−) Dua daftar fitur (registry Go dan struct config) harus tetap sinkron; tes config dan registry menolak key asing, dan PR fitur wajib menambah tes bernama sebelum baris parity menjadi `LULUS`.
+
+
+## ADR-334 — Plafon core setelah connectors C1 dan framework AUTO
+
+**Status:** Accepted 2026-11-08 (F8; amandemen ADR-333, melengkapi ADR-332/ADR-331).
+
+**Konteks.** Connectors C1 (ADR-332, `#816`) menaikkan `config` 2.714 → 2.740 (Σ core 57.135). Framework AUTO (ADR-333) menambah 80 baris config pada pohon yang sama; Σ core menjadi **57.215**, melewati plafon 57.200 (headroom 0 sebelum AUTO). Tanpa penaikan plafon, PR AUTO tidak dapat mendarat dan `TestBudgetTableSum` gagal.
+
+**Keputusan.** `maxCoreLOC` **57.200 → 57.300** (ceil ratusan; headroom 85), regex `budget_doc_test` dan marker `arch-budgetsum` mengikuti 57.300; `config` **2.740 → 2.819** (terukur scc), Σ core **57.135 → 57.214**; `Total core` + prosa ENGINEERING disetel ke 57.214. `TOTAL` 190.000, `maxModuleLOC` 132.000, dan cap MODULE tidak berubah.
+
+**Konsekuensi.** (+) AUTO dan connectors C1 dapat hidup di pohon yang sama tanpa menembus P21. (−) Headroom core tinggal 86; kenaikan config/core berikutnya (termasuk connectors C2/C3) butuh ADR terukur baru.

@@ -309,6 +309,9 @@ func (c *Config) validateModules() error {
 	if err := c.Modules.validateF8(); err != nil {
 		return err
 	}
+	if err := c.Modules.validateAuto(); err != nil {
+		return err
+	}
 	if err := c.Modules.Gateway.WhatsAppWeb.validate(); err != nil {
 		return err
 	}

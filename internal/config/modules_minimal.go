@@ -24,3 +24,10 @@ func (m *Modules) validateF6() error { return nil }
 
 // validateF8 is a no-op: no connector section exists in this build.
 func (m *Modules) validateF8() error { return nil }
+
+// validateAuto is a no-op: [modules.auto] never decodes in this build
+// (ADR-333); the key stays ErrModuleUnavailable like every other absent module.
+func (m *Modules) validateAuto() error { return nil }
+
+// autoModuleAvailable reports that [modules.auto] is not compiled in.
+func autoModuleAvailable() bool { return false }
