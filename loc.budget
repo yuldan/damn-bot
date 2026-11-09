@@ -554,3 +554,8 @@ MODULE skillhub 2500 internal/skills/catalog internal/skills/hub
 # dan journey data. Σ MODULE 125.900 -> 126.900 + backup 1.467 = 128.367
 # <= 132.000; Σ core tidak berubah.
 MODULE memprovider 1000 internal/memoryproviders
+# ADR-342 (F8 Q18/PLUG-009): baris baru `plugins` untuk `internal/plugins`
+# (katalog embedded 645 entri plugin pihak ketiga + resolusi ke target MCP/
+# skill/modul). Cap SPEC §3.2.4 F8 1.000; Σ F8 21.800 -> 22.800 dan
+# maxF8ModuleLOC 21.800 -> 22.800 (baris ini di luar Σ core).
+MODULE plugins 1000 internal/plugins

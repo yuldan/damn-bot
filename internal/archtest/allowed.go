@@ -64,6 +64,11 @@ func f8ModuleImports(m map[string][]string) {
 	m["internal/batch"] = nil                                              // F8 batch runner (OPS-020/021/022): stdlib only
 	m["internal/evals"] = []string{"internal/batch", "internal/scorecard"} // OPS-023/024
 	m["internal/obs"] = []string{"internal/netx"}                          // OPS-018: loopback client only
+	// F8 Q18: the plugin catalog is embedded stdlib-only metadata (ADR-342);
+	// resolution reads that catalog and returns target ids without executing
+	// anything, so it has no host/netx edge.
+	m["internal/plugins/catalog"] = nil
+	m["internal/plugins/resolve"] = []string{"internal/plugins/catalog"}
 }
 
 func allowedImports() map[string][]string {
