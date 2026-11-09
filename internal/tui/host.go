@@ -164,6 +164,13 @@ type Voice interface {
 	Speak(ctx context.Context, text string) (string, error)
 }
 
+// SlashF8 is the TUI seam of the F8 slash commands. The local TUI is always
+// the owner, so no role is passed; the implementation still validates the
+// arguments and returns one rendered line.
+type SlashF8 interface {
+	F8TUI(ctx context.Context, sessionID, name string, args []string) string
+}
+
 // Host bundles the services the composition root injects. Every field is
 // mandatory: the TUI performs no I/O of its own (E-09).
 type Host struct {
@@ -181,6 +188,8 @@ type Host struct {
 	// Voice backs /voice and /wake; nil leaves them unavailable (minimal
 	// builds and compositions without the voice module).
 	Voice Voice
+	// F8 backs the F8 slash commands; nil leaves them unavailable.
+	F8 SlashF8
 
 	Resources Resources
 	// Notices is the non-critical notice gate; nil disables such notices

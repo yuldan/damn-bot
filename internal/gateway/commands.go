@@ -23,8 +23,7 @@ type CommandOptions struct {
 	Resolver ApprovalResolver
 	// Pairing redeems "/pair <code>"; nil leaves it registered but unsupported.
 	Pairing PairingStore
-	// Runtime backs "/stop", "/new", "/status" and "/usage"; nil leaves the
-	// four registered but unsupported.
+	// Runtime backs "/stop", "/new", "/status" and "/usage"; nil leaves the four registered but unsupported.
 	Runtime Runtime
 	// Control backs "/restart", "/platforms" and "/platform"; nil leaves them
 	// registered but unsupported.
@@ -39,14 +38,13 @@ type CommandOptions struct {
 	Voice Voice
 	// Kanban backs "/kanban"; nil answers module_unavailable.
 	Kanban Kanban
+	// F8 backs the F8 slash commands; nil answers module_unavailable.
+	F8 F8Commands
 	// Now is the pairing attempt clock and redemption timestamp; nil is time.Now.
 	Now func() time.Time
 }
 
-// CommandResult is the answer to one message the admission layer extracted
-// before building a turn. Handled means the message was a command for this
-// bot: Reply (possibly empty, e.g. "/start") is the only output and no turn,
-// LLM request, or tool call may follow.
+// CommandResult is the outcome of one gateway slash command (F8).
 type CommandResult struct {
 	Handled bool
 	// Applied is true exactly when this call resolved an approval (a second
@@ -75,6 +73,7 @@ type Commands struct {
 	browser   BrowserControl
 	voice     Voice
 	kanban    Kanban
+	f8        F8Commands
 	now       func() time.Time
 	specs     map[string]commandSpec
 
@@ -93,7 +92,7 @@ func NewCommands(opts *CommandOptions) *Commands {
 		runtime: opts.Runtime, settings: opts.Settings, control: opts.Control, estop: opts.Estop, mcp: opts.MCP,
 		browser: opts.Browser,
 		now:     now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
-		voice: opts.Voice, kanban: opts.Kanban,
+		voice: opts.Voice, kanban: opts.Kanban, f8: opts.F8,
 	}
 }
 
@@ -108,7 +107,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [off|help|session-id] /tz [zone|off] /restart /platforms /platform list|pause|resume [name] /reload-mcp /voice [on|off|tts <text>|status] /wake [on|off|status] /kanban <sub> /paste /image"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [off|help|session-id] /tz [zone|off] /restart /platforms /platform list|pause|resume [name] /reload-mcp /voice [on|off|tts <text>|status] /wake [on|off|status] /kanban <sub> /goal <text|status|clear> /subgoal <text|list|remove> /heartbeat status|pause|resume|clear|set <s> <prompt> /loop <s> <prompt> [--times N|--until RFC3339]|status|clear /personality [list|<name>] /suggestions accept|dismiss|catalog|clear /blueprint [catalog|<name> k=v...] /insights [days] /journey [list|delete|edit] /pet [list|toggle|select|show|scale|off] /hatch <description> /curator status|run|pause|resume|pin|unpin|restore|list-archived /debug share|delete <token> /paste /image"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -129,7 +128,7 @@ const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reas
 // non-owner and is also the one command the admission layer answers before an
 // identity is allowlisted.
 func commandRegistry() map[string]commandSpec {
-	return map[string]commandSpec{
+	m := map[string]commandSpec{
 		"start":  {run: func(*Commands, context.Context, *Ticket, Command) CommandResult { return CommandResult{Handled: true} }},
 		"whoami": {run: (*Commands).whoami},
 		"approve": {
@@ -182,6 +181,8 @@ func commandRegistry() map[string]commandSpec {
 		// Non-owner, not implemented by this slice.
 		"fork": {}, "plan": {}, "undo": {},
 	}
+	addF8Specs(m)
+	return m
 }
 
 // BrowserControl is the `/browser` management seam. Each method answers with
