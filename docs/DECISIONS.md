@@ -4927,6 +4927,9 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 **Tidak berubah.** Tidak ada gate yang dilonggarkan, tidak ada `nolint`, tidak ada dependency baru, tidak ada perubahan SPEC/default config, dan tidak ada data yang ditulis saat `--dry-run`.
 
 
+**Amandemen F8 (skills hub; 2026-11-09).** Catatan di atas bahwa "hub … belum ada di repo" sudah tidak berlaku: `internal/skills/hub` kini memuat empat sumber (`official`/`github`/`clawhub`/`skills.sh`) dengan host allowlist https, fetch berbatas, verifikasi SHA-256 wajib, threat scan, dan karantina; `cmd/damnbot skills hub search|list|install|approve|sync` adalah surface-nya (di balik `!minimal`). Setiap entri indeks memakai `skills.ParseToSMeta`, sehingga kewajiban metadata ADR-234 ditegakkan loader. Approval wajib owner eksplisit (`--owner`/`DAMNBOT_SKILLS_OWNER`); tanpa owner, approval tertutup. Katalog 211 entri ada di `internal/skills/catalog`. Baris `MODULE skillhub` 2.500 dibukukan untuk `internal/skills/catalog` + `internal/skills/hub` (Σ core tidak berubah); tidak ada section config baru, dan egress memakai lane `refs` (`netx.Tool`) yang sudah terdaftar sehingga `netx` tetap 1.899/1.900 tanpa entri baru. Tanda tangan indeks ed25519 (GAP-SEC-20) belum diimplementasikan, jadi SKILL-011 tetap terbuka.
+
+
 ## ADR-235 — `session/set_model` dan mode ACP yang benar-benar dapat dipilih
 
 **Status:** Accepted 2026-10-28 (F3, GAP-UX-02). Menerapkan SPEC §13.3, §14.1, §18.3; melanjutkan ADR-219/ADR-233.
@@ -6608,6 +6611,8 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Amandemen (F8 slice 2a, PR #814).** Baris `MODULE web 5000 internal/web` dibukukan di `loc.budget` saat paketnya lahir (terukur 230 pada head slice 2a); pagu `maxModuleLOC` 132.000, `maxF8ModuleLOC` 21.800 dan `wantCaps` `web` 5.000 sudah disediakan ADR-330, jadi tidak ada kenaikan pagu dan Σ core tidak berubah.
 
 **Amandemen (F8 skills hub, PR #824).** Baris `MODULE skillhub 2500` dibukukan di `loc.budget` untuk `internal/skills/catalog` dan `internal/skills/hub` (terukur 282 pada head katalog). Pagu `maxModuleLOC` 132.000, `maxF8ModuleLOC` 21.800, dan `wantCaps` `skillhub` 2.500 sudah disediakan ADR-330; tidak ada kenaikan pagu dan Σ core tidak berubah.
+
+**Amandemen (F8 skills hub CLI, PR #827).** Surface `damnbot skills hub search|list|install|approve|sync` (`!minimal`) memakai pipeline karantina/approve/instalasi atomik slice sebelumnya; baris parity SKILL-012..015/017/020 dan e2e biner fake-registry dibuktikan. Tidak ada kenaikan pagu (config/core/loc.budget tetap); netx tetap tanpa entri egress baru (fetcher diinjeksi).
 ## ADR-332 — Modul `connectors` F8: registry tertutup, egress per konektor, dan gating default-off
 
 **Status:** Accepted 2026-11-08 (F8; melanjutkan ADR-330). Dipakai oleh seluruh slice `internal/connectors`.
