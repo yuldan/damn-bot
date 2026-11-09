@@ -310,3 +310,56 @@ func f8DebugDelete(dir, token string) string {
 	}
 	return "debug deleted " + token
 }
+
+func (a *f8SlashAdapter) curatorSlash(dir string, owner bool, args []string) string {
+	st := f8CuratorState{}
+	if err := f8Load(f8StorePath(dir, "curator.json"), &st); err != nil {
+		return "curator: " + cleanLine(err.Error())
+	}
+	sub := "status"
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	var b strings.Builder
+	var changed bool
+	var err error
+	switch sub {
+	case "status":
+		fmt.Fprintf(&b, "paused=%t pins=%d managed=%d archived=%d events=%d\n", st.Paused, len(st.Pins), len(st.Managed), len(st.Archived), len(st.Events))
+	case "list-archived":
+		names := slices.Clone(st.Archived)
+		slices.Sort(names)
+		b.WriteString(strings.Join(names, "\n"))
+	case "run":
+		if msg := f8OwnerOnly(owner, "curator"); msg != "" {
+			return msg
+		}
+		changed, err = curatorRun(args[1:], dir, &st, &b)
+	case "pause", "resume":
+		if msg := f8OwnerOnly(owner, "curator"); msg != "" {
+			return msg
+		}
+		want := sub == "pause"
+		if st.Paused != want {
+			st.Paused = want
+			changed = true
+		}
+		b.WriteString("curator " + sub)
+	case "pin", "unpin", "restore":
+		if msg := f8OwnerOnly(owner, "curator"); msg != "" {
+			return msg
+		}
+		changed, err = curatorSet(sub, arg(args, 1), &st, &b)
+	default:
+		return "usage: /curator status|run|pause|resume|pin <name>|unpin <name>|restore <name>|list-archived"
+	}
+	if err != nil {
+		return "curator: " + cleanLine(err.Error())
+	}
+	if changed {
+		if serr := f8Save(f8StorePath(dir, "curator.json"), &st); serr != nil {
+			return "curator: " + cleanLine(serr.Error())
+		}
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}

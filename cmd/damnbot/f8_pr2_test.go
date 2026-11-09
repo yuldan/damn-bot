@@ -131,3 +131,91 @@ func petsLifecycleChecks(t *testing.T, data string) {
 		t.Fatalf("idempotent remove = %d %q", code, out)
 	}
 }
+
+func TestF8CLI049Curator(t *testing.T) {
+	data := t.TempDir()
+	old := time.Now().Add(-31 * 24 * time.Hour).Unix()
+	for _, name := range []string{"alpha", "beta"} {
+		if err := skills.AppendLedger(data, &skills.LedgerEntry{At: old, Name: name, SHA256: name, Source: "/s", Action: "indexed"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if code, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "status"); code != f8ExitOK || !strings.Contains(out, "paused=false") {
+		t.Fatalf("status = %d %q", code, out)
+	}
+	if code, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "usage"); code != f8ExitOK || !strings.Contains(out, "alpha indexed=1") {
+		t.Fatalf("usage = %d %q", code, out)
+	}
+	if code, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "run"); code != f8ExitOK || !strings.Contains(out, "proposal archive alpha") {
+		t.Fatalf("run = %d %q", code, out)
+	}
+	if _, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "ledger"); !strings.Contains(out, "proposal:archive") {
+		t.Fatalf("ledger = %q", out)
+	}
+	curatorMutations(t, data)
+	curatorBackupChecks(t, data)
+	if code, _, _ := runF8CLI(t, runCurator, "--data-dir", data, "purge"); code != f8ExitUsage {
+		t.Fatalf("purge without yes = %d", code)
+	}
+	if code, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "purge", "--yes"); code != f8ExitOK || !strings.Contains(out, "purged") {
+		t.Fatalf("purge = %d %q", code, out)
+	}
+	if code, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "purge", "--yes"); code != f8ExitOK || out != "" {
+		t.Fatalf("idempotent purge = %d %q", code, out)
+	}
+}
+
+func curatorMutations(t *testing.T, data string) {
+	t.Helper()
+	for range 2 {
+		if code, _, _ := runF8CLI(t, runCurator, "--data-dir", data, "pin", "alpha"); code != f8ExitOK {
+			t.Fatalf("pin = %d", code)
+		}
+	}
+	if _, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "status"); !strings.Contains(out, "pins=1") {
+		t.Fatalf("pin not idempotent: %q", out)
+	}
+	if _, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "list-unmanaged"); !strings.Contains(out, "alpha") {
+		t.Fatalf("list-unmanaged = %q", out)
+	}
+	_, _, _ = runF8CLI(t, runCurator, "--data-dir", data, "adopt", "alpha")
+	if _, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "list-unmanaged"); strings.Contains(out, "alpha") {
+		t.Fatalf("adopt did not remove alpha: %q", out)
+	}
+	_, _, _ = runF8CLI(t, runCurator, "--data-dir", data, "archive", "alpha")
+	if _, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "list-archived"); !strings.Contains(out, "alpha") {
+		t.Fatalf("list-archived = %q", out)
+	}
+	_, _, _ = runF8CLI(t, runCurator, "--data-dir", data, "restore", "alpha")
+	if _, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "list-archived"); strings.Contains(out, "alpha") {
+		t.Fatalf("restore left archived: %q", out)
+	}
+	if _, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "prune"); !strings.Contains(out, "pruned") && out != "" {
+		t.Fatalf("prune = %q", out)
+	}
+	if code, _, _ := runF8CLI(t, runCurator, "--data-dir", data, "pause"); code != f8ExitOK {
+		t.Fatalf("pause = %d", code)
+	}
+	if code, _, errs := runF8CLI(t, runCurator, "--data-dir", data, "run"); code != f8ExitFail || !strings.Contains(errs, "paused") {
+		t.Fatalf("run paused = %d %q", code, errs)
+	}
+	if code, _, _ := runF8CLI(t, runCurator, "--data-dir", data, "resume"); code != f8ExitOK {
+		t.Fatalf("resume = %d", code)
+	}
+}
+
+func curatorBackupChecks(t *testing.T, data string) {
+	t.Helper()
+	backup := filepath.Join(data, "backup.json")
+	if code, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "backup", "--out", backup); code != f8ExitOK || !strings.Contains(out, "backup written") {
+		t.Fatalf("backup = %d %q", code, out)
+	}
+	_, _, _ = runF8CLI(t, runCurator, "--data-dir", data, "pin", "beta")
+	if code, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "rollback", "--from", backup); code != f8ExitOK || !strings.Contains(out, "rolled back") {
+		t.Fatalf("rollback = %d %q", code, out)
+	}
+	_, out, _ := runF8CLI(t, runCurator, "--data-dir", data, "status")
+	if strings.Contains(out, "pins=2") {
+		t.Fatalf("rollback kept later pin: %q", out)
+	}
+}

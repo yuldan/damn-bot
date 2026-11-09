@@ -34,7 +34,7 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | CLI-030 | `damnbot project` | 11 sub (create, list, show, add-folder, remove-folder, rename, set-primary, use, archive, restore, bind-board); workspace multi-folder; path di luar workspace ditolak | `TestF8CLI030Project`, `TestF8CLI030ProjectSubcommands` | LULUS | OPS-038 |
 | CLI-036 | `damnbot dump` | ringkasan setup untuk dukungan; redaksi §14.3 + PII; 0 secret mentah | `TestF8CLI036Dump` | LULUS | OPS-010 |
 | CLI-037 | `damnbot debug` | dua sub `share`, `delete`; upload hanya opt-in dan terenkripsi; 0 host pastebin | `TestF8CLI037Debug` | LULUS | GAP-SEC-17 |
-| CLI-049 | `damnbot curator` | 17 sub (status, usage, run, pause, resume, pin, unpin, list-unmanaged, adopt, restore, list-archived, archive, prune, backup, rollback, ledger, purge); mutasi idempoten | `TestF8CLI049Curator`, `TestF8CLI049CuratorSubcommands` | BELUM | SKILL-021 |
+| CLI-049 | `damnbot curator` | 17 sub (status, usage, run, pause, resume, pin, unpin, list-unmanaged, adopt, restore, list-archived, archive, prune, backup, rollback, ledger, purge); mutasi idempoten | `TestF8CLI049Curator`, `TestF8CLI049CuratorSubcommands` | LULUS | SKILL-021 |
 | CLI-050 | `damnbot pets` | 8 sub (list, install, select, show, off, scale, remove, doctor); fetch petdex opt-in fake server; 0 aset eksternal runtime | `TestF8CLI050Pets` | BELUM | UI-010 |
 | CLI-051 | `damnbot journey` | alias `learning`, `memory-graph`; tiga sub list/delete/edit; timeline kronologis tanpa duplikat | `TestF8CLI051Journey` | BELUM | MEM-035 |
 | CLI-052 | `damnbot memory` | empat sub setup/status/off/reset; provider tunggal aktif; config hanya referensi secret | `TestF8CLI052Memory` | BELUM | MEM-005/008 |
@@ -54,7 +54,7 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | SLASH-073 | `/hatch` | alias `/generate-pet`; deskripsi → pet baru; network opt-in | `TestF8SLASH073Hatch` | BELUM | CLI-050 |
 | SLASH-077 | `/suggestions` | alias `/suggest`; sub accept/dismiss/catalog/clear; saran default off | `TestF8SLASH077Suggestions` | LULUS | AUTO-013 |
 | SLASH-078 | `/blueprint` | alias `/bp`; nama template + `slot=value` tervalidasi; slot asing ditolak | `TestF8SLASH078Blueprint` | LULUS | AUTO-012 |
-| SLASH-079 | `/curator` | sub status/run/pause/resume/pin/unpin/restore/list-archived; sama dengan CLI-049 | `TestF8SLASH079Curator` | BELUM | — |
+| SLASH-079 | `/curator` | sub status/run/pause/resume/pin/unpin/restore/list-archived; sama dengan CLI-049 | `TestF8SLASH079Curator` | LULUS | — |
 | SLASH-094 | `/insights` | argumen `days`; output analitik ≤ batas renderer | `TestF8SLASH094Insights` | LULUS | CLI-058 |
 | SLASH-102 | `/debug` | upload laporan debug; tautan sekali pakai; konten ter-redaksi; 0 host pastebin | `TestF8SLASH102Debug` | BELUM | OPS-010/GAP-SEC-17 |
 

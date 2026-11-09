@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/gateway"
+	"github.com/damnbot/damnbot/internal/skills"
 )
 
 func tokenFromReply(reply string) string {
@@ -123,5 +125,37 @@ func TestF8SLASH102Debug(t *testing.T) {
 	}
 	if got = cmds.Dispatch(ctx, owner, "/debug delete "+token); !strings.Contains(got.Reply, "already used") {
 		t.Fatalf("second delete = %q", got.Reply)
+	}
+}
+
+func TestF8SLASH079Curator(t *testing.T) {
+	data := t.TempDir()
+	old := time.Now().Add(-31 * 24 * time.Hour).Unix()
+	if err := skills.AppendLedger(data, &skills.LedgerEntry{At: old, Name: "alpha", SHA256: "a", Source: "/s", Action: "indexed"}); err != nil {
+		t.Fatal(err)
+	}
+	cmds := f8Commands(t, data)
+	owner, user := f8Ticket(gateway.RoleOwner), f8Ticket(gateway.RoleUser)
+	ctx := context.Background()
+	if got := cmds.Dispatch(ctx, owner, "/curator status"); !strings.Contains(got.Reply, "paused=false") {
+		t.Fatalf("status = %q", got.Reply)
+	}
+	if got := cmds.Dispatch(ctx, user, "/curator run"); !strings.Contains(got.Reply, "owner-only") {
+		t.Fatalf("user run = %q", got.Reply)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/curator run"); !strings.Contains(got.Reply, "proposal archive alpha") {
+		t.Fatalf("run = %q", got.Reply)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/curator pin alpha"); !strings.Contains(got.Reply, "pinned alpha") {
+		t.Fatalf("pin = %q", got.Reply)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/curator list-archived"); got.Handled != true || got.Reply != "" {
+		t.Fatalf("list-archived = %+v", got)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/curator pause"); !strings.Contains(got.Reply, "pause") {
+		t.Fatalf("pause = %q", got.Reply)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/curator run"); !strings.Contains(got.Reply, "paused") {
+		t.Fatalf("run paused = %q", got.Reply)
 	}
 }
