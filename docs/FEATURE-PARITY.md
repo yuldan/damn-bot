@@ -150,7 +150,7 @@ Deskripsi = teks `help` hermes (verbatim, dipotong 15 kata) agar dapat dicocokka
 | CLI-066 | `hermes profile` | Manage profiles — multiple isolated Hermes instances | `hermes_cli/subcommands/profile.py:10` | tersedia | — | 15 sub: list, use, create, delete, describe, show, alias, rename, purge-identity, migrate-identity, export, import, install, update, info | F3 | planned |
 | CLI-067 | `hermes completion` | Print shell completion script (bash, zsh, or fish) | `hermes_cli/subcommands/completion.py:10` | tersedia | — |  | F3 | planned |
 | CLI-068 | `hermes dashboard` | Start the web UI dashboard | `hermes_cli/subcommands/dashboard.py:79` | tersedia | extra `web`, Node (build web) | 1 sub: register | F8 | LULUS |
-| CLI-069 | `hermes serve` | Start the Hermes backend server (headless; powers the desktop app and remote backends) | `hermes_cli/subcommands/dashboard.py:95` | tersedia | extra `web` |  | F8 | planned |
+| CLI-069 | `hermes serve` | Start the Hermes backend server (headless; powers the desktop app and remote backends) | `hermes_cli/subcommands/dashboard.py:95` | tersedia | extra `web` |  | F8 | LULUS |
 | CLI-070 | `hermes desktop` | Build and launch the native desktop app | `hermes_cli/subcommands/gui.py:10` | tersedia | Node.js, Electron | alias: gui | F8 | LULUS |
 | CLI-071 | `hermes logs` | View and filter Hermes log files | `hermes_cli/subcommands/logs.py:11` | tersedia | — |  | F3 | planned |
 | CLI-072 | `hermes prompt-size` | Show a byte breakdown of the system prompt + tool schemas | `hermes_cli/subcommands/prompt_size.py:12` | tersedia | — |  | F3 | planned |
@@ -708,7 +708,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | UI-013 | tui_gateway (backend RPC) | Server RPC sesi untuk TUI/desktop | `tui_gateway/entry.py` | on bila TUI/desktop dipakai | — | ~94 modul | F3 | planned |
 | UI-014 | Web dashboard | Dashboard web (React+Vite) dilayani FastAPI | `web/package.json`, `hermes_cli/web_server.py`, `hermes_cli/web_server_app.py` | opt-in (`hermes dashboard`) | extra `web` (fastapi, uvicorn), Node build |  | F8 | LULUS |
 | UI-015 | Dashboard auth providers | Auth dashboard: basic, drain, Nous OAuth, OIDC self-hosted | `plugins/dashboard_auth/basic/plugin.yaml`, `plugins/dashboard_auth/nous/plugin.yaml`, `plugins/dashboard_auth/self_hosted/plugin.yaml`, `plugins/dashboard_auth/drain/plugin.yaml` | opt-in | env HERMES_DASHBOARD_* | 4 backend | F8 | planned |
-| UI-016 | Headless backend `hermes serve` | Backend server tanpa UI untuk desktop/remote | `hermes_cli/subcommands/dashboard.py:59` | opt-in | extra `web` |  | F8 | planned |
+| UI-016 | Headless backend `hermes serve` | Backend server tanpa UI untuk desktop/remote | `hermes_cli/subcommands/dashboard.py:59` | opt-in | extra `web` |  | F8 | LULUS |
 | UI-017 | Desktop app (Electron) | Shell desktop native: pane terminal/preview, projects | `apps/desktop/package.json`, `hermes_cli/main_desktop.py` | opt-in (`hermes desktop`, alias `gui`) | Electron 40, Node.js | toolset desktop_ui/project/catalog | F8 | planned |
 | UI-018 | Bootstrap installer (Tauri) | Installer GUI bootstrap | `apps/bootstrap-installer/src-tauri/tauri.conf.json` | opt-in | Rust/Tauri |  | F9 | planned |
 | UI-019 | ACP adapter | Server Agent Client Protocol untuk editor (Zed, VS Code, JetBrains) | `acp_adapter/server.py:233`, `acp_adapter/entry.py` | opt-in (`hermes acp`, script `hermes-acp`) | extra `acp` (agent-client-protocol) | toolset `hermes-acp` | F3 | planned |

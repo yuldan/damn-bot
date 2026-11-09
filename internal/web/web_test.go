@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -610,5 +611,57 @@ func TestWebSSE(t *testing.T) {
 	}
 	if !strings.HasPrefix(string(buf[:n]), "event: hello\ndata: {") {
 		t.Fatalf("first event = %q", buf[:n])
+	}
+}
+
+// TestWebControlLink: only a loopback caller with the constant-time control
+// secret can mint a link, and the returned URL carries a fragment nonce.
+func TestWebControlLink(t *testing.T) {
+	t.Parallel()
+	_, ts := newTestServer(t, func(c *Config) { c.ControlSecret = "ctl-secret" })
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/auth/link?remote=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Damnbot-Control", "ctl-secret")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body struct{ URL string }
+	derr := json.NewDecoder(resp.Body).Decode(&body)
+	if cerr := resp.Body.Close(); cerr != nil {
+		t.Errorf("close: %v", cerr)
+	}
+	if resp.StatusCode != http.StatusOK || derr != nil || !strings.Contains(body.URL, "/auth#") {
+		t.Fatalf("link = %d body %q err %v", resp.StatusCode, body.URL, derr)
+	}
+	bad, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/auth/link", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad.Header.Set("X-Damnbot-Control", "wrong")
+	denied, err := ts.Client().Do(bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cerr := denied.Body.Close(); cerr != nil {
+		t.Errorf("close: %v", cerr)
+	}
+	if denied.StatusCode != http.StatusForbidden {
+		t.Fatalf("wrong control secret = %d", denied.StatusCode)
+	}
+}
+
+// TestRemoteLinkOneTime: a minted link is single-use regardless of TTL.
+func TestRemoteLinkOneTime(t *testing.T) {
+	t.Parallel()
+	srv, ts := newTestServer(t, nil)
+	nonce := nonceOf(t, srv.OpenURL(true))
+	if first := exchange(t, ts, nonce); first.status != http.StatusNoContent {
+		t.Fatalf("remote link exchange = %d", first.status)
+	}
+	if replay := exchange(t, ts, nonce); replay.status != http.StatusUnauthorized {
+		t.Fatalf("remote link replay = %d", replay.status)
 	}
 }

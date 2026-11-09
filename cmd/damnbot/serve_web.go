@@ -44,6 +44,11 @@ func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dat
 	if cfg.Web.Auth == config.WebAuthBasic {
 		wc.Basic = keychainBasic{user: cfg.Web.BasicUser, secret: cfg.Web.BasicPasswordSecret}
 	}
+	secret, serr := newControlSecret()
+	if serr != nil {
+		return nil, serr
+	}
+	wc.ControlSecret = secret
 	srv, err := web.New(&wc)
 	if err != nil {
 		return nil, fmt.Errorf("web ui: %w", err)
@@ -57,9 +62,17 @@ func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dat
 			sessionsPrintf(stderr, "web ui: %s\n", cleanLine(serr.Error()))
 		}
 	}()
+	if werr := writeWebState(dataDir, srv.Addr(), secret); werr != nil {
+		return nil, fmt.Errorf("web state: %w", werr)
+	}
 	sessionsPrintf(stdout, "web: listening on %s\n", srv.Addr())
 	sessionsPrintf(stdout, "web: open %s\n", srv.OpenURL(cfg.Web.AllowRemote))
-	return srv.Shutdown, nil
+	return func(ctx context.Context) error {
+		if rerr := removeWebState(dataDir); rerr != nil {
+			sessionsPrintf(stderr, "web ui: %s\n", cleanLine(rerr.Error()))
+		}
+		return srv.Shutdown(ctx)
+	}, nil
 }
 
 // keychainBasic verifies the single basic-auth principal against a keychain

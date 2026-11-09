@@ -342,3 +342,75 @@ func TestF8CLI070Desktop(t *testing.T) {
 		}
 	}
 }
+
+// TestF8CLI069Serve: plain `serve` is the headless backend - loopback
+// observability listener, no web UI unless --web is passed.
+func TestF8CLI069Serve(t *testing.T) {
+	e := newEnv(t)
+	port := freePort(t)
+	if err := os.WriteFile(e.cfg, []byte(fmt.Sprintf("[network]\noffline = true\n\n[web]\nlisten = \"127.0.0.1:%d\"\n", port)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, addr := startServeHeadless(t, e)
+	if !strings.HasPrefix(addr, "127.0.0.1:") {
+		t.Fatalf("observability bind = %q, want loopback", addr)
+	}
+	if strings.Contains(stdout, "web: listening on") {
+		t.Fatalf("plain serve started the web UI: %s", stdout)
+	}
+}
+
+// TestF8UI016Headless is the ledger hook: `serve` serves no UI by default and
+// `serve --web` demands auth.
+func TestF8UI016Headless(t *testing.T) {
+	e := newEnv(t)
+	port := freePort(t)
+	if err := os.WriteFile(e.cfg, []byte(fmt.Sprintf("[network]\noffline = true\n\n[web]\nlisten = \"127.0.0.1:%d\"\n", port)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, addr := startServeHeadless(t, e)
+	if !strings.HasPrefix(addr, "127.0.0.1:") || strings.Contains(stdout, "web: listening on") {
+		t.Fatalf("headless serve = %q / %s", addr, stdout)
+	}
+}
+
+// startServeHeadless runs `serve` and returns its stdout so far and the
+// observability address.
+func startServeHeadless(t *testing.T, e *Env) (string, string) {
+	t.Helper()
+	args := []string{"serve", "--data-dir", e.DataDir, "--config", e.cfg, "--bind", "127.0.0.1:0"}
+	cmd := exec.CommandContext(t.Context(), binPaths.main, args...) // #nosec G204 -- this package's temp build
+	cmd.Dir = e.Workdir
+	cmd.Env = e.childEnv()
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr apiSyncBuffer
+	cmd.Stderr = &stderr
+	if serr := cmd.Start(); serr != nil {
+		t.Fatalf("start: %v", serr)
+	}
+	t.Cleanup(func() {
+		if kerr := cmd.Process.Kill(); kerr != nil && !errors.Is(kerr, os.ErrProcessDone) {
+			t.Logf("kill serve: %v", kerr)
+		}
+		if _, werr := cmd.Process.Wait(); werr != nil {
+			t.Logf("reap serve: %v", werr)
+		}
+	})
+	br := bufio.NewReader(pipe)
+	for {
+		line, rerr := br.ReadString('\n')
+		if rerr != nil {
+			return stdout.String(), ""
+		}
+		if _, werr := stdout.Write([]byte(line)); werr != nil {
+			return stdout.String(), ""
+		}
+		trimmed := strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(trimmed, "serve: observability listening on "); ok {
+			return stdout.String(), rest
+		}
+	}
+}

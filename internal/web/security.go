@@ -2,8 +2,10 @@ package web
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -80,6 +82,8 @@ func (s *Server) authRoute(w http.ResponseWriter, r *http.Request, p string) boo
 		s.exchange(w, r)
 	case "/auth/callback":
 		s.callback(w, r)
+	case "/auth/link":
+		s.controlLink(w, r)
 	case "/csp-report":
 		if r.Method != http.MethodPost {
 			methodNotAllowed(w)
@@ -170,6 +174,29 @@ func csrfOf(r *http.Request) string {
 		return c.Value
 	}
 	return ""
+}
+
+// controlLink mints a one-use URL for `serve open` (GAP-SEC-07). It is
+// disabled without a control secret, accepts only a loopback caller, and
+// compares the secret in constant time.
+func (s *Server) controlLink(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || s.cfg.ControlSecret == "" {
+		http.NotFound(w, r)
+		return
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Damnbot-Control")), []byte(s.cfg.ControlSecret)) != 1 {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{"url": s.OpenURL(r.URL.Query().Get("remote") == "1")}); err != nil {
+		s.logWarn("encode link", err)
+	}
 }
 
 // mutation guards a state-changing request: same-origin fetch metadata plus the
