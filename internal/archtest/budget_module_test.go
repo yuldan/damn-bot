@@ -11,12 +11,12 @@ import (
 // masuk Σ core. Preseden: baris infra non-produksi NEW-34 juga di luar Σ core; kelas MODULE selalu
 // dilewati `budgetCoreSum` dan tetap ditegakkan per-baris oleh `scripts/loc-check.sh budget`.
 const (
-	maxModuleLOC   = 132000 // Σ kelas MODULE: F3 19.800 + F4 18.700 + F5 20.300 + F6 24.500 = 83.300; + F7 25.100 = 108.400; + F8 allocation 21.800 = 130.200; +backup 1.467 = 131.667 ≤ 132.000 (ADR-330). F8 rows are booked by each package PR (ADR-326 pattern); none exist yet.
+	maxModuleLOC   = 132000 // Σ kelas MODULE: F3 19.800 + F4 18.700 + F5 20.300 + F6 24.500 = 83.300; + F7 25.100 = 108.400; + F8 allocation 22.800 = 131.200; +backup 1.467 = 132.667 > 132.000 — installed caps are checked, not the allocation (ADR-330, ADR-340). F8 rows are booked by each package PR (ADR-326 pattern); none exist yet.
 	maxF3ModuleLOC = 21500  // ROADMAP F3 = 21.500 (tui + acp + importer/ops); F3 tanpa backup
 	maxF4ModuleLOC = 18700  // ROADMAP F4 = 20.000: heal core 1.500 + MODULE 18.700 (ADR-244, ADR-245, ADR-248)
 	maxF6ModuleLOC = 24500  // SPEC §3.2.4 F6: web 3.000 + browser 5.500 + media 9.500 + voice 4.500 + computer-use 2.000 (ADR-309/ADR-310)
 	maxF7ModuleLOC = 25100  // SPEC §3.2.4 F7: gwplat 13.000 + gwapi 3.000 + gwpeer 4.000 + gwwa 600 + gwmatrix 1.500 + kanban 3.000 (ADR-326)
-	maxF8ModuleLOC = 21800  // ROADMAP F8 = 21.800: web 5.000 + connectors 6.000 + skills-hub/memory-providers 3.500 + auto 4.000 + i18n 800 + batch 2.500 (ADR-330)
+	maxF8ModuleLOC = 22800  // ROADMAP F8 = 22.800: web 5.000 + connectors 6.000 + skills-hub/memory-providers 3.500 + auto 4.000 + plugins 1.000 (ADR-340) + i18n 800 + batch 2.500 (ADR-330)
 	maxF3OpsLOC    = 9000   // SPEC §3.2.4: importer + setup/doctor/update/profiles/backup
 )
 
@@ -130,6 +130,7 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 		"webtools": 3000, "browser": 5500, "media": 9500, "voice": 4500, "computeruse": 2000, // SPEC §3.2.4, ADR-309; `web` dibangun sebagai internal/webtools.
 		"gwplat": 13000, "gwapi": 3000, "gwpeer": 4000, "gwwa": 600, "gwmatrix": 1500, "kanban": 3000, // SPEC §3.2.4 F7, ADR-326.
 		"web": 5000, "connectors": 6000, "skillhub": 2500, "memprovider": 1000, "auto": 4000, "batch": 2500, "i18n": 800, // SPEC §3.2.4 F8, ADR-330.
+		"plugins": 1000, // SPEC §3.2.4 F8 plugin catalog Q18, ADR-340.
 	}
 	backupCap, hasBackup := 0, false
 	opsSum := 0
@@ -268,7 +269,7 @@ func f7ModuleFamily(name string) bool {
 // dibukukan oleh PR paketnya, jadi family boleh kosong selama F8 berjalan.
 func f8ModuleFamily(name string) bool {
 	switch name {
-	case "web", "connectors", "skillhub", "memprovider", "auto", "batch", "i18n":
+	case "web", "connectors", "skillhub", "memprovider", "auto", "batch", "i18n", "plugins":
 		return true
 	}
 	return false

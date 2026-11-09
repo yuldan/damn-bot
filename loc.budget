@@ -538,3 +538,8 @@ MODULE auto        4000 internal/auto
 # bawah core `internal/skills`, jadi longest-prefix menagihnya ke MODULE ini
 # dan Σ core tidak berubah.
 MODULE skillhub 2500 internal/skills/catalog internal/skills/hub
+# ADR-340 (F8 Q18/PLUG-009): baris baru `plugins` untuk `internal/plugins`
+# (katalog embedded 645 entri plugin pihak ketiga + resolusi ke target MCP/
+# skill/modul). Cap SPEC §3.2.4 F8 1.000; Σ F8 21.800 -> 22.800 dan
+# maxF8ModuleLOC 21.800 -> 22.800 (baris ini di luar Σ core).
+MODULE plugins 1000 internal/plugins

@@ -61,6 +61,11 @@ func f8ModuleImports(m map[string][]string) {
 	m["internal/skills"] = []string{"internal/schema"}
 	m["internal/skills/catalog"] = nil
 	m["internal/skills/hub"] = []string{"internal/skills"}
+	// F8 Q18: the plugin catalog is embedded stdlib-only metadata (ADR-340);
+	// resolution reads that catalog and returns target ids without executing
+	// anything, so it has no host/netx edge.
+	m["internal/plugins/catalog"] = nil
+	m["internal/plugins/resolve"] = []string{"internal/plugins/catalog"}
 }
 
 func allowedImports() map[string][]string {

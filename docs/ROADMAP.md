@@ -16,7 +16,7 @@ Prinsip urutan: ukur dulu (F0) → core yang benar (F1–F2) → permukaan (F3) 
 | F5 | Registry provider (88 + lokal + custom), MCP, delegate, exec backends, execute_code, codeintel, verifikasi coding | 30.500 | — | F4 |
 | F6 | Web, browser, media, voice, computer use | 24.500 | — | F5 |
 | F7 | 29 surface platform lain, api-server, webhook, kanban, fitur gateway lanjutan | 25.100 | — | F4, F5 |
-| F8 | Web UI, connectors, skills hub, memory providers, `auto`, i18n, batch/evals, ops lanjutan | 21.800 | ≈ 9.900 JS/CSS (≤ 10.000, budget web UI SPEC §3.2.4) | F5–F7 |
+| F8 | Web UI, connectors, skills hub, memory providers, plugin catalog Q18, `auto`, i18n, batch/evals, ops lanjutan | 22.800 | ≈ 9.900 JS/CSS (≤ 10.000, budget web UI SPEC §3.2.4) | F5–F7 |
 | F9 | Hardening, edge-case suite penuh, OS matrix, soak/chaos, gate parity + scorecard, rilis 1.0 | 0 (perbaikan hardening diserap budget modul) | docs | F0–F8 |
 | **Total** | | **184.900** = Σ budget modul SPEC §3.2.4 = Σ kolom fase di atas (pemetaan modul → fase = kolom Fase §3.2.4; ≤ 190.000, P21) | ≈ 9.900 (≤ 10.000) | |
 

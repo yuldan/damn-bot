@@ -45,6 +45,7 @@
 /internal/sandbox/ @yuldan
 /internal/secret/ @yuldan
 /internal/skills/ @yuldan
+/internal/plugins/ @yuldan
 /internal/testutil/ @yuldan
 /internal/update/ @yuldan
 /internal/integration/ @yuldan
