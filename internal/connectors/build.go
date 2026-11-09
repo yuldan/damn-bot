@@ -12,6 +12,10 @@ func (m *Module) build(name string) (Handler, error) {
 		return m.newMeet()
 	case "xsearch":
 		return m.newXSearch()
+	case "discord":
+		return m.newDiscord()
+	case "osv":
+		return m.newOSV()
 	}
 	return nil, nil
 }
