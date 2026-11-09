@@ -135,9 +135,9 @@ func openHub(ctx context.Context, o *hubOptions) (*hubEnv, error) {
 		_ = db.CloseContext(ctx) //nolint:errcheck // the composition error is the actionable one
 		return nil, fmt.Errorf("skills hub: fetcher: %w", err)
 	}
-	h, err := hub.New(hub.Config{
+	h, err := hub.New(&hub.Config{
 		Fetcher: fetcher, Service: svc, Sources: skillsHubSources(),
-		AllowTestSources: skillsHubTestSources(), Owner: hubOwner(o.owner),
+		AllowTestSources: skillsHubTestSources(), Owner: hubOwner(o.owner), IndexKey: skillsHubIndexKey(),
 	})
 	if err != nil {
 		_ = db.CloseContext(ctx) //nolint:errcheck // the composition error is the actionable one

@@ -1,6 +1,8 @@
 package e2e
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -31,7 +33,10 @@ type hubEntry struct {
 // index and one SKILL.md per entry from loopback HTTP.
 type hubRegistry struct {
 	*httptest.Server
-	index map[string]hubEntry
+	index    map[string]hubEntry
+	indexRaw []byte
+	sigHex   string
+	pubHex   string
 }
 
 func skillMD(name, extra string) string {
@@ -57,15 +62,28 @@ func newHubRegistry(t *testing.T) *hubRegistry {
 	broken := r.index["broken"]
 	broken.SHA256 = strings.Repeat("0", 64)
 	r.index["broken"] = broken
+	entries := make([]hubEntry, 0, len(r.index))
+	for _, e := range r.index {
+		entries = append(entries, e)
+	}
+	raw, err := json.Marshal(map[string]any{"schema": 1, "entries": entries})
+	if err != nil {
+		t.Fatalf("encode index: %v", err)
+	}
+	key := ed25519.NewKeyFromSeed(bytes.Repeat([]byte{9}, ed25519.SeedSize))
+	pub := ed25519.PublicKey(key[ed25519.SeedSize:])
+	r.indexRaw, r.sigHex, r.pubHex = raw, hex.EncodeToString(ed25519.Sign(key, raw)), hex.EncodeToString(pub)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/index.json", func(w http.ResponseWriter, _ *http.Request) {
-		entries := make([]hubEntry, 0, len(r.index))
-		for _, e := range r.index {
-			entries = append(entries, e)
-		}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]any{"schema": 1, "entries": entries}); err != nil {
-			t.Errorf("encode index: %v", err)
+		if _, werr := w.Write(r.indexRaw); werr != nil {
+			t.Errorf("write index: %v", werr)
+		}
+	})
+	mux.HandleFunc("/index.json.sig", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		if _, werr := w.Write([]byte(r.sigHex)); werr != nil {
+			t.Errorf("write signature: %v", werr)
 		}
 	})
 	for _, e := range r.index {
@@ -96,6 +114,7 @@ func TestF8SkillsHubCLI(t *testing.T) {
 	}
 	extra := []string{
 		"DAMNBOT_SKILLS_HUB_OFFICIAL_URL=" + reg.URL,
+		"DAMNBOT_SKILLS_HUB_KEY=" + reg.pubHex,
 		"DAMNBOT_SKILLS_OWNER=owner",
 	}
 	run := func(args ...string) Result {

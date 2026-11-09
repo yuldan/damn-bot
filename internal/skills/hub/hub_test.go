@@ -1,7 +1,9 @@
 package hub
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -60,7 +63,23 @@ func indexDoc(t *testing.T, entries ...map[string]any) string {
 
 type mapFetcher map[string]string
 
+func testKey() ed25519.PrivateKey {
+	return ed25519.NewKeyFromSeed(bytes.Repeat([]byte{7}, ed25519.SeedSize))
+}
+
+func testPublicKey() ed25519.PublicKey {
+	return ed25519.PublicKey(slices.Clone(testKey()[ed25519.SeedSize:]))
+}
+
 func (m mapFetcher) Get(_ context.Context, u *url.URL, limit int64) ([]byte, error) {
+	if strings.HasSuffix(u.Path, ".sig") {
+		idx, ok := m[strings.TrimSuffix(u.String(), ".sig")]
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrStatus, u.Redacted())
+		}
+		sig := hex.EncodeToString(ed25519.Sign(testKey(), []byte(idx)))
+		return []byte(sig), nil
+	}
 	body, ok := m[u.String()]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrStatus, u.Redacted())
@@ -155,10 +174,13 @@ func newTestService(t *testing.T, st skills.Store) *skills.Service {
 	return svc
 }
 
-func newTestHub(t *testing.T, fetcher Fetcher, st skills.Store, cfg Config) *Hub {
+func newTestHub(t *testing.T, fetcher Fetcher, st skills.Store, cfg *Config) *Hub {
 	t.Helper()
 	cfg.Fetcher = fetcher
 	cfg.Service = newTestService(t, st)
+	if cfg.IndexKey == nil {
+		cfg.IndexKey = testPublicKey()
+	}
 	h, err := New(cfg)
 	if err != nil {
 		t.Fatalf("hub.New: %v", err)
@@ -203,26 +225,26 @@ func TestF8SkillHubSources(t *testing.T) {
 	}
 	// A source override is still held to the allowlist, and the test-only
 	// seam accepts loopback only.
-	_, err := New(Config{
+	_, err := New(&Config{
 		Fetcher: mapFetcher{}, Service: newTestService(t, &fakeStore{}),
 		Sources: map[Source]string{SourceOfficial: "http://127.0.0.1:9999"},
 	})
 	if !errors.Is(err, ErrURL) {
 		t.Errorf("http override = %v, want ErrURL", err)
 	}
-	if _, err := New(Config{
+	if _, err := New(&Config{
 		Fetcher: mapFetcher{}, Service: newTestService(t, &fakeStore{}),
 		Sources: map[Source]string{SourceOfficial: "http://127.0.0.1:9999"}, AllowTestSources: true,
 	}); err != nil {
 		t.Errorf("loopback test override rejected: %v", err)
 	}
-	if _, err := New(Config{
+	if _, err := New(&Config{
 		Fetcher: mapFetcher{}, Service: newTestService(t, &fakeStore{}),
 		Sources: map[Source]string{SourceOfficial: "http://example.com"}, AllowTestSources: true,
 	}); !errors.Is(err, ErrURL) {
 		t.Errorf("public test override = %v, want ErrURL", err)
 	}
-	if _, err := New(Config{}); !errors.Is(err, ErrURL) {
+	if _, err := New(&Config{}); !errors.Is(err, ErrURL) {
 		t.Errorf("nil deps = %v, want ErrURL", err)
 	}
 }
@@ -234,7 +256,7 @@ func TestHubIndexFetchesSource(t *testing.T) {
 	fetch := mapFetcher{
 		"https://skills.nousresearch.com/index.json": indexDoc(t, entryMap("findmy", skillBody, len(skillBody))),
 	}
-	h := newTestHub(t, fetch, &fakeStore{}, Config{})
+	h := newTestHub(t, fetch, &fakeStore{}, &Config{})
 	idx, err := h.Index(t.Context(), SourceOfficial)
 	if err != nil {
 		t.Fatalf("Index: %v", err)
@@ -257,7 +279,7 @@ func TestF8SkillHubQuarantine(t *testing.T) {
 		"https://skills.nousresearch.com/index.json":                   indexDoc(t, entryMap("findmy", body, len(body))),
 		"https://skills.nousresearch.com/skills/apple/findmy/SKILL.md": body,
 	}
-	h := newTestHub(t, fetch, st, Config{})
+	h := newTestHub(t, fetch, st, &Config{})
 	inst, err := h.Download(t.Context(), SourceOfficial, new(mustEntry(t, fetch)))
 	if err != nil {
 		t.Fatalf("Download: %v", err)
@@ -284,7 +306,7 @@ func TestF8SkillHubQuarantine(t *testing.T) {
 		"https://skills.nousresearch.com/skills/apple/evil/SKILL.md": evil,
 	}
 	est := &fakeStore{}
-	eh := newTestHub(t, evilFetch, est, Config{})
+	eh := newTestHub(t, evilFetch, est, &Config{})
 	inst, err = eh.Download(t.Context(), SourceOfficial, new(mustEntry(t, evilFetch)))
 	if err != nil {
 		t.Fatalf("high-risk Download: %v", err)
@@ -374,7 +396,7 @@ func TestF8SkillHubHashMismatch(t *testing.T) {
 	e.SHA256 = strings.Repeat("0", 64)
 	st := &fakeStore{}
 	fetch := mapFetcher{"https://skills.nousresearch.com/skills/apple/findmy/SKILL.md": body}
-	h := newTestHub(t, fetch, st, Config{})
+	h := newTestHub(t, fetch, st, &Config{})
 	if _, err := h.Download(t.Context(), SourceOfficial, e); !errors.Is(err, ErrHash) {
 		t.Fatalf("Download = %v, want ErrHash", err)
 	}
@@ -450,7 +472,7 @@ func TestF8SkillHubSearch(t *testing.T) {
 	b := entryMap("findmy", skillBody, len(skillBody))
 	b["description"] = "Find devices."
 	fetch := mapFetcher{"https://skills.nousresearch.com/index.json": indexDoc(t, b, a)}
-	h := newTestHub(t, fetch, &fakeStore{}, Config{})
+	h := newTestHub(t, fetch, &fakeStore{}, &Config{})
 	got, err := h.Search(t.Context(), SourceOfficial, "", 0)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -523,7 +545,7 @@ func TestF8SKILL012Official(t *testing.T) {
 	if _, err := ParseIndex(SourceOfficial, []byte(indexDoc(t, idx))); !errors.Is(err, ErrIndex) {
 		t.Errorf("entry without sha256 = %v, want ErrIndex", err)
 	}
-	if _, err := New(Config{
+	if _, err := New(&Config{
 		Fetcher: mapFetcher{}, Service: newTestService(t, &fakeStore{}),
 		Sources: map[Source]string{SourceOfficial: "http://skills.nousresearch.com"},
 	}); !errors.Is(err, ErrURL) {
@@ -552,7 +574,7 @@ func TestF8SKILL013GitHub(t *testing.T) {
 	}
 	fetch := mapFetcher{"https://api.github.com/" + entryPath: body}
 	st := &fakeStore{}
-	h := newTestHub(t, fetch, st, Config{})
+	h := newTestHub(t, fetch, st, &Config{})
 	inst, err := h.Download(t.Context(), SourceGitHub, &idx.Entries[0])
 	if err != nil {
 		t.Fatalf("Download: %v", err)
@@ -577,7 +599,7 @@ func TestF8SKILL014ClawHub(t *testing.T) {
 		"https://clawhub.ai/skills/apple/findmy/SKILL.md": body,
 	}
 	st := &fakeStore{}
-	h := newTestHub(t, fetch, st, Config{})
+	h := newTestHub(t, fetch, st, &Config{})
 	idx, err := h.Index(t.Context(), SourceClawHub)
 	if err != nil {
 		t.Fatalf("Index: %v", err)

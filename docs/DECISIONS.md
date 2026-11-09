@@ -6613,6 +6613,8 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Amandemen (F8 skills hub, PR #824).** Baris `MODULE skillhub 2500` dibukukan di `loc.budget` untuk `internal/skills/catalog` dan `internal/skills/hub` (terukur 282 pada head katalog). Pagu `maxModuleLOC` 132.000, `maxF8ModuleLOC` 21.800, dan `wantCaps` `skillhub` 2.500 sudah disediakan ADR-330; tidak ada kenaikan pagu dan Σ core tidak berubah.
 
 **Amandemen (F8 skills hub CLI, PR #827).** Surface `damnbot skills hub search|list|install|approve|sync` (`!minimal`) memakai pipeline karantina/approve/instalasi atomik slice sebelumnya; baris parity SKILL-012..015/017/020 dan e2e biner fake-registry dibuktikan. Tidak ada kenaikan pagu (config/core/loc.budget tetap); netx tetap tanpa entri egress baru (fetcher diinjeksi).
+
+**Amandemen (F8 skills signature/curator, PR #828).** `index.json.sig` ed25519 wajib bila kunci operator di-set (kunci kosong/asing, signature hilang/rusak, atau indeks berubah ditolak tanpa fallback) dan `Curate` hanya menghasilkan proposal archive/retire/merge setelah idle ≥2 jam dengan 0 LLM/0 tulis. Baris parity/ledger SKILL-011/021 menjadi `LULUS`; tidak ada kenaikan pagu, egress, atau dependency baru.
 ## ADR-332 — Modul `connectors` F8: registry tertutup, egress per konektor, dan gating default-off
 
 **Status:** Accepted 2026-11-08 (F8; melanjutkan ADR-330). Dipakai oleh seluruh slice `internal/connectors`.

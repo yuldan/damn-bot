@@ -2,6 +2,7 @@ package hub
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -31,6 +32,10 @@ type Config struct {
 	// Empty means approval is closed: an owner-less process can download and
 	// review, but only an explicit owner can promote a skill.
 	Owner string
+	// IndexKey is the ed25519 public key that must sign index.json (detached
+	// index.json.sig, hex). A nil/short key fails closed: the hub never reads
+	// an unsigned index. There is no fallback to the embedded catalog.
+	IndexKey ed25519.PublicKey
 }
 
 // Hub is the four-source install path: allowlisted URL -> bounded fetch ->
@@ -43,14 +48,15 @@ type Hub struct {
 	// override; their joined skill URLs use the loopback policy too.
 	testBase map[Source]bool
 	owner    string
+	indexKey ed25519.PublicKey
 }
 
 // New validates the dependencies and every source base URL.
-func New(cfg Config) (*Hub, error) {
-	if cfg.Fetcher == nil || cfg.Service == nil {
+func New(cfg *Config) (*Hub, error) {
+	if cfg == nil || cfg.Fetcher == nil || cfg.Service == nil {
 		return nil, fmt.Errorf("%w: nil fetcher/service", ErrURL)
 	}
-	h := &Hub{fetch: cfg.Fetcher, svc: cfg.Service, base: map[Source]*url.URL{}, testBase: map[Source]bool{}, owner: cfg.Owner}
+	h := &Hub{fetch: cfg.Fetcher, svc: cfg.Service, base: map[Source]*url.URL{}, testBase: map[Source]bool{}, owner: cfg.Owner, indexKey: slices.Clone(cfg.IndexKey)}
 	for _, src := range Sources() {
 		raw, override := cfg.Sources[src]
 		if !override {
@@ -87,7 +93,29 @@ func (h *Hub) Index(ctx context.Context, src Source) (Index, error) {
 	if err != nil {
 		return Index{}, fmt.Errorf("skills hub: index %s: %w", src, err)
 	}
+	if verr := h.verifyIndex(ctx, src, raw); verr != nil {
+		return Index{}, verr
+	}
 	return ParseIndex(src, raw)
+}
+
+// verifyIndex enforces the detached ed25519 signature of index.json. The
+// signature is hex over the exact index bytes; a missing key, missing/extra
+// signature file, or any signature failure rejects the index. There is no
+// unsigned fallback.
+func (h *Hub) verifyIndex(ctx context.Context, src Source, raw []byte) error {
+	if len(h.indexKey) != ed25519.PublicKeySize {
+		return fmt.Errorf("%w: no trusted index key", ErrSignature)
+	}
+	sigRaw, err := h.fetch.Get(ctx, h.base[src].JoinPath("index.json.sig"), 256)
+	if err != nil {
+		return fmt.Errorf("skills hub: signature %s: %w", src, err)
+	}
+	sig, derr := hex.DecodeString(strings.TrimSpace(string(sigRaw)))
+	if derr != nil || len(sig) != ed25519.SignatureSize || !ed25519.Verify(h.indexKey, raw, sig) {
+		return fmt.Errorf("%w: %s", ErrSignature, src)
+	}
+	return nil
 }
 
 // Search returns entries whose name or description contains query (case
