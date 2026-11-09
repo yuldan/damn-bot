@@ -1,0 +1,10 @@
+{
+  "suite": "f8-behavior",
+  "seed": 1,
+  "overall": 1,
+  "cases": {
+    "compact": 1,
+    "recall": 1,
+    "route": 1
+  }
+}
