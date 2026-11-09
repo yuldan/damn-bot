@@ -251,41 +251,6 @@ func writeTrustedFile(configDir string, list []string) error {
 	return nil
 }
 
-// runSkills implements the local half of `damnbot skills` (CLI-046):
-// list/inspect/check/update/index/diff/audit/ledger/config/install/uninstall; hub/network subcommands are F8 (ADR-139).
-func runSkills(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		skillsUsage(stderr)
-		return 2
-	}
-	switch args[0] {
-	case "list":
-		return skillsList(args[1:], stdout, stderr)
-	case "inspect":
-		return skillsInspect(args[1:], stdout, stderr)
-	case "check":
-		return skillsCheck(args[1:], stdout, stderr)
-	case "update", "index":
-		return skillsUpdate(args[1:], stdout, stderr, args[0] == "index")
-	case "diff":
-		return skillsDiff(args[1:], stdout, stderr)
-	case "audit", "ledger":
-		return skillsAudit(args[1:], stdout, stderr)
-	case "config":
-		return skillsConfig(args[1:], stdout, stderr)
-	case "reset":
-		return skillsReset(args[1:], stdout, stderr)
-	case "install":
-		return skillsInstall(args[1:], stdout, stderr)
-	case "uninstall":
-		return skillsUninstall(args[1:], stdout, stderr)
-	default:
-		say(stderr, "skills: unknown subcommand %q\n", skillsArg(args[0]))
-		skillsUsage(stderr)
-		return 2
-	}
-}
-
 func skillsUsage(w io.Writer) {
 	say(w, "usage: damnbot skills list [--unavailable]|check|update|index [--check]|audit|ledger|config\n")
 	say(w, "       damnbot skills inspect <name>|diff <name>\n")
@@ -405,7 +370,7 @@ func skillLimit(a *skillArgs, v string) error {
 }
 
 // configSkills loads and lints the skills under <config>/skills.
-func configSkills(ctx context.Context, a skillArgs) ([]skills.Skill, error) {
+func configSkills(ctx context.Context, a *skillArgs) ([]skills.Skill, error) {
 	cat, err := skills.Load(ctx, []skills.Root{{Path: filepath.Join(a.configDir, "skills"), Source: skills.SourceUser}}, skills.LoadOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("load skills: %w", err)
@@ -423,7 +388,7 @@ func skillsList(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	ctx := context.Background()
-	list, err := configSkills(ctx, a)
+	list, err := configSkills(ctx, &a)
 	if err != nil {
 		say(stderr, "skills list: %v\n", err)
 		return 1
@@ -483,7 +448,7 @@ func skillsInspect(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	ctx := context.Background()
-	list, err := configSkills(ctx, a)
+	list, err := configSkills(ctx, &a)
 	if err != nil {
 		say(stderr, "skills inspect: %v\n", err)
 		return 1
@@ -518,7 +483,7 @@ func skillsCheck(args []string, stdout, stderr io.Writer) int {
 		skillsUsage(stderr)
 		return 2
 	}
-	list, err := configSkills(context.Background(), a)
+	list, err := configSkills(context.Background(), &a)
 	if err != nil {
 		say(stderr, "skills check: %v\n", err)
 		return 1
@@ -537,7 +502,7 @@ func skillsUpdate(args []string, stdout, stderr io.Writer, indexOnly bool) int {
 		return 2
 	}
 	ctx := context.Background()
-	list, err := configSkills(ctx, a)
+	list, err := configSkills(ctx, &a)
 	if err != nil {
 		say(stderr, "skills update: %v\n", err)
 		return 1
@@ -587,7 +552,7 @@ func skillsDiff(args []string, stdout, stderr io.Writer) int {
 		skillsUsage(stderr)
 		return 2
 	}
-	list, err := configSkills(context.Background(), a)
+	list, err := configSkills(context.Background(), &a)
 	if err != nil {
 		say(stderr, "skills diff: %v\n", err)
 		return 1

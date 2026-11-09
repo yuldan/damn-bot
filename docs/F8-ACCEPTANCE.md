@@ -111,19 +111,18 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 
 ## 5. Ledger parity F8 — SKILL (8)
 
-Kontrak: setiap entri hub membawa `tos_risk`/`tos_note` (GAP-GW-07), signature ed25519 (GAP-SEC-20), provenance, dan hasil install melewati threat scan + karantina (P10).
+Kontrak: setiap entri hub membawa `tos_risk`/`tos_note` (GAP-GW-07), signature ed25519 (GAP-SEC-20), provenance, dan hasil install melewati threat scan + karantina (P10). Baris SKILL-012..015/017/020 dibuktikan `internal/skills/hub` + CLI `damnbot skills hub` (`TestF8SKILL012Official`, `TestF8SKILL013GitHub`, `TestF8SKILL014ClawHub`, `TestF8SKILL015SkillsSh`, `TestF8SKILL017OptionalSync`, `TestF8SKILL020UsageTracking`, e2e `TestF8SkillsHubCLI`). SKILL-011 tetap terbuka karena indeks bertanda tangan ed25519 belum diimplementasikan; SKILL-021 (curator) tetap terbuka.
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
 | SKILL-011 | Skills hub (install/search) | cari & pasang dari sumber eksternal; indeks bertanda tangan; tanpa signature → tolak | `TestF8SKILL011Hub`, `TestCatalogSignature` | BELUM | — |
-| SKILL-012 | Sumber resmi Nous | sumber official terdaftar; pinned SHA; 0 fallback diam | `TestF8SKILL012Official` | BELUM | — |
-| SKILL-013 | Sumber GitHub | install dari repo GitHub; commit SHA + sha256 arsip diverifikasi | `TestF8SKILL013GitHub` | BELUM | — |
-| SKILL-014 | Sumber ClawHub | sumber ClawHub; entri tidak tepercaya tetap `pending` | `TestF8SKILL014ClawHub` | BELUM | — |
-| SKILL-015 | Sumber skills.sh | sumber skills.sh; rate-limit + retry berbatas | `TestF8SKILL015SkillsSh` | BELUM | — |
-| SKILL-017 | Optional skills sync | pasang dari `optional-skills/` sesuai permintaan; 153 skill opsional | `TestF8SKILL017OptionalSync` | BELUM | SKCAT-013..035 |
-| SKILL-020 | Skill usage tracking | statistik pemakaian skill (input curator); agregat tanpa isi prompt | `TestF8SKILL020UsageTracking` | BELUM | — |
+| SKILL-012 | Sumber resmi Nous | sumber official terdaftar; pinned SHA; 0 fallback diam | `TestF8SKILL012Official` | LULUS | — |
+| SKILL-013 | Sumber GitHub | install dari repo GitHub; commit SHA + sha256 arsip diverifikasi | `TestF8SKILL013GitHub` | LULUS | sha256 konten SKILL.md (arsip tidak dipakai) |
+| SKILL-014 | Sumber ClawHub | sumber ClawHub; entri tidak tepercaya tetap `pending` | `TestF8SKILL014ClawHub` | LULUS | — |
+| SKILL-015 | Sumber skills.sh | sumber skills.sh; rate-limit + retry berbatas | `TestF8SKILL015SkillsSh` | LULUS | — |
+| SKILL-017 | Optional skills sync | pasang dari `optional-skills/` sesuai permintaan; 153 skill opsional | `TestF8SKILL017OptionalSync` | LULUS | SKCAT-013..035 |
+| SKILL-020 | Skill usage tracking | statistik pemakaian skill (input curator); agregat tanpa isi prompt | `TestF8SKILL020UsageTracking` | LULUS | — |
 | SKILL-021 | Curator | pemeliharaan background stale/archive/consolidate; hanya saat idle ≥ 2 jam; budget | `TestF8SKILL021Curator`, `TestF8CuratorBudget` | BELUM | AUTO-003 |
-
 ## 6. Ledger parity F8 — SKCAT (35)
 
 Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md valid; referensi `requires`/`skill://` dan path script ada (0 menggantung); threat scan §14.4; 0 nilai kosong di katalog i18n terkait. Baris SKCAT-001..035 dibuktikan katalog embedded `internal/skills/catalog` (211 entri, digest per baris, kategori tertutup) dan tes bernama per kategori; sinkron opsional/hub memakai entri yang sama.

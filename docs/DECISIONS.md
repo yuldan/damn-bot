@@ -4927,6 +4927,9 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 **Tidak berubah.** Tidak ada gate yang dilonggarkan, tidak ada `nolint`, tidak ada dependency baru, tidak ada perubahan SPEC/default config, dan tidak ada data yang ditulis saat `--dry-run`.
 
 
+**Amandemen F8 (skills hub; 2026-11-09).** Catatan di atas bahwa "hub … belum ada di repo" sudah tidak berlaku: `internal/skills/hub` kini memuat empat sumber (`official`/`github`/`clawhub`/`skills.sh`) dengan host allowlist https, fetch berbatas, verifikasi SHA-256 wajib, threat scan, dan karantina; `cmd/damnbot skills hub search|list|install|approve|sync` adalah surface-nya (di balik `!minimal`). Setiap entri indeks memakai `skills.ParseToSMeta`, sehingga kewajiban metadata ADR-234 ditegakkan loader. Approval wajib owner eksplisit (`--owner`/`DAMNBOT_SKILLS_OWNER`); tanpa owner, approval tertutup. Katalog 211 entri ada di `internal/skills/catalog`. Baris `MODULE skillhub` 2.500 dibukukan untuk `internal/skills/catalog` + `internal/skills/hub` (Σ core tidak berubah); tidak ada section config baru, dan egress memakai lane `refs` (`netx.Tool`) yang sudah terdaftar sehingga `netx` tetap 1.899/1.900 tanpa entri baru. Tanda tangan indeks ed25519 (GAP-SEC-20) belum diimplementasikan, jadi SKILL-011 tetap terbuka.
+
+
 ## ADR-235 — `session/set_model` dan mode ACP yang benar-benar dapat dipilih
 
 **Status:** Accepted 2026-10-28 (F3, GAP-UX-02). Menerapkan SPEC §13.3, §14.1, §18.3; melanjutkan ADR-219/ADR-233.

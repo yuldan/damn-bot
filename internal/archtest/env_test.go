@@ -33,7 +33,8 @@ func checkEnvFile(t *testing.T, root fs.FS, path string) error {
 	if strings.Contains(path, "internal/config") || strings.Contains(path, "internal/testutil/") {
 		return nil
 	}
-	if strings.HasSuffix(path, "internal/codetools/codetools.go") || strings.HasSuffix(path, "internal/secret/backend_linux.go") {
+	if strings.HasSuffix(path, "internal/codetools/codetools.go") || strings.HasSuffix(path, "internal/secret/backend_linux.go") ||
+		strings.HasSuffix(path, "cmd/damnbot/skills_hub_env_skillstest.go") { // build tag skillstest: harness-only loopback overrides
 		return nil
 	}
 	body, err := fs.ReadFile(root, path)
