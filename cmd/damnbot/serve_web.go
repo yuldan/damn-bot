@@ -39,6 +39,7 @@ func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dat
 		TLSKey:       cfg.Web.TLSKey,
 		DataDir:      dataDir,
 		Sessions:     &webSessionStore{db: db},
+		Language:     cfg.UI.Language,
 	}
 	if cfg.Web.Auth == config.WebAuthBasic {
 		wc.Basic = keychainBasic{user: cfg.Web.BasicUser, secret: cfg.Web.BasicPasswordSecret}
@@ -57,6 +58,7 @@ func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dat
 		}
 	}()
 	sessionsPrintf(stdout, "web: listening on %s\n", srv.Addr())
+	sessionsPrintf(stdout, "web: open %s\n", srv.OpenURL(cfg.Web.AllowRemote))
 	return srv.Shutdown, nil
 }
 

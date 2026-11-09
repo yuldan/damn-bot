@@ -183,7 +183,7 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | AUTO-032 | Outbound webhooks | kirim event ke webhook keluar; signature + retry berbatas | `TestF8AUTO032OutboundWebhooks` | BELUM | GW-011 |
 | UI-010 | Pets (petdex) | maskot animasi terminal; generate pet; default off | `TestF8UI010Pets` | BELUM | CLI-050 |
 | UI-011 | Personalities | persona preset; opt-in; katalog tervalidasi | `TestF8UI011Personalities` | BELUM | SLASH-049 |
-| UI-014 | Web dashboard | dashboard web dilayani binary; aset embedded; auth wajib | `TestF8UI014WebDashboard` | BELUM | GAP-SEC-06/07 |
+| UI-014 | Web dashboard | dashboard web dilayani binary; aset embedded; auth wajib | `TestF8UI014WebDashboard` | LULUS | GAP-SEC-06/07 |
 | UI-015 | Dashboard auth providers | basic, drain, Nous OAuth, OIDC self-hosted; 0 token di HTML | `TestF8UI015AuthProviders`, `TestWebSessionRevoke` | BELUM | PLUG-016 |
 | UI-016 | Headless backend | `damnbot serve` tanpa UI untuk desktop/remote; bind loopback default | `TestF8UI016Headless` | BELUM | CLI-069 |
 | UI-017 | Desktop app (Electron) | diganti web UI: pane terminal/preview + projects tanpa runtime Node | `TestF8UI017DesktopWeb` | BELUM | ADR-330; 0 Electron |
