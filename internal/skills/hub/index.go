@@ -32,13 +32,17 @@ type Entry struct {
 	Path        string `json:"path"`
 	Description string `json:"description"`
 	Size        int64  `json:"size"`
-	ToS         skills.ToSMeta
+	// Commit is the pinned source revision. The GitHub source requires a
+	// 40-hex commit SHA (SKILL-013); other sources may omit it.
+	Commit string `json:"commit,omitempty"`
+	ToS    skills.ToSMeta
 }
 
 var (
 	entryNameRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 	entryVersionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 	entryHashRe    = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	entryCommitRe  = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 
 // ParseIndex decodes and validates a source index. Each entry must carry a
@@ -70,6 +74,9 @@ func ParseIndex(src Source, raw []byte) (Index, error) {
 		if err != nil {
 			return Index{}, fmt.Errorf("%w: entry %d: %w", ErrIndex, i, err)
 		}
+		if src == SourceGitHub && !entryCommitRe.MatchString(e.Commit) {
+			return Index{}, fmt.Errorf("%w: entry %d: commit %q", ErrIndex, i, e.Commit)
+		}
 		if seen[e.Name] {
 			return Index{}, fmt.Errorf("%w: duplicate %q", ErrIndex, e.Name)
 		}
@@ -88,6 +95,7 @@ func parseEntry(raw json.RawMessage) (Entry, error) {
 		Path        string `json:"path"`
 		Description string `json:"description"`
 		Size        int64  `json:"size"`
+		Commit      string `json:"commit"`
 	}
 	if err := json.Unmarshal(raw, &wire); err != nil {
 		return Entry{}, fmt.Errorf("%w: %w", ErrIndex, err)
@@ -98,7 +106,8 @@ func parseEntry(raw json.RawMessage) (Entry, error) {
 	}
 	e := Entry{
 		Name: wire.Name, Version: wire.Version, SHA256: wire.SHA256,
-		Path: wire.Path, Description: wire.Description, Size: wire.Size, ToS: tos,
+		Path: wire.Path, Description: wire.Description, Size: wire.Size,
+		Commit: wire.Commit, ToS: tos,
 	}
 	if err := e.validate(); err != nil {
 		return Entry{}, err

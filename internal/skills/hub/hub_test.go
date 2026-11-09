@@ -12,8 +12,10 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/skills"
 )
@@ -153,9 +155,9 @@ func newTestService(t *testing.T, st skills.Store) *skills.Service {
 	return svc
 }
 
-func newTestHub(t *testing.T, fetcher Fetcher, st skills.Store) *Hub {
+func newTestHub(t *testing.T, fetcher Fetcher, st skills.Store, cfg Config) *Hub {
 	t.Helper()
-	cfg := Config{Fetcher: fetcher}
+	cfg.Fetcher = fetcher
 	cfg.Service = newTestService(t, st)
 	h, err := New(cfg)
 	if err != nil {
@@ -232,7 +234,7 @@ func TestHubIndexFetchesSource(t *testing.T) {
 	fetch := mapFetcher{
 		"https://skills.nousresearch.com/index.json": indexDoc(t, entryMap("findmy", skillBody, len(skillBody))),
 	}
-	h := newTestHub(t, fetch, &fakeStore{})
+	h := newTestHub(t, fetch, &fakeStore{}, Config{})
 	idx, err := h.Index(t.Context(), SourceOfficial)
 	if err != nil {
 		t.Fatalf("Index: %v", err)
@@ -255,7 +257,7 @@ func TestF8SkillHubQuarantine(t *testing.T) {
 		"https://skills.nousresearch.com/index.json":                   indexDoc(t, entryMap("findmy", body, len(body))),
 		"https://skills.nousresearch.com/skills/apple/findmy/SKILL.md": body,
 	}
-	h := newTestHub(t, fetch, st)
+	h := newTestHub(t, fetch, st, Config{})
 	inst, err := h.Download(t.Context(), SourceOfficial, new(mustEntry(t, fetch)))
 	if err != nil {
 		t.Fatalf("Download: %v", err)
@@ -282,7 +284,7 @@ func TestF8SkillHubQuarantine(t *testing.T) {
 		"https://skills.nousresearch.com/skills/apple/evil/SKILL.md": evil,
 	}
 	est := &fakeStore{}
-	eh := newTestHub(t, evilFetch, est)
+	eh := newTestHub(t, evilFetch, est, Config{})
 	inst, err = eh.Download(t.Context(), SourceOfficial, new(mustEntry(t, evilFetch)))
 	if err != nil {
 		t.Fatalf("high-risk Download: %v", err)
@@ -335,22 +337,32 @@ func TestF8SkillHubRejectsHTTP(t *testing.T) {
 	}
 	u := mustURL(t, near.URL+"/one")
 	if _, ferr := f.Get(t.Context(), u, 1024); !errors.Is(ferr, ErrRedirect) {
-		t.Errorf("cross-host redirect = %v, want ErrRedirect", err)
+		t.Errorf("cross-host redirect = %v, want ErrRedirect", ferr)
 	}
 	same := mustURL(t, near.URL+"/two")
-	if body, err := f.Get(t.Context(), same, 1024); err != nil || string(body) != "same host" {
-		t.Errorf("same-host fetch = %q, %v", body, err)
+	if body, ferr := f.Get(t.Context(), same, 1024); ferr != nil || string(body) != "same host" {
+		t.Errorf("same-host fetch = %q, %v", body, ferr)
 	}
 	bin := mustURL(t, near.URL+"/binary")
-	if _, err := f.Get(t.Context(), bin, 1024); !errors.Is(err, ErrBinary) {
-		t.Errorf("binary body = %v, want ErrBinary", err)
+	if _, ferr := f.Get(t.Context(), bin, 1024); !errors.Is(ferr, ErrBinary) {
+		t.Errorf("binary body = %v, want ErrBinary", ferr)
 	}
 	big := mustURL(t, near.URL+"/big")
-	if _, err := f.Get(t.Context(), big, 8); !errors.Is(err, ErrTooLarge) {
-		t.Errorf("oversized body = %v, want ErrTooLarge", err)
+	if _, ferr := f.Get(t.Context(), big, 8); !errors.Is(ferr, ErrTooLarge) {
+		t.Errorf("oversized body = %v, want ErrTooLarge", ferr)
 	}
-	if _, err := NewHTTPFetcher(nil); !errors.Is(err, ErrURL) {
-		t.Errorf("nil client = %v, want ErrURL", err)
+	if _, nerr := NewHTTPFetcher(nil); !errors.Is(nerr, ErrURL) {
+		t.Errorf("nil client = %v, want ErrURL", nerr)
+	}
+	plain, err := NewFetcher(near.Client())
+	if err != nil {
+		t.Fatalf("NewFetcher: %v", err)
+	}
+	if body, ferr := plain.Get(t.Context(), same, 1024); ferr != nil || string(body) != "same host" {
+		t.Errorf("Doer fetch = %q, %v", body, ferr)
+	}
+	if _, nerr := NewFetcher(nil); !errors.Is(nerr, ErrURL) {
+		t.Errorf("nil doer = %v, want ErrURL", nerr)
 	}
 }
 
@@ -362,7 +374,7 @@ func TestF8SkillHubHashMismatch(t *testing.T) {
 	e.SHA256 = strings.Repeat("0", 64)
 	st := &fakeStore{}
 	fetch := mapFetcher{"https://skills.nousresearch.com/skills/apple/findmy/SKILL.md": body}
-	h := newTestHub(t, fetch, st)
+	h := newTestHub(t, fetch, st, Config{})
 	if _, err := h.Download(t.Context(), SourceOfficial, e); !errors.Is(err, ErrHash) {
 		t.Fatalf("Download = %v, want ErrHash", err)
 	}
@@ -427,5 +439,192 @@ func TestF8SkillHubIndexValidation(t *testing.T) {
 	}
 	if _, err := idx.Find("missing"); !errors.Is(err, ErrNoEntry) {
 		t.Errorf("Find(missing) = %v", err)
+	}
+}
+
+// TestF8SkillHubSearch proves filtering, sorting and the limit of Search.
+func TestF8SkillHubSearch(t *testing.T) {
+	t.Parallel()
+	a := entryMap("alpha", skillBody, len(skillBody))
+	a["description"] = "Alpha helper."
+	b := entryMap("findmy", skillBody, len(skillBody))
+	b["description"] = "Find devices."
+	fetch := mapFetcher{"https://skills.nousresearch.com/index.json": indexDoc(t, b, a)}
+	h := newTestHub(t, fetch, &fakeStore{}, Config{})
+	got, err := h.Search(t.Context(), SourceOfficial, "", 0)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(got) != 2 || got[0].Name != "alpha" || got[1].Name != "findmy" {
+		t.Fatalf("Search = %v", got)
+	}
+	got, err = h.Search(t.Context(), SourceOfficial, "device", 1)
+	if err != nil || len(got) != 1 || got[0].Name != "findmy" {
+		t.Fatalf("filtered Search = %v, %v", got, err)
+	}
+	if _, err := h.Search(t.Context(), unknownSource(t), "", 1); !errors.Is(err, ErrSource) {
+		t.Errorf("unknown source = %v, want ErrSource", err)
+	}
+}
+
+func unknownSource(t *testing.T) Source {
+	t.Helper()
+	src, err := ParseSource("nope")
+	if err == nil {
+		t.Fatalf("ParseSource(nope) succeeded")
+	}
+	return src
+}
+
+// TestF8SkillHubRetry proves the bounded retry and the rate-limit wait.
+func TestF8SkillHubRetry(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	fail := fetcherFunc(func(context.Context, *url.URL, int64) ([]byte, error) {
+		if calls.Add(1) < 3 {
+			return nil, ErrStatus
+		}
+		return []byte("ok"), nil
+	})
+	bf, err := NewBoundedFetcher(fail, 0)
+	if err != nil {
+		t.Fatalf("NewBoundedFetcher: %v", err)
+	}
+	bf.Sleep = func(context.Context, time.Duration) error { return nil }
+	u := mustURL(t, "https://skills.nousresearch.com/index.json")
+	if body, err := bf.Get(t.Context(), u, 16); err != nil || string(body) != "ok" {
+		t.Fatalf("retry = %q, %v", body, err)
+	}
+	if calls.Load() != 3 {
+		t.Errorf("calls = %d, want 3", calls.Load())
+	}
+	if _, err := NewBoundedFetcher(nil, 0); !errors.Is(err, ErrURL) {
+		t.Errorf("nil fetcher = %v", err)
+	}
+}
+
+type fetcherFunc func(context.Context, *url.URL, int64) ([]byte, error)
+
+func (f fetcherFunc) Get(ctx context.Context, u *url.URL, limit int64) ([]byte, error) {
+	return f(ctx, u, limit)
+}
+
+// TestF8SKILL012Official proves the official source is registered, its
+// default is https+allowlisted, a pinned sha256 is mandatory, and an invalid
+// override fails instead of silently falling back to the default.
+func TestF8SKILL012Official(t *testing.T) {
+	t.Parallel()
+	base, ok := DefaultBaseURL(SourceOfficial)
+	if !ok || !strings.HasPrefix(base, "https://") {
+		t.Fatalf("official base = %q, ok=%v", base, ok)
+	}
+	idx := entryMap("findmy", skillBody, len(skillBody))
+	delete(idx, "sha256")
+	if _, err := ParseIndex(SourceOfficial, []byte(indexDoc(t, idx))); !errors.Is(err, ErrIndex) {
+		t.Errorf("entry without sha256 = %v, want ErrIndex", err)
+	}
+	if _, err := New(Config{
+		Fetcher: mapFetcher{}, Service: newTestService(t, &fakeStore{}),
+		Sources: map[Source]string{SourceOfficial: "http://skills.nousresearch.com"},
+	}); !errors.Is(err, ErrURL) {
+		t.Errorf("official http downgrade = %v, want ErrURL (no fallback)", err)
+	}
+}
+
+// TestF8SKILL013GitHub proves the GitHub source requires a commit SHA and
+// verifies the pinned sha256 of the content.
+func TestF8SKILL013GitHub(t *testing.T) {
+	t.Parallel()
+	body := skillBody
+	base := entryMap("findmy", body, len(body))
+	base["path"] = "repos/acme/skills/contents/oracle/SKILL.md"
+	entryPath, ok := base["path"].(string)
+	if !ok {
+		t.Fatal("path is not a string")
+	}
+	if _, err := ParseIndex(SourceGitHub, []byte(indexDoc(t, base))); !errors.Is(err, ErrIndex) {
+		t.Errorf("GitHub entry without commit = %v, want ErrIndex", err)
+	}
+	base["commit"] = strings.Repeat("a", 40)
+	idx, err := ParseIndex(SourceGitHub, []byte(indexDoc(t, base)))
+	if err != nil {
+		t.Fatalf("pinned GitHub entry: %v", err)
+	}
+	fetch := mapFetcher{"https://api.github.com/" + entryPath: body}
+	st := &fakeStore{}
+	h := newTestHub(t, fetch, st, Config{})
+	inst, err := h.Download(t.Context(), SourceGitHub, &idx.Entries[0])
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if inst.Status != skills.StatusScanned {
+		t.Errorf("status = %q, want scanned", inst.Status)
+	}
+	idx.Entries[0].SHA256 = strings.Repeat("0", 64)
+	if _, err := h.Download(t.Context(), SourceGitHub, &idx.Entries[0]); !errors.Is(err, ErrHash) {
+		t.Errorf("GitHub bad hash = %v, want ErrHash", err)
+	}
+}
+
+// TestF8SKILL014ClawHub proves a ClawHub entry is quarantined (pending), not
+// trusted, and cannot be retrieved before approval.
+func TestF8SKILL014ClawHub(t *testing.T) {
+	t.Parallel()
+	body := skillBody
+	e := entryMap("findmy", body, len(body))
+	fetch := mapFetcher{
+		"https://clawhub.ai/index.json":                   indexDoc(t, e),
+		"https://clawhub.ai/skills/apple/findmy/SKILL.md": body,
+	}
+	st := &fakeStore{}
+	h := newTestHub(t, fetch, st, Config{})
+	idx, err := h.Index(t.Context(), SourceClawHub)
+	if err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	inst, err := h.Download(t.Context(), SourceClawHub, &idx.Entries[0])
+	if err != nil {
+		t.Fatalf("Download: %v", err)
+	}
+	if inst.Status != skills.StatusScanned || st.approved {
+		t.Fatalf("ClawHub status=%q approved=%v", inst.Status, st.approved)
+	}
+	svc := newTestService(t, st)
+	if got, rerr := svc.Retrieve(t.Context(), "findmy", 3); rerr != nil || len(got) != 0 {
+		t.Fatalf("ClawHub pending retrievable: %v %v", got, rerr)
+	}
+}
+
+// TestF8SKILL015SkillsSh proves the rate-limit wait and the bounded retry of
+// the skills.sh source wrapper.
+func TestF8SKILL015SkillsSh(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	var waits []time.Duration
+	fail := fetcherFunc(func(context.Context, *url.URL, int64) ([]byte, error) {
+		calls.Add(1)
+		return nil, ErrStatus
+	})
+	bf, err := NewBoundedFetcher(fail, 50*time.Millisecond)
+	if err != nil {
+		t.Fatalf("NewBoundedFetcher: %v", err)
+	}
+	clock := time.Unix(100, 0)
+	bf.Now = func() time.Time { return clock }
+	bf.last = clock
+	bf.Sleep = func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		clock = clock.Add(d)
+		return nil
+	}
+	u := mustURL(t, "https://skills.sh/index.json")
+	if _, err := bf.Get(t.Context(), u, 64); !errors.Is(err, ErrStatus) {
+		t.Errorf("exhausted retry = %v, want ErrStatus", err)
+	}
+	if int(calls.Load()) != bf.Attempts {
+		t.Errorf("calls = %d, want %d", calls.Load(), bf.Attempts)
+	}
+	if len(waits) == 0 || waits[0] != 50*time.Millisecond {
+		t.Errorf("rate-limit waits = %v, want first 50ms", waits)
 	}
 }
