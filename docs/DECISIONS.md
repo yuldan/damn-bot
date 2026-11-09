@@ -6703,3 +6703,15 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Konsekuensi.** (+) Kunci telemetri resmi dengan default nol koneksi. (−) Baris `config` tanpa headroom; kunci config berikutnya butuh ADR terukur. Endpoint OTLP non-loopback belum didukung sampai ada lane egress khusus.
 
 - Amandemen (ADR-326/ADR-330, F8 web CSP): **GAP-SEC-06** menjadi `LULUS` (ledger) lewat `TestWebCSPHeaders` (CSP exact + nosniff/no-referrer/COOP/CORP/Permissions-Policy pada dashboard, settings, login, healthz, aset, dan 404 — nonce baru tiap respons) dan `TestF8CSPNoSink` (0 `innerHTML`/`outerHTML`/`document.write`/`eval(`/`new Function`/`insertAdjacentHTML` di seluruh aset JS; 0 `template.HTML`/`template.JS`/`template.URL`/`template.HTMLAttr`/`text/template` di paket web). Permukaan model/tool belum dirender di dashboard, sehingga jumlah sink HTML adalah 0 dan jalur render berikutnya wajib memakai DOM builder yang sama.
+
+## ADR-339 — Tabrakan port web 7878 vs webhook Telegram: tetap fail-closed, default tidak dipindah
+
+**Status:** Accepted 2026-11-09 (F8). Keputusan: tidak mengubah default `--telegram-webhook-listen`; konflik dideteksi saat start dan `serve` menolak dengan error bertipe.
+
+**Konteks.** SPEC §13.2 mematok web UI di `127.0.0.1:7878`, sedangkan `damnbot serve --telegram-webhook-listen` sudah lama default ke `127.0.0.1:7878`. Keduanya listener proses yang sama, sehingga menjalankan `serve --web` dengan Telegram mode webhook pada default akan memperebutkan satu alamat. Opsi yang dibahas: (a) memindahkan default webhook, (b) memindahkan default web, (c) mempertahankan kedua default dan mendeteksi konflik saat start.
+
+**Keputusan.** (c). (1) Default web tetap `127.0.0.1:7878` karena SPEC §13.2 menormatifkannya (termasuk `serve open`), dan default webhook tidak dipindah karena mode webhook bersifat opt-in dan alamat publik/port-nya per-deployment (sering di belakang reverse proxy), sehingga memindah default akan memecahkan deployment yang sudah memakai port itu secara eksplisit maupun implisit tanpa menyelesaikan kasus umum (operator biasanya tetap menyetel keduanya). (2) `webListenConflict`/`sameListenAddr` mendeteksi port yang sama — termasuk wildcard `:port`, `0.0.0.0`, `[::]` — sebelum listener web dibuka, menolak dengan exit 78 dan pesan yang menyebut kedua listener dan kedua knob (`[web] listen`, `--telegram-webhook-listen`). (3) Build minimal tidak memuat jalur ini (tanpa web UI). (4) Dokumen ini yang menjadi dasar; perubahan default kapan pun wajib ADR baru.
+
+**Bukti.** `TestWebListenConflict` (port sama, wildcard vs loopback dua arah, IPv6 wildcard/loopback, port beda, host beda, mode polling, unix) dan `TestF8WebServe` (binary nyata: remote tanpa `allow_remote` exit 78). Nol perubahan default, dependency, atau budget.
+
+**Konsekuensi.** (+) Tidak ada kejutan bagi deployment lama; konflik selalu gagal cepat dengan pesan actionable. (+) Satu sumber kebenaran: SPEC tetap memegang default web. (−) Operator yang mengaktifkan webhook pada port default harus menyetel salah satu knob secara eksplisit; ini disengaja (fail-closed, bukan autodetect).
