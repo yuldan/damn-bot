@@ -35,7 +35,7 @@ logout.addEventListener("click", () => {
     headers: { "X-CSRF-Token": csrf ?? "" },
   }).then((res) => {
     if (res.ok) {
-      location.replace("/auth");
+      location.replace(res.headers.get("X-End-Session") ?? "/auth");
     }
   });
 });
