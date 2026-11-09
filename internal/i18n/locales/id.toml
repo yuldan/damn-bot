@@ -1,0 +1,15 @@
+# Indonesian (id) — Q16, SPEC §9.12.
+
+"help.usage" = "penggunaan: damnbot <perintah> [flag]"
+"help.commands" = "Perintah:"
+"help.global_flags" = "Flag global:"
+"help.profile" = "gunakan profil konfigurasi dan data terpisah"
+"help.help" = "tampilkan bantuan untuk perintah"
+"help.version" = "tampilkan versi (alias `damnbot version`)"
+"help.details" = "Jalankan `damnbot help <perintah>` untuk detail."
+"help.unknown_topic" = "help: topik tidak dikenal %q"
+"help.unknown_topic_hint" = "help: jalankan `damnbot help` untuk daftar perintah"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "muat konfigurasi"
+"api.token_required" = "token bearer diperlukan: setel DAMNBOT_API_TOKEN atau --token-secret (atau lewati --allow-unauthenticated secara eksplisit)"
+"web.auth_unauthorized" = "tidak diizinkan: diperlukan token akses yang valid"

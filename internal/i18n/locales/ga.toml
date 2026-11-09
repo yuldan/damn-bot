@@ -1,0 +1,15 @@
+# Gaeilge (ga) — SPEC §9.12.
+
+"help.usage" = "úsáid: damnbot <ordú> [roghanna]"
+"help.commands" = "Orduithe:"
+"help.global_flags" = "Roghanna domhanda:"
+"help.profile" = "úsáid próifíl chumraíochta agus sonraí ar leith"
+"help.help" = "taispeáin cabhair le haghaidh ordaithe"
+"help.version" = "priontáil an leagan (ailias de `damnbot version`)"
+"help.details" = "Rith `damnbot help <ordú>` le haghaidh sonraí."
+"help.unknown_topic" = "help: topaic anaithnid %q"
+"help.unknown_topic_hint" = "help: rith `damnbot help` le haghaidh liosta na n-orduithe"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "lódáil cumraíocht"
+"api.token_required" = "teastaíonn bearer chomhartha: socraigh DAMNBOT_API_TOKEN nó --token-secret (nó cuir --allow-unauthenticated ar aghaidh go sainráite)"
+"web.auth_unauthorized" = "gan údarú: teastaíonn comhartha rochtana bailí"

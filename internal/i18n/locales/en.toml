@@ -1,0 +1,16 @@
+# English (en) — Damn-Bot embedded UI catalog (SPEC §9.12).
+# Every locale file carries exactly these keys; TestI18nNoMissingKeys enforces it.
+
+"help.usage" = "usage: damnbot <command> [flags]"
+"help.commands" = "Commands:"
+"help.global_flags" = "Global flags:"
+"help.profile" = "use a separate config and data profile"
+"help.help" = "print help for a command"
+"help.version" = "print the version (alias of `damnbot version`)"
+"help.details" = "Run `damnbot help <command>` for details."
+"help.unknown_topic" = "help: unknown topic %q"
+"help.unknown_topic_hint" = "help: run `damnbot help` for the command list"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "load config"
+"api.token_required" = "bearer token required: set DAMNBOT_API_TOKEN or --token-secret (or pass --allow-unauthenticated explicitly)"
+"web.auth_unauthorized" = "unauthorized: a valid access token is required"

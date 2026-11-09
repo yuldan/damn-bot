@@ -27,6 +27,7 @@
 /internal/ctxdb/ @yuldan
 /internal/e2e/ @yuldan
 /internal/heal/ @yuldan
+/internal/i18n/ @yuldan
 /internal/journal/ @yuldan
 /internal/loop/ @yuldan
 /internal/modules/ @yuldan

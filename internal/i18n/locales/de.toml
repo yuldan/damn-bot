@@ -1,0 +1,15 @@
+# Deutsch (de) — SPEC §9.12.
+
+"help.usage" = "Aufruf: damnbot <Befehl> [Optionen]"
+"help.commands" = "Befehle:"
+"help.global_flags" = "Globale Optionen:"
+"help.profile" = "ein separates Konfigurations- und Datenprofil verwenden"
+"help.help" = "Hilfe für einen Befehl anzeigen"
+"help.version" = "Version anzeigen (Alias für `damnbot version`)"
+"help.details" = "Für Details `damnbot help <Befehl>` ausführen."
+"help.unknown_topic" = "help: unbekanntes Thema %q"
+"help.unknown_topic_hint" = "help: `damnbot help` für die Befehlsliste ausführen"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "Konfiguration laden"
+"api.token_required" = "Bearer-Token erforderlich: DAMNBOT_API_TOKEN oder --token-secret setzen (oder --allow-unauthenticated ausdrücklich angeben)"
+"web.auth_unauthorized" = "nicht autorisiert: ein gültiges Zugriffstoken ist erforderlich"

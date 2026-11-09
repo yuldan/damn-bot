@@ -1,0 +1,15 @@
+# Русский (ru) — SPEC §9.12.
+
+"help.usage" = "использование: damnbot <команда> [флаги]"
+"help.commands" = "Команды:"
+"help.global_flags" = "Глобальные флаги:"
+"help.profile" = "использовать отдельный профиль конфигурации и данных"
+"help.help" = "показать справку по команде"
+"help.version" = "показать версию (синоним `damnbot version`)"
+"help.details" = "Запустите `damnbot help <команда>` для подробностей."
+"help.unknown_topic" = "help: неизвестная тема %q"
+"help.unknown_topic_hint" = "help: запустите `damnbot help` для списка команд"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "загрузить конфигурацию"
+"api.token_required" = "требуется bearer-токен: задайте DAMNBOT_API_TOKEN или --token-secret (или явно передайте --allow-unauthenticated)"
+"web.auth_unauthorized" = "не авторизовано: требуется действительный токен доступа"

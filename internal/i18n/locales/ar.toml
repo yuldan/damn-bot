@@ -1,0 +1,15 @@
+# العربية (ar) — SPEC §9.12.
+
+"help.usage" = "الاستخدام: damnbot <أمر> [خيارات]"
+"help.commands" = "الأوامر:"
+"help.global_flags" = "الخيارات العامة:"
+"help.profile" = "استخدام ملف تعريف منفصل للإعدادات والبيانات"
+"help.help" = "عرض المساعدة لأمر"
+"help.version" = "طباعة الإصدار (اسم بديل لـ `damnbot version`)"
+"help.details" = "شغّل `damnbot help <أمر>` للحصول على التفاصيل."
+"help.unknown_topic" = "help: موضوع غير معروف %q"
+"help.unknown_topic_hint" = "help: شغّل `damnbot help` لعرض قائمة الأوامر"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "تحميل الإعدادات"
+"api.token_required" = "مطلوب رمز bearer: عيّن DAMNBOT_API_TOKEN أو --token-secret (أو مرّر --allow-unauthenticated صراحةً)"
+"web.auth_unauthorized" = "غير مصرح: مطلوب رمز وصول صالح"

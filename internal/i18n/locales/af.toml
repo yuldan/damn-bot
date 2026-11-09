@@ -1,0 +1,15 @@
+# Afrikaans (af) — SPEC §9.12.
+
+"help.usage" = "gebruik: damnbot <opdrag> [vlae]"
+"help.commands" = "Opdragte:"
+"help.global_flags" = "Globale vlae:"
+"help.profile" = "gebruik 'n aparte konfigurasie- en dataprofiel"
+"help.help" = "wys hulp vir 'n opdrag"
+"help.version" = "druk die weergawe (alias van `damnbot version`)"
+"help.details" = "Voer `damnbot help <opdrag>` uit vir besonderhede."
+"help.unknown_topic" = "help: onbekende onderwerp %q"
+"help.unknown_topic_hint" = "help: voer `damnbot help` uit vir die opdraglys"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "laai konfigurasie"
+"api.token_required" = "bearer-token vereis: stel DAMNBOT_API_TOKEN of --token-secret (of gee --allow-unauthenticated uitdruklik)"
+"web.auth_unauthorized" = "ongemagtig: 'n geldige toegangstoken word vereis"

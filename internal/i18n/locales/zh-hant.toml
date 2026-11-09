@@ -1,0 +1,15 @@
+# 繁體中文 (zh-hant) — SPEC §9.12.
+
+"help.usage" = "用法：damnbot <指令> [選項]"
+"help.commands" = "指令："
+"help.global_flags" = "全域選項："
+"help.profile" = "使用獨立的設定與資料設定檔"
+"help.help" = "顯示指令說明"
+"help.version" = "顯示版本（`damnbot version` 的別名）"
+"help.details" = "執行 `damnbot help <指令>` 以查看詳細資料。"
+"help.unknown_topic" = "help：未知主題 %q"
+"help.unknown_topic_hint" = "help：執行 `damnbot help` 查看指令清單"
+"help.topic_header" = "damnbot %s - %s"
+"config.load" = "載入設定"
+"api.token_required" = "需要 bearer 權杖：設定 DAMNBOT_API_TOKEN 或 --token-secret（或明確傳入 --allow-unauthenticated）"
+"web.auth_unauthorized" = "未授權：需要有效的存取權杖"
