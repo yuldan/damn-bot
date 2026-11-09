@@ -16,7 +16,7 @@ import (
 // skill, with a named owner. The index and skill bytes come from freshFetch.
 func approvedHub(t *testing.T, st *fakeStore, fetch mapFetcher) *Hub {
 	t.Helper()
-	return newTestHub(t, fetch, st, Config{Owner: "alice"})
+	return newTestHub(t, fetch, st, &Config{Owner: "alice"})
 }
 
 func freshFetch(t *testing.T) mapFetcher {
@@ -51,7 +51,7 @@ func TestF8SkillHubApproveOwner(t *testing.T) {
 	if !st.approved {
 		t.Fatal("owner approve did not reach the store")
 	}
-	closed := newTestHub(t, mapFetcher{}, &fakeStore{}, Config{})
+	closed := newTestHub(t, mapFetcher{}, &fakeStore{}, &Config{})
 	if err := closed.Approve(t.Context(), "alice", 7); !errors.Is(err, ErrNotOwner) {
 		t.Errorf("owner-less hub = %v, want ErrNotOwner", err)
 	}

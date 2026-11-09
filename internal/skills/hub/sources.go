@@ -27,6 +27,9 @@ var ErrSource = errors.New("skills hub: unknown source")
 // ErrURL is a source URL outside the https host allowlist.
 var ErrURL = errors.New("skills hub: source url rejected")
 
+// ErrSignature is a missing or invalid ed25519 index signature.
+var ErrSignature = errors.New("skills hub: index signature rejected")
+
 type sourceSpec struct {
 	source Source
 	base   string

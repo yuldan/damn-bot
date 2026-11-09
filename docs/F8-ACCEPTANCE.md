@@ -111,11 +111,11 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 
 ## 5. Ledger parity F8 — SKILL (8)
 
-Kontrak: setiap entri hub membawa `tos_risk`/`tos_note` (GAP-GW-07), signature ed25519 (GAP-SEC-20), provenance, dan hasil install melewati threat scan + karantina (P10). Baris SKILL-012..015/017/020 dibuktikan `internal/skills/hub` + CLI `damnbot skills hub` (`TestF8SKILL012Official`, `TestF8SKILL013GitHub`, `TestF8SKILL014ClawHub`, `TestF8SKILL015SkillsSh`, `TestF8SKILL017OptionalSync`, `TestF8SKILL020UsageTracking`, e2e `TestF8SkillsHubCLI`). SKILL-011 tetap terbuka karena indeks bertanda tangan ed25519 belum diimplementasikan; SKILL-021 (curator) tetap terbuka.
+Kontrak: setiap entri hub membawa `tos_risk`/`tos_note` (GAP-GW-07), signature ed25519 (GAP-SEC-20), provenance, dan hasil install melewati threat scan + karantina (P10). Baris SKILL-012..015/017/020 dibuktikan `internal/skills/hub` + CLI `damnbot skills hub` (`TestF8SKILL012Official`, `TestF8SKILL013GitHub`, `TestF8SKILL014ClawHub`, `TestF8SKILL015SkillsSh`, `TestF8SKILL017OptionalSync`, `TestF8SKILL020UsageTracking`, e2e `TestF8SkillsHubCLI`). SKILL-011 dan SKILL-021 ditutup oleh PR lanjutan: indeks `index.json.sig` ed25519 (kunci trust fail-closed, tanpa fallback) dan planner curator deterministik (idle ≥ 2 jam, stale/archive/retire/merge, budget, 0 LLM call, 0 tulis).
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| SKILL-011 | Skills hub (install/search) | cari & pasang dari sumber eksternal; indeks bertanda tangan; tanpa signature → tolak | `TestF8SKILL011Hub`, `TestCatalogSignature` | BELUM | — |
+| SKILL-011 | Skills hub (install/search) | cari & pasang dari sumber eksternal; indeks bertanda tangan; tanpa signature → tolak | `TestF8SKILL011Hub`, `TestCatalogSignature` | LULUS | index.json.sig ed25519; kunci operator fail-closed |
 | SKILL-012 | Sumber resmi Nous | sumber official terdaftar; pinned SHA; 0 fallback diam | `TestF8SKILL012Official` | LULUS | — |
 | SKILL-013 | Sumber GitHub | install dari repo GitHub; commit SHA + sha256 arsip diverifikasi | `TestF8SKILL013GitHub` | LULUS | sha256 konten SKILL.md (arsip tidak dipakai) |
 | SKILL-014 | Sumber ClawHub | sumber ClawHub; entri tidak tepercaya tetap `pending` | `TestF8SKILL014ClawHub` | LULUS | — |
