@@ -364,3 +364,8 @@ func redactedBody(resp *http.Response, max int64, red *Redactor) string {
 	}
 	return strings.TrimSpace(red.Redact(string(body)))
 }
+
+// headerJSON is the common content type of a connector request body.
+func headerJSON() http.Header {
+	return http.Header{"Content-Type": {"application/json"}}
+}

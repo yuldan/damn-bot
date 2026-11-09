@@ -750,7 +750,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | PLUG-023 | Plugin: model-providers | 41 direktori profil provider model | `plugins/model-providers/README.md` | on (bundled) | lihat PROV |  | F5 | planned |
 | PLUG-024 | Plugin: platforms | 27 adapter platform chat | `gateway/platforms/ADDING_A_PLATFORM.md` | per-platform | lihat PLAT |  | F7 | LULUS |
 | PLUG-025 | Plugin: security-guidance | Peringatan keamanan pada hasil write file | `plugins/security-guidance/plugin.yaml`, `plugins/security-guidance/patterns.py` | opt-in | — |  | F8 | planned |
-| PLUG-026 | Plugin: teams_pipeline | Pipeline rapat Microsoft Teams via Graph | `plugins/teams_pipeline/plugin.yaml`, `plugins/teams_pipeline/pipeline.py` | opt-in | Microsoft Graph creds |  | F8 | planned |
+| PLUG-026 | Plugin: teams_pipeline | Pipeline rapat Microsoft Teams via Graph | `plugins/teams_pipeline/plugin.yaml`, `plugins/teams_pipeline/pipeline.py` | opt-in | Microsoft Graph creds |  | F8 | LULUS |
 | PLUG-027 | Plugin: video_gen | 4 backend generate video | `plugins/video_gen/xai/plugin.yaml` | opt-in | lihat MEDIA |  | F6 | LULUS |
 | PLUG-028 | Plugin: web | 11 backend web search/extract | `plugins/web/__init__.py` | auto (`web.backend: ""`) | lihat EXEC/TOOL |  | F6 | LULUS |
 | PLUG-029 | MCP client | Koneksi server MCP stdio/HTTP/SSE → tool dinamis | `tools/mcp_tool.py`, `tools/mcp_tool_transport.py`, `tools/mcp_tool_registration.py` | on (bila `mcp` dikonfigurasi) | extra `mcp` | auto reload saat config berubah | F5 | planned |
