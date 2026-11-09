@@ -29,5 +29,8 @@ func (m *Modules) validateF8() error { return nil }
 // (ADR-333); the key stays ErrModuleUnavailable like every other absent module.
 func (m *Modules) validateAuto() error { return nil }
 
+// validateWeb is a no-op: this build has no web listener to start (ADR-325).
+func (c *Config) validateWeb() error { return nil }
+
 // autoModuleAvailable reports that [modules.auto] is not compiled in.
 func autoModuleAvailable() bool { return false }
