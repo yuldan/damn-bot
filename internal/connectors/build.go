@@ -6,6 +6,8 @@ func (m *Module) build(name string) (Handler, error) {
 		return m.newGraph()
 	case "teams":
 		return m.newTeams()
+	case "feishu":
+		return m.newFeishu()
 	}
 	return nil, nil
 }
