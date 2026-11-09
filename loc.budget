@@ -474,6 +474,9 @@ MODULE cron        3500 internal/cron
 MODULE cronstore     200 internal/ctxdb/cronstore
 # ADR-244: SPEC §3.2.4:307 (scorecard job 500 dari 3.000; sisa 2.500 F8).
 MODULE scorecard    500 internal/scorecard
+# ADR-330 alokasi F8: batch/evals/trajectory 2.500. ADR-336 membukukan baris
+# ini saat paketnya mendarat (OPS-020/021/022/023/024); terukur 772.
+MODULE batch       2500 internal/batch internal/evals
 # ADR-268 (F5-09 awal): SPEC §3.2.4:291 `mcp` (client + server + OAuth + pin
 # tool) 6.500; kode fondasi seam terukur 79. Sigma kelas MODULE 38.500 ->
 # 45.000 (+backup 1.467 = 46.467 <= 46.500; maxModuleLOC 40.000 -> 46.500).
