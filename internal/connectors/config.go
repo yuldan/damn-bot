@@ -9,12 +9,13 @@ import (
 
 // Section is part of the connector framework.
 type Section struct {
-	Enabled          bool  `json:"enabled"`
-	Offline          bool  `json:"offline"`
-	NoBackground     bool  `json:"no_background"`
-	TimeoutS         int   `json:"timeout_s"`
-	MaxRetries       int   `json:"max_retries"`
-	MaxResponseBytes int64 `json:"max_response_bytes"`
+	Enabled          bool            `json:"enabled"`
+	Offline          bool            `json:"offline"`
+	NoBackground     bool            `json:"no_background"`
+	TimeoutS         int             `json:"timeout_s"`
+	MaxRetries       int             `json:"max_retries"`
+	MaxResponseBytes int64           `json:"max_response_bytes"`
+	Graph            json.RawMessage `json:"graph"`
 }
 
 // Framework bounds are hard caps: config may lower them, never raise them.
@@ -35,6 +36,7 @@ type Config struct {
 	Timeout      time.Duration
 	Retries      int
 	MaxBytes     int64
+	Graph        json.RawMessage
 }
 
 // DecodeSection decodes one strict [modules.connectors] section.
@@ -64,6 +66,20 @@ func ConfigFrom(s *Section) (Config, error) {
 	}
 	return Config{
 		Enabled: s.Enabled, Offline: s.Offline, NoBackground: s.NoBackground,
-		Timeout: time.Duration(s.TimeoutS) * time.Second, Retries: s.MaxRetries, MaxBytes: s.MaxResponseBytes,
+		Timeout: time.Duration(s.TimeoutS) * time.Second, Retries: s.MaxRetries, MaxBytes: s.MaxResponseBytes, Graph: s.Graph,
 	}, nil
+}
+
+// decodeSub decodes one connector section with unknown keys rejected.
+func decodeSub[T any](raw json.RawMessage, key string) (T, error) {
+	var out T
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return out, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&out); err != nil {
+		return out, fmt.Errorf("%w: %s: %w", ErrInvalidConnector, key, err)
+	}
+	return out, nil
 }
