@@ -121,7 +121,9 @@ func runServeOpen(args []string, stdout, stderr io.Writer) int {
 	if remote {
 		target += "?remote=1"
 	}
-	client := netx.New(netx.Config{}).Client("serve-open", netx.Background)
+	// The control endpoint is the daemon's loopback listener, not outbound
+	// egress: use the proxy-free loopback client instead of a registry entry.
+	client := netx.LoopbackClient()
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target, nil)
 	if err != nil {
 		return serveSubFail(stderr, "serve open", err)
