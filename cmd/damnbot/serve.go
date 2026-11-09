@@ -154,6 +154,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	daemon := newServeDaemon()
 	defer daemon.Close()
 	gw, gwErr := newServeGateway(ctx, &cfg, o, db, daemon, metrics, stderr)
+	startServeAuto(sigCtx, &cfg, dataDir, gw, stderr)
 	netw := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background})
 	cr := serveCronFor(ctx, gw, db, dataDir, o.configPath, cfg.Network.Offline, monitorFetch(netw), stderr)
 	registerServePeriodic(cr, stderr)

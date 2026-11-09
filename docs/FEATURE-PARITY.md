@@ -658,7 +658,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | ID | Fitur | Deskripsi singkat (≤15 kata) | Sumber hermes | Default di hermes | Dependensi eksternal | Catatan | fase | status |
 |---|---|---|---|---|---|---|---|---|
 | AUTO-001 | Background review | Review turn di background → usul memori/skill | `agent/background_review.py`, `agent/review_engine.py`, `agent/review_idle_queue.py` | on (`auxiliary.background_review.enabled`) | LLM auxiliary |  | F8 | planned |
-| AUTO-002 | Title generation | Judul sesi otomatis | `agent/title_generator.py` | on (`auxiliary.title_generation.enabled`) | LLM auxiliary |  | F8 | planned |
+| AUTO-002 | Title generation | Judul sesi otomatis | `agent/title_generator.py` | on (`auxiliary.title_generation.enabled`) | LLM auxiliary |  | F8 | LULUS |
 | AUTO-003 | Curator scheduler | Jalankan curator saat idle (min 2 jam) | `agent/curator.py` | on | LLM auxiliary | lihat SKILL | F8 | planned |
 | AUTO-004 | Idle/hygiene compaction | Compaction hygiene sesi gateway saat idle/terlalu panjang | `gateway/run_turn_hygiene.py`, `agent/compression_automation.py` | on | LLM auxiliary | `compression.hygiene_*` | F8 | planned |
 | AUTO-005 | Cron scheduler | Penjadwal job cron (tick, delivery, catch-up) | `cron/scheduler.py`, `cron/jobs.py`, `cron/scheduler_tick.py` | on di gateway; job dibuat user | croniter | `hermes cron`, `/cron` | F4 | planned |

@@ -171,7 +171,7 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
 | AUTO-001 | Background review | review turn di background → usul memori/skill; default off; 0 call jalur kritis | `TestF8AUTO001BackgroundReview` | BELUM | P11 |
-| AUTO-002 | Title generation | judul sesi otomatis; default off; biaya per fitur | `TestF8AUTO002TitleGeneration` | BELUM | — |
+| AUTO-002 | Title generation | judul sesi otomatis; default off; biaya per fitur | `TestF8AUTO002TitleGeneration` | LULUS | wiring serve: label setelah turn pertama; provider `purpose=auto`; `config` default-off |
 | AUTO-003 | Curator scheduler | curator saat idle ≥ 2 jam; pause/resume; budget | `TestF8AUTO003CuratorScheduler` | BELUM | SKILL-021 |
 | AUTO-004 | Idle/hygiene compaction | compaction sesi gateway saat idle/panjang; tidak memotong turn | `TestF8AUTO004IdleCompaction` | BELUM | — |
 | AUTO-012 | Blueprints | template otomasi siap pakai; slot divalidasi; default off | `TestF8AUTO012Blueprints` | BELUM | SLASH-078 |

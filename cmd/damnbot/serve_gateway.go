@@ -52,6 +52,7 @@ type serveGateway struct {
 	cron                *cron.Recorder
 	cronAdmin           *cron.Admin
 	stderr              io.Writer
+	auto                *serveAuto
 	inbound             chan telegram.Inbound
 	webhook             *gatewayWebhook
 	webhookSrv          *http.Server
@@ -526,7 +527,11 @@ func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid st
 	if err != nil {
 		return fmt.Errorf("gateway: prompt: %w", err)
 	}
-	return deliver(ctx, ch)
+	if derr := deliver(ctx, ch); derr != nil {
+		return derr
+	}
+	g.autoTitleAfterTurn(ctx, model.provider, sid, in.Text)
+	return nil
 }
 
 // gatewayAck is the instant placeholder message shown after admission. The
