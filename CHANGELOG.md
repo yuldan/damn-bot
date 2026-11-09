@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/web`/`internal/archtest` (F8, GAP-SEC-06, ADR-326/ADR-330): **CSP + 0 sink HTML dibuktikan**. `TestWebCSPHeaders` memeriksa header GAP-SEC-06 exact (nonce baru tiap respons) pada dashboard, settings, login, healthz, aset, dan 404; `TestF8CSPNoSink` memindai seluruh aset JS (0 innerHTML/document.write/eval/new Function) dan paket web (0 `template.HTML`/`template.JS`/`template.URL`/`text/template`). Baris ledger `GAP-SEC-06` menjadi `LULUS`.
+
 - `internal/web` (F8, SPEC §13.2 settings diff + konfirmasi, ADR-331): **settings write**. `POST /api/settings/preview` memvalidasi locale (`auto` atau 18 locale katalog), memakai writer config atomik yang sama dengan CLI (komentar dipertahankan, `config.Parse` sebelum rename) dan mengembalikan diff dua baris + token konfirmasi sekali pakai (TTL 2 menit); `POST /api/settings/apply` menulis patch lalu memperbarui bahasa halaman. Form settings (preview -> diff -> apply) hanya muncul bila writer ter-wire. Tes: `TestWebSettingsPreviewApply`, `TestWebSettingsWritesConfig`.
 
 - `cmd/damnbot` (F8, CLI-069/UI-016, ADR-326/ADR-330): **`serve open` dan `serve sessions`**. `serve --web` menulis state kontrol 0600 (addr + secret 256-bit) dan `POST /auth/link` loopback-only (constant-time, TTL 60 s; `--remote` 10 menit) mengembalikan URL sekali pakai; `serve sessions ls|revoke [--all|<id hex>]` membaca/mencabut baris `web_sessions` langsung (revoke berlaku ≤1 s). `serve` tanpa `--web` tetap headless loopback. Tes: `TestWebControlLink`, `TestRemoteLinkOneTime`, `TestWebStateRoundTrip`, `TestServeSessionsRevoke`, `TestF8CLI069Serve`, `TestF8UI016Headless`; parity + ledger `CLI-069`, `UI-016` menjadi `LULUS`.
