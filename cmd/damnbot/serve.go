@@ -174,15 +174,37 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	hs := &http.Server{Handler: eps, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: time.Minute}
 	errs := obs.Serve(hs, ln)
 	announceServe(stdout, stderr, dataDir, ln)
-	var webStop func(context.Context) error
-	if o.web {
-		started, werr := startServeWeb(ctx, &cfg, o, dataDir, db, stdout, stderr)
-		if werr != nil {
-			return serveExitFatal, werr
-		}
-		webStop = started
+	webStop, werr := startWebSurface(ctx, &cfg, o, dataDir, loader, db, stdout, stderr)
+	if werr != nil {
+		return serveExitFatal, werr
 	}
 	return serveLoop(ctx, sigCtx, o, eps, hs, errs, db, lock, daemon, gw, cr, gwErr, webStop, stderr)
+}
+
+// startWebSurface starts the optional `--web` listener (nil when the flag is
+// off) and resolves the config file its settings writer edits.
+func startWebSurface(ctx context.Context, cfg *config.Config, o *serveOptions, dataDir string, loader *config.Loader, db *ctxdb.Store, stdout, stderr io.Writer) (func(context.Context) error, error) {
+	if !o.web {
+		return nil, nil
+	}
+	configFile, err := serveConfigFile(loader, o.configPath)
+	if err != nil {
+		return nil, err
+	}
+	return startServeWeb(ctx, cfg, o, dataDir, configFile, db, stdout, stderr)
+}
+
+// serveConfigFile is the path the settings writer edits: the explicit
+// --config wins, otherwise the active profile's config.toml.
+func serveConfigFile(loader *config.Loader, explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	paths, err := loader.Paths(activeProfile())
+	if err != nil {
+		return "", fmt.Errorf("config paths: %w", err)
+	}
+	return paths.ConfigFile(), nil
 }
 
 // stopWeb stops the optional `--web` listener; nil is a no-op.

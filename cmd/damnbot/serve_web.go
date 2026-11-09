@@ -9,7 +9,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
@@ -26,7 +31,7 @@ func registerWebFlag(fs *flag.FlagSet, web *bool) {
 }
 
 // startServeWeb opens the `[web]` listener and returns its stop function.
-func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dataDir string, db *ctxdb.Store, stdout, stderr io.Writer) (func(context.Context) error, error) {
+func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dataDir, configFile string, db *ctxdb.Store, stdout, stderr io.Writer) (func(context.Context) error, error) {
 	if cerr := webListenConflict(cfg.Web.Listen, o); cerr != nil {
 		return nil, cerr
 	}
@@ -44,6 +49,11 @@ func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dat
 	if cfg.Web.Auth == config.WebAuthBasic {
 		wc.Basic = keychainBasic{user: cfg.Web.BasicUser, secret: cfg.Web.BasicPasswordSecret}
 	}
+	settings, serr := newWebSettings(configFile)
+	if serr != nil {
+		return nil, serr
+	}
+	wc.Settings = settings
 	secret, serr := newControlSecret()
 	if serr != nil {
 		return nil, serr
@@ -204,4 +214,78 @@ func sameListenAddr(a, b string) bool {
 // wildcardHost is an all-interfaces bind.
 func wildcardHost(host string) bool {
 	return host == "" || host == "0.0.0.0" || host == "::"
+}
+
+// webSettings previews and applies `[ui]` changes through the same atomic
+// config writer as the CLI (comments preserved, validation before rename).
+type webSettings struct {
+	loader *config.Loader
+	path   string
+}
+
+// newWebSettings builds the writer for the running profile's config file.
+func newWebSettings(path string) (*webSettings, error) {
+	loader, err := config.New(config.OS())
+	if err != nil {
+		return nil, fmt.Errorf("config deps: %w", err)
+	}
+	return &webSettings{loader: loader, path: path}, nil
+}
+
+// Preview validates the patch and returns a two-line diff.
+func (w *webSettings) Preview(_ context.Context, patch web.SettingsPatch) (string, error) {
+	_, diff, err := w.render(patch)
+	return diff, err
+}
+
+// Apply writes the validated patch atomically.
+func (w *webSettings) Apply(_ context.Context, patch web.SettingsPatch) error {
+	updated, _, err := w.render(patch)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(w.path), ".config.toml.web-*")
+	if err != nil {
+		return fmt.Errorf("temp config: %w", err)
+	}
+	name := tmp.Name()
+	if _, werr := tmp.Write(updated); werr != nil {
+		if cerr := tmp.Close(); cerr != nil {
+			return fmt.Errorf("write temp config: %w (close: %w)", werr, cerr)
+		}
+		return fmt.Errorf("write temp config: %w", werr)
+	}
+	if cerr := tmp.Close(); cerr != nil {
+		return fmt.Errorf("close temp config: %w", cerr)
+	}
+	return commitConfig(name, w.path)
+}
+
+// render applies the patch in memory and validates the result.
+func (w *webSettings) render(patch web.SettingsPatch) ([]byte, string, error) {
+	raw, err := os.ReadFile(w.path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, "", fmt.Errorf("read config: %w", err)
+	}
+	updated := upsertSection(raw, "[ui]", [][2]string{{"language", strconv.Quote(patch.Language)}})
+	if _, perr := w.loader.Parse(updated, w.path); perr != nil {
+		return nil, "", fmt.Errorf("validate config: %w", perr)
+	}
+	return updated, settingsDiff(raw, updated), nil
+}
+
+// settingsDiff renders the changed `language` lines as a minimal diff.
+func settingsDiff(oldData, newData []byte) string {
+	oldLine, newLine := `language = ""`, `language = ""`
+	for line := range strings.SplitSeq(string(oldData), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "language") {
+			oldLine = strings.TrimSpace(line)
+		}
+	}
+	for line := range strings.SplitSeq(string(newData), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "language") {
+			newLine = strings.TrimSpace(line)
+		}
+	}
+	return "- " + oldLine + "\n+ " + newLine + "\n"
 }

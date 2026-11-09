@@ -4,6 +4,9 @@ package main
 
 import (
 	"context"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -147,5 +150,37 @@ func TestWebMinimalRefusal(t *testing.T) {
 	t.Parallel()
 	if !webAvailable() {
 		t.Fatal("full build reports the web UI as unavailable")
+	}
+}
+
+// TestWebSettingsWritesConfig: the writer preserves comments, validates the
+// locale and renames atomically.
+func TestWebSettingsWritesConfig(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	if werr := os.WriteFile(path, []byte("[ui]\nlanguage = \"auto\"\n# keep me\n"), 0o600); werr != nil {
+		t.Fatal(werr)
+	}
+	w, err := newWebSettings(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff, err := w.Preview(context.Background(), web.SettingsPatch{Language: "id"})
+	if err != nil || !strings.Contains(diff, "language = \"id\"") {
+		t.Fatalf("preview diff = %q err %v", diff, err)
+	}
+	if err := w.Apply(context.Background(), web.SettingsPatch{Language: "id"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, rerr := fs.ReadFile(os.DirFS(filepath.Dir(path)), filepath.Base(path))
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !strings.Contains(string(raw), "language = \"id\"") || !strings.Contains(string(raw), "# keep me") {
+		t.Fatalf("config = %s", raw)
+	}
+	if err := w.Apply(context.Background(), web.SettingsPatch{Language: "xx"}); err == nil {
+		t.Fatal("unknown locale accepted")
 	}
 }

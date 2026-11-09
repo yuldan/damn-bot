@@ -26,6 +26,6 @@ func registerWebFlag(fs *flag.FlagSet, web *bool) {
 }
 
 // startServeWeb refuses in the minimal build (SIZE P13).
-func startServeWeb(_ context.Context, _ *config.Config, _ *serveOptions, _ string, _ *ctxdb.Store, _, _ io.Writer) (func(context.Context) error, error) {
+func startServeWeb(_ context.Context, _ *config.Config, _ *serveOptions, _, _ string, _ *ctxdb.Store, _, _ io.Writer) (func(context.Context) error, error) {
 	return nil, errWebMinimal
 }

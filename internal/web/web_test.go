@@ -665,3 +665,95 @@ func TestRemoteLinkOneTime(t *testing.T) {
 		t.Fatalf("remote link replay = %d", replay.status)
 	}
 }
+
+// fakeSettings records previews and applies for the settings API tests.
+type fakeSettings struct {
+	applied []SettingsPatch
+}
+
+func (f *fakeSettings) Preview(_ context.Context, p SettingsPatch) (string, error) {
+	return "- language = \"auto\"\n+ " + p.String() + "\n", nil
+}
+
+func (f *fakeSettings) Apply(_ context.Context, p SettingsPatch) error {
+	f.applied = append(f.applied, p)
+	return nil
+}
+
+// TestWebSettingsPreviewApply: preview mints a token, apply consumes it once
+// and updates the rendered language; the CSRF token is required.
+func TestWebSettingsPreviewApply(t *testing.T) {
+	t.Parallel()
+	writer := &fakeSettings{}
+	srv, ts := newTestServer(t, func(c *Config) {
+		c.Settings = writer
+		c.Locales = []string{"en", "id"}
+	})
+	session, csrf := signIn(t, srv, ts)
+	if bad := settingsPost(t, ts, session, csrf, "/api/settings/preview", `{"language":"xx"}`); bad != http.StatusBadRequest {
+		t.Fatalf("unknown language = %d", bad)
+	}
+	token, diff := settingsPreview(t, ts, session, csrf, "id")
+	if !strings.Contains(diff, "language") {
+		t.Fatalf("diff = %q", diff)
+	}
+	applied := settingsPost(t, ts, session, csrf, "/api/settings/apply", `{"token":"`+token+`"}`)
+	if applied != http.StatusNoContent || len(writer.applied) != 1 || writer.applied[0].Language != "id" {
+		t.Fatalf("apply = %d applied %+v", applied, writer.applied)
+	}
+	if replay := settingsPost(t, ts, session, csrf, "/api/settings/apply", `{"token":"`+token+`"}`); replay != http.StatusConflict {
+		t.Fatalf("token replay = %d", replay)
+	}
+	page := get(t, ts, "/settings", session)
+	if !strings.Contains(page.body, `id="language-select"`) || !strings.Contains(page.body, "Preview change") {
+		t.Fatalf("settings form missing")
+	}
+}
+
+// settingsPost sends one CSRF-signed settings request and returns the status.
+func settingsPost(t *testing.T, ts *httptest.Server, session, csrf *http.Cookie, path, body string) int {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(session)
+	req.AddCookie(csrf)
+	req.Header.Set(csrfHeader, csrf.Value)
+	req.Header.Set("Content-Type", "application/json")
+	resp, derr := ts.Client().Do(req)
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	if cerr := resp.Body.Close(); cerr != nil {
+		t.Errorf("close: %v", cerr)
+	}
+	return resp.StatusCode
+}
+
+// settingsPreview returns the confirm token and diff of one preview.
+func settingsPreview(t *testing.T, ts *httptest.Server, session, csrf *http.Cookie, language string) (string, string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/api/settings/preview",
+		strings.NewReader(`{"language":"`+language+`"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(session)
+	req.AddCookie(csrf)
+	req.Header.Set(csrfHeader, csrf.Value)
+	req.Header.Set("Content-Type", "application/json")
+	resp, derr := ts.Client().Do(req)
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	var body struct{ Token, Diff string }
+	derr = json.NewDecoder(resp.Body).Decode(&body)
+	if cerr := resp.Body.Close(); cerr != nil {
+		t.Errorf("close: %v", cerr)
+	}
+	if resp.StatusCode != http.StatusOK || derr != nil || body.Token == "" {
+		t.Fatalf("preview = %d %+v err %v", resp.StatusCode, body, derr)
+	}
+	return body.Token, body.Diff
+}
