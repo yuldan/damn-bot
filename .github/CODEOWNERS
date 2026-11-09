@@ -66,6 +66,7 @@
 /internal/obs/ @yuldan
 /internal/scorecard/ @yuldan
 /internal/batch/ @yuldan
+/internal/evals/ @yuldan
 /internal/gwapi/ @yuldan
 /internal/gwmatrix/ @yuldan
 /internal/auto/ @yuldan
