@@ -148,8 +148,15 @@ type Settings struct {
 	// Workspace and SessionID select the provider-side namespace.
 	Workspace string
 	SessionID string
+	// PeerID is the Honcho peer that authors stored messages.
+	PeerID string
 	// Rewriter is optional (MEM-009).
 	Rewriter Rewriter
+	// Retries bounds idempotent recall retries (0..MaxRetries). The attempts
+	// share the framework's 1.5 s deadline.
+	Retries int
+	// Sleep is the retry backoff seam; nil uses a context-aware timer.
+	Sleep func(context.Context, time.Duration) error
 	// KnownSecrets are redacted from every error text.
 	KnownSecrets []string
 	// MaxTokens, MaxUploadBytes and QueryLimit may lower the framework caps.
