@@ -32,14 +32,14 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 |---|---|---|---|---|---|
 | CLI-012 | `damnbot proxy` | tiga sub `start`, `status`, `providers`; proxy OpenAI-compatible ke provider OAuth; 0 token di output/log | `TestF8CLI012Proxy`, `TestF8CLI012ProxySubcommands` | BELUM | surface UI-022 |
 | CLI-030 | `damnbot project` | 11 sub (create, list, show, add-folder, remove-folder, rename, set-primary, use, archive, restore, bind-board); workspace multi-folder; path di luar workspace ditolak | `TestF8CLI030Project`, `TestF8CLI030ProjectSubcommands` | BELUM | OPS-038 |
-| CLI-036 | `damnbot dump` | ringkasan setup untuk dukungan; redaksi §14.3 + PII; 0 secret mentah | `TestF8CLI036Dump` | BELUM | OPS-010 |
-| CLI-037 | `damnbot debug` | dua sub `share`, `delete`; upload hanya opt-in dan terenkripsi; 0 host pastebin | `TestF8CLI037Debug` | BELUM | GAP-SEC-17 |
+| CLI-036 | `damnbot dump` | ringkasan setup untuk dukungan; redaksi §14.3 + PII; 0 secret mentah | `TestF8CLI036Dump` | LULUS | OPS-010 |
+| CLI-037 | `damnbot debug` | dua sub `share`, `delete`; upload hanya opt-in dan terenkripsi; 0 host pastebin | `TestF8CLI037Debug` | LULUS | GAP-SEC-17 |
 | CLI-049 | `damnbot curator` | 17 sub (status, usage, run, pause, resume, pin, unpin, list-unmanaged, adopt, restore, list-archived, archive, prune, backup, rollback, ledger, purge); mutasi idempoten | `TestF8CLI049Curator`, `TestF8CLI049CuratorSubcommands` | BELUM | SKILL-021 |
 | CLI-050 | `damnbot pets` | 8 sub (list, install, select, show, off, scale, remove, doctor); fetch petdex opt-in fake server; 0 aset eksternal runtime | `TestF8CLI050Pets` | BELUM | UI-010 |
 | CLI-051 | `damnbot journey` | alias `learning`, `memory-graph`; tiga sub list/delete/edit; timeline kronologis tanpa duplikat | `TestF8CLI051Journey` | BELUM | MEM-035 |
 | CLI-052 | `damnbot memory` | empat sub setup/status/off/reset; provider tunggal aktif; config hanya referensi secret | `TestF8CLI052Memory` | BELUM | MEM-005/008 |
 | CLI-056 | `damnbot connectors` | lima sub list/accounts/connect/rename/disconnect; akun hosted; 0 token di output | `TestF8CLI056Connectors` | BELUM | PLUG-035 |
-| CLI-058 | `damnbot insights` | analitik pemakaian dari ledger; filter periode; 0 secret | `TestF8CLI058Insights` | BELUM | OPS-016 |
+| CLI-058 | `damnbot insights` | analitik pemakaian dari ledger; filter periode; 0 secret | `TestF8CLI058Insights` | LULUS | OPS-016 |
 | CLI-060 | `damnbot monitoring` | satu sub `status`; health gateway + ekspor diagnostik ter-redaksi | `TestF8CLI060Monitoring` | BELUM | OPS-018 |
 | CLI-068 | `damnbot dashboard` | satu sub `register`; menyajikan aset embedded; 0 URL eksternal | `TestF8CLI068Dashboard` | LULUS | UI-014/GAP-UX-08 |
 | CLI-069 | `damnbot serve` | backend headless untuk desktop/remote; bind loopback default; auth wajib | `TestF8CLI069Serve` | LULUS | UI-016 |

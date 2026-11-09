@@ -3,6 +3,7 @@
 Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unreleased` wajib berubah bila PR menyentuh `.go` non-test di `cmd/` atau `internal/` (ENGINEERING E-81, job `pr-meta`). Setiap entri versi `## [x.y.z] - YYYY-MM-DD` wajib memuat `### Breaking`, `### Migrations` (nomor migrasi DB §11.1, atau `none`), dan `### Security` (atau `none`); `TestChangelogPerTag` dan job rilis gagal bila bagian itu hilang atau migrasi baru tidak disebut (GAP-INF-04).
 
 ## Unreleased
+- `cmd/damnbot` (F8 CLI-036/037/058, ADR-330): `dump` (redaksi §14.3+PII), `debug share|delete` (artefak XChaCha20 lokal, 0 host pastebin), dan `insights` (`--days/--since`, agregat ledger, 0 secret) di balik `!minimal`; tes `TestF8CLI036Dump`, `TestF8CLI037Debug`, `TestF8CLI058Insights`; baris parity+ledger menjadi `LULUS`. Tanpa dependency atau kenaikan pagu.
 
 - `internal/web`/`internal/archtest` (F8, GAP-SEC-06, ADR-326/ADR-330): **CSP + 0 sink HTML dibuktikan**. `TestWebCSPHeaders` memeriksa header GAP-SEC-06 exact (nonce baru tiap respons) pada dashboard, settings, login, healthz, aset, dan 404; `TestF8CSPNoSink` memindai seluruh aset JS (0 innerHTML/document.write/eval/new Function) dan paket web (0 `template.HTML`/`template.JS`/`template.URL`/`text/template`). Baris ledger `GAP-SEC-06` menjadi `LULUS`.
 
