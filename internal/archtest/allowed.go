@@ -101,13 +101,14 @@ func allowedImports() map[string][]string {
 		"internal/doctor":            {"internal/ctxdb", "internal/gateway"},
 		"internal/compaction":        {"internal/loop/event", "internal/budget"},
 		"internal/memory":            {"internal/redact"},
-		"internal/skills":            {"internal/schema"},
-		"internal/journal":           {"internal/loop/event", "internal/sandbox"},
-		"internal/budget":            nil,
-		"internal/heal":              {"internal/ctxdb", "internal/config"},
-		"internal/importer":          {"internal/ctxdb", "internal/ctxdb/importstore", "internal/memory", "internal/skills", "internal/config"},
-		"internal/codetools":         {"internal/sandbox", "internal/boundary"},
-		"internal/exec":              {"internal/exec/classify", "internal/sandbox", "internal/redact", "internal/boundary"},
+		"internal/skills":            {"internal/schema"}, "internal/skills/catalog": nil,
+
+		"internal/journal":   {"internal/loop/event", "internal/sandbox"},
+		"internal/budget":    nil,
+		"internal/heal":      {"internal/ctxdb", "internal/config"},
+		"internal/importer":  {"internal/ctxdb", "internal/ctxdb/importstore", "internal/memory", "internal/skills", "internal/config"},
+		"internal/codetools": {"internal/sandbox", "internal/boundary"},
+		"internal/exec":      {"internal/exec/classify", "internal/sandbox", "internal/redact", "internal/boundary"},
 		// F5 backends (ADR-277): transport over the exec contract, plus the Exec egress point.
 		"internal/exec/backends": {"internal/exec", "internal/netx"},
 		// F5 execute_code contract (ADR-296): interpreter runner over exec.Backend.

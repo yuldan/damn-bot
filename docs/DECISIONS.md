@@ -6606,6 +6606,8 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Konsekuensi.** (+) Satu sumber kebenaran config dan satu pembaca; bind publik tidak mungkin tanpa dua opt-in (`allow_remote` + TLS) dan tanpa allowlist `Host`. (+) `internal/web` tinggal memakai `config.Web` tanpa membaca env langsung. (−) Section 11 kunci menambah 216 baris core sehingga headroom core tinggal 91: kunci config berikutnya butuh ADR dengan angka terukur. (−) Kredensial basic/OIDC harus dibuat pengguna sebelum mode itu aktif (fail-closed, bukan autodetect). Tidak ada dependency baru, migrasi, `//nolint`, atau baris ledger/parity yang di-flip di PR ini.
 
 **Amandemen (F8 slice 2a, PR #814).** Baris `MODULE web 5000 internal/web` dibukukan di `loc.budget` saat paketnya lahir (terukur 230 pada head slice 2a); pagu `maxModuleLOC` 132.000, `maxF8ModuleLOC` 21.800 dan `wantCaps` `web` 5.000 sudah disediakan ADR-330, jadi tidak ada kenaikan pagu dan Σ core tidak berubah.
+
+**Amandemen (F8 skills hub, PR #824).** Baris `MODULE skillhub 2500` dibukukan di `loc.budget` untuk `internal/skills/catalog` dan `internal/skills/hub` (terukur 282 pada head katalog). Pagu `maxModuleLOC` 132.000, `maxF8ModuleLOC` 21.800, dan `wantCaps` `skillhub` 2.500 sudah disediakan ADR-330; tidak ada kenaikan pagu dan Σ core tidak berubah.
 ## ADR-332 — Modul `connectors` F8: registry tertutup, egress per konektor, dan gating default-off
 
 **Status:** Accepted 2026-11-08 (F8; melanjutkan ADR-330). Dipakai oleh seluruh slice `internal/connectors`.
