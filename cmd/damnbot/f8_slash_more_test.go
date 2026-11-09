@@ -12,6 +12,15 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway"
 )
 
+func tokenFromReply(reply string) string {
+	for f := range strings.FieldsSeq(reply) {
+		if after, ok := strings.CutPrefix(f, "token="); ok {
+			return after
+		}
+	}
+	return ""
+}
+
 func TestF8SLASH027Journey(t *testing.T) {
 	data := t.TempDir()
 	seedJourney(t, data)
@@ -59,5 +68,60 @@ func TestF8SLASH072Pet(t *testing.T) {
 	}
 	if got := cmds.Dispatch(ctx, owner, "/pet off"); !strings.Contains(got.Reply, "off") {
 		t.Fatalf("off = %q", got.Reply)
+	}
+}
+
+func TestF8SLASH073Hatch(t *testing.T) {
+	data := t.TempDir()
+	cmds := f8Commands(t, data)
+	owner := f8Ticket(gateway.RoleOwner)
+	ctx := context.Background()
+	got := cmds.Dispatch(ctx, owner, "/generate-pet a small robot")
+	if !got.Handled || !strings.Contains(got.Reply, "hatched pet-") {
+		t.Fatalf("hatch = %+v", got)
+	}
+	name := strings.Fields(got.Reply)[1]
+	if got = cmds.Dispatch(ctx, owner, "/hatch a small robot"); !strings.Contains(got.Reply, name) {
+		t.Fatalf("idempotent hatch = %q", got.Reply)
+	}
+	if got = cmds.Dispatch(ctx, owner, "/hatch --remote cat"); !strings.Contains(got.Reply, "module_unavailable") {
+		t.Fatalf("remote hatch = %q", got.Reply)
+	}
+	if got = cmds.Dispatch(ctx, f8Ticket(gateway.RoleUser), "/hatch dog"); !strings.Contains(got.Reply, "owner-only") {
+		t.Fatalf("user hatch = %q", got.Reply)
+	}
+	if _, err := os.Stat(f8StorePath(data, "pets.json")); err != nil {
+		t.Fatalf("hatch did not persist: %v", err)
+	}
+}
+
+func TestF8SLASH102Debug(t *testing.T) {
+	data := t.TempDir()
+	cmds := f8Commands(t, data)
+	owner := f8Ticket(gateway.RoleOwner)
+	ctx := context.Background()
+	if got := cmds.Dispatch(ctx, f8Ticket(gateway.RoleUser), "/debug share"); !strings.Contains(got.Reply, "owner-only") {
+		t.Fatalf("user share = %q", got.Reply)
+	}
+	got := cmds.Dispatch(ctx, owner, "/debug share")
+	if !got.Handled || !strings.Contains(got.Reply, "debug shared") {
+		t.Fatalf("share = %+v", got)
+	}
+	token := tokenFromReply(got.Reply)
+	if token == "" {
+		t.Fatalf("no token: %q", got.Reply)
+	}
+	path := strings.Fields(got.Reply)[2]
+	if b, err := os.ReadFile(path); err != nil || !strings.Contains(string(b), "damnbot ") { // #nosec G304 -- fixture path
+		t.Fatalf("artifact = %q, %v", b, err)
+	}
+	if got = cmds.Dispatch(ctx, owner, "/debug delete "+token); !strings.Contains(got.Reply, "debug deleted") {
+		t.Fatalf("delete = %q", got.Reply)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("artifact survived: %v", err)
+	}
+	if got = cmds.Dispatch(ctx, owner, "/debug delete "+token); !strings.Contains(got.Reply, "already used") {
+		t.Fatalf("second delete = %q", got.Reply)
 	}
 }

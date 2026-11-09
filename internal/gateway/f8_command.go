@@ -33,4 +33,14 @@ func addF8Specs(m map[string]commandSpec) {
 	m["learning"] = commandSpec{run: (*Commands).f8Command}
 	m["memory-graph"] = commandSpec{run: (*Commands).f8Command}
 	m["pet"] = commandSpec{run: (*Commands).f8Command}
+	m["subgoal"] = commandSpec{run: (*Commands).f8Command}
+	m["heartbeat"] = commandSpec{run: (*Commands).f8Command}
+	m["hb"] = commandSpec{run: (*Commands).f8Command}
+	m["loop"] = commandSpec{run: (*Commands).f8Command}
+	m["proactive"] = commandSpec{run: (*Commands).f8Command}
+	m["personality"] = commandSpec{run: (*Commands).f8Command}
+	m["insights"] = commandSpec{run: (*Commands).f8Command}
+	m["hatch"] = commandSpec{run: (*Commands).f8Command}
+	m["generate-pet"] = commandSpec{run: (*Commands).f8Command}
+	m["debug"] = commandSpec{run: (*Commands).f8Command}
 }
