@@ -36,7 +36,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 .PHONY: all build build-minimal-all build-matrix lint vet-custom test test-windows-evidence test-timing archtest vet-cross size-check loc loc-ratio chaos \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
-	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker release ci-required ci-required-test
+	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker release ci-required ci-required-test deadcode-linux
 
 all: check
 
@@ -154,6 +154,12 @@ coverage:
 deadcode:
 	go build -modfile=tools/go.mod -o $(BIN)/deadcode golang.org/x/tools/cmd/deadcode
 	TAGS="$(TAGSCSV)" PKGS="$(PKGS)" DEADCODE=$(BIN)/deadcode scripts/deadcode.sh
+
+# ADR-324 amandemen: gate E-53 murah untuk SETIAP tier yang mengubah kode (termasuk PR), hanya
+# GOOS linux; gate 3-GOOS penuh tetap target `deadcode` di tier `full`.
+deadcode-linux:
+	go build -modfile=tools/go.mod -o $(BIN)/deadcode golang.org/x/tools/cmd/deadcode
+	DEADCODE_GOOS=linux TAGS="$(TAGSCSV)" PKGS="$(PKGS)" DEADCODE=$(BIN)/deadcode scripts/deadcode.sh
 
 # ADR-073: deteksi flake nightly, -count=20 (tanpa -race: 20× suite -race melebihi budget menit CI,
 # ADR-094; race tetap di `make test` setiap PR).

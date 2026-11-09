@@ -3,6 +3,8 @@
 # digabung: fungsi mati = tidak terjangkau di SETIAP GOOS yang meng-compile file-nya (fungsi di file
 # khusus OS cukup mati di OS itu; fungsi lintas OS yang dipakai satu OS saja tetap hidup).
 # Pemakaian: DEADCODE=<bin> PKGS=./... scripts/deadcode.sh  (Makefile membangun DEADCODE native).
+# ADR-324 amandemen: DEADCODE_GOOS (atau GOOS yang di-set pemanggil, mis. `GOOS=linux make deadcode`)
+# mempersempit daftar GOOS untuk gate murah; tanpa keduanya perilaku tetap tiga GOOS.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -13,7 +15,17 @@ PKGS=${PKGS:-./...}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-oses=(linux darwin windows)
+if [[ -n ${DEADCODE_GOOS:-} ]]; then
+	read -r -a oses <<<"$DEADCODE_GOOS"
+elif [[ -n ${GOOS:-} ]]; then
+	read -r -a oses <<<"$GOOS"
+else
+	oses=(linux darwin windows)
+fi
+if ((${#oses[@]} == 0)); then
+	echo "deadcode: DEADCODE_GOOS/GOOS kosong" >&2
+	exit 2
+fi
 for os in "${oses[@]}"; do
 	# Laporan: "<file>:<baris>:<kolom>: unreachable func: <nama>" → kunci "<file>:<baris>: <nama>".
 	# shellcheck disable=SC2086 # PKGS boleh berisi beberapa pola

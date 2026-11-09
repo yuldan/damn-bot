@@ -8,8 +8,8 @@
 # `changes` kosong = gagal. Pemakaian: NEEDS=<json> TIER=<pr|smoke|full> CODE=<true|false>.
 set -uo pipefail
 
-JOBS=(changes lint test test-timing static deadcode portability fuzz phase perf coverage e2e bench
-	bench-parity supply skill-refs sqlite-engine smoke)
+JOBS=(changes lint test test-timing static deadcode deadcode-linux portability fuzz phase perf coverage e2e
+	bench bench-parity supply skill-refs sqlite-engine smoke)
 
 check() { # <needs-json> <tier> <code>
 	local needs=$1 tier=$2 code=$3
@@ -32,12 +32,14 @@ check() { # <needs-json> <tier> <code>
 	local common="lint test static phase e2e bench supply skill-refs sqlite-engine"
 	local deep="test-timing deadcode portability fuzz perf coverage bench-parity"
 	local smoke_set="lint static smoke"
+	# ADR-324 amandemen: `deadcode-linux` berjalan di SETIAP tier saat `code=true`.
+	local linux_dead="deadcode-linux"
 	local expected=""
 	if [ "$code" = true ]; then
 		case $tier in
-		pr) expected=$common ;;
-		smoke) expected=$smoke_set ;;
-		full) expected="$common $deep" ;;
+		pr) expected="$common $linux_dead" ;;
+		smoke) expected="$smoke_set $linux_dead" ;;
+		full) expected="$common $deep $linux_dead" ;;
 		esac
 	fi
 
@@ -62,7 +64,7 @@ check() { # <needs-json> <tier> <code>
 fixture() {
 	jq -cn --argjson ok "$1" '
 		{changes: {result: "success"}}
-		+ (["lint", "test", "test-timing", "static", "deadcode", "portability", "fuzz", "phase",
+		+ (["lint", "test", "test-timing", "static", "deadcode", "deadcode-linux", "portability", "fuzz", "phase",
 			"perf", "coverage", "e2e", "bench", "bench-parity", "supply", "skill-refs",
 			"sqlite-engine", "smoke"] | map({key: ., value: {result: "skipped"}}) | from_entries)
 		+ ($ok | with_entries(.value = {result: .value}))'
@@ -85,21 +87,25 @@ self_test() {
 	}
 
 	local pr_common deep
-	pr_common='{"lint":"success","test":"success","static":"success","phase":"success","e2e":"success","bench":"success","supply":"success","skill-refs":"success","sqlite-engine":"success"}'
+	pr_common='{"lint":"success","test":"success","static":"success","phase":"success","e2e":"success","bench":"success","supply":"success","skill-refs":"success","sqlite-engine":"success","deadcode-linux":"success"}'
 	deep=$(printf '%s' "$pr_common" | jq -c '. + {"test-timing":"success","deadcode":"success","portability":"success","fuzz":"success","perf":"success","coverage":"success","bench-parity":"success"}')
 
 	run_case "pr hijau" pr true 0 "$(fixture "$pr_common")"
+	# ADR-324 amandemen: deadcode linux wajib di SETIAP tier yang mengubah kode.
+	run_case "pr deadcode-linux skipped" pr true 1 "$(fixture "$(printf '%s' "$pr_common" | jq -c 'del(."deadcode-linux")')")"
 	# ADR-324 amandemen: matrix sqlite-engine mengecil di PR (3 leg) tetapi job/gate tetap wajib.
 	run_case "sqlite-engine pr-tier success" pr true 0 "$(fixture "$pr_common")"
 	run_case "sqlite-engine pr-tier skipped" pr true 1 "$(fixture "$(printf '%s' "$pr_common" | jq -c 'del(."sqlite-engine")')")"
 	run_case "pr gate berat ikut jalan (harus skipped)" pr true 1 "$(fixture "$deep")"
 	run_case "pr test skipped" pr true 1 "$(fixture "$(printf '%s' "$pr_common" | jq -c 'del(.test)')")"
 	run_case "pr fuzz failure" pr true 1 "$(fixture "$(printf '%s' "$pr_common" | jq -c '. + {"fuzz":"failure"}')")"
-	run_case "push main smoke hijau" smoke true 0 "$(fixture '{"lint":"success","static":"success","smoke":"success"}')"
-	run_case "push main smoke tanpa job smoke" smoke true 1 "$(fixture '{"lint":"success","static":"success"}')"
-	run_case "push main smoke dengan test jalan" smoke true 1 "$(fixture '{"lint":"success","static":"success","smoke":"success","test":"success"}')"
-	run_case "push main smoke dengan fuzz jalan" smoke true 1 "$(fixture '{"lint":"success","static":"success","smoke":"success","fuzz":"success"}')"
+	run_case "push main smoke hijau" smoke true 0 "$(fixture '{"lint":"success","static":"success","smoke":"success","deadcode-linux":"success"}')"
+	run_case "push main smoke tanpa job smoke" smoke true 1 "$(fixture '{"lint":"success","static":"success","deadcode-linux":"success"}')"
+	run_case "push main smoke tanpa deadcode-linux" smoke true 1 "$(fixture '{"lint":"success","static":"success","smoke":"success"}')"
+	run_case "push main smoke dengan test jalan" smoke true 1 "$(fixture '{"lint":"success","static":"success","smoke":"success","deadcode-linux":"success","test":"success"}')"
+	run_case "push main smoke dengan fuzz jalan" smoke true 1 "$(fixture '{"lint":"success","static":"success","smoke":"success","deadcode-linux":"success","fuzz":"success"}')"
 	run_case "merge_group full hijau" full true 0 "$(fixture "$deep")"
+	run_case "merge_group deadcode-linux skipped" full true 1 "$(fixture "$(printf '%s' "$deep" | jq -c 'del(."deadcode-linux")')")"
 	run_case "merge_group bench-parity skipped" full true 1 "$(fixture "$(printf '%s' "$deep" | jq -c 'del(."bench-parity")')")"
 	run_case "merge_group deadcode cancelled" full true 1 "$(fixture "$(printf '%s' "$deep" | jq -c '. + {"deadcode":"cancelled"}')")"
 	run_case "pr docs-only" pr false 0 "$(fixture '{}')"
