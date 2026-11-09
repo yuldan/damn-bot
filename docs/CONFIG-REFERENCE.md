@@ -217,6 +217,41 @@ config_version = 1
     timeout_s = 0
     max_retries = 0
     max_response_bytes = 0
+    [modules.connectors.graph]
+      enabled = false
+      tenant_id = ""
+      client_id = ""
+      client_secret_env = ""
+      refresh_token_env = ""
+      token_url = ""
+      base_url = ""
+    [modules.connectors.teams]
+      enabled = false
+      notification_url = ""
+    [modules.connectors.feishu]
+      enabled = false
+      app_id = ""
+      app_secret_env = ""
+      base_url = ""
+    [modules.connectors.meet]
+      enabled = false
+      node_url = ""
+      node_token_env = ""
+      consent_text = ""
+      ack_consent_responsibility_at = ""
+    [modules.connectors.x_search]
+      enabled = false
+      key_env = ""
+      base_url = ""
+      model = ""
+    [modules.connectors.discord]
+      enabled = false
+      bot_token_env = ""
+      base_url = ""
+      admin = false
+    [modules.connectors.osv]
+      enabled = false
+      base_url = ""
   [modules.auto]
     [modules.auto.review]
       enabled = false

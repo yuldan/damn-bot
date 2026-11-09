@@ -95,13 +95,13 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 | TSET-002 | toolset `desktop_ui` | 11 tool, default off, hanya surface desktop/web; 0 shell/write | `TestF8TSET002DesktopUI` | BELUM | TOOL-027..037,071,072 |
 | TSET-010 | toolset `connections` | 1 tool `manage_connections`, default off | `TestF8TSET010Connections` | BELUM | — |
 | TSET-011 | toolset `catalog` | 1 tool `manage_catalog`, default off | `TestF8TSET011Catalog` | BELUM | — |
-| TSET-014 | toolset `discord` | 1 tool, default off, hanya bila adapter Discord aktif | `TestF8TSET014Discord` | BELUM | PLAT-005 |
-| TSET-015 | toolset `discord_admin` | 1 tool, default off, scope admin eksplisit | `TestF8TSET015DiscordAdmin` | BELUM | — |
-| TSET-016 | toolset `feishu_doc` | 1 tool, default off | `TestF8TSET016FeishuDoc` | BELUM | — |
-| TSET-017 | toolset `feishu_drive` | 4 tool, default off; mutasi approval | `TestF8TSET017FeishuDrive` | BELUM | — |
+| TSET-014 | toolset `discord` | 1 tool, default off, hanya bila adapter Discord aktif | `TestF8TSET014Discord` | LULUS | PLAT-005 |
+| TSET-015 | toolset `discord_admin` | 1 tool, default off, scope admin eksplisit | `TestF8TSET015DiscordAdmin` | LULUS | — |
+| TSET-016 | toolset `feishu_doc` | 1 tool, default off | `TestF8TSET016FeishuDoc` | LULUS | — |
+| TSET-017 | toolset `feishu_drive` | 4 tool, default off; mutasi approval | `TestF8TSET017FeishuDrive` | LULUS | — |
 | TSET-022 | toolset `project` | 1 tool, default off, hanya surface desktop | `TestF8TSET022Project` | BELUM | — |
 | TSET-024 | toolset `onboarding` | 1 tool, default off, hanya first-run | `TestF8TSET024Onboarding` | BELUM | — |
-| TSET-031 | toolset `x_search` | 1 tool, default off; opt-in eksplisit | `TestF8TSET031XSearch` | BELUM | — |
+| TSET-031 | toolset `x_search` | 1 tool, default off; opt-in eksplisit | `TestF8TSET031XSearch` | LULUS | — |
 | MEM-005 | Plugin provider memori eksternal | satu provider aktif per `memory.provider`; provider asing → error; upload ≤ 1 MiB/item | `TestF8MEM005ExternalProvider`, `TestExternalMemoryUploadCap` | BELUM | GAP-PROV-05 |
 | MEM-008 | Memory provider Honcho | config & profil Honcho; token dari secret; 0 upload default | `TestF8MEM008Honcho` | BELUM | PLUG-022 |
 | MEM-009 | Memory query rewrite | rewrite query sebelum recall provider; hanya bila fitur aktif; prompt tetap Inggris | `TestF8MEM009QueryRewrite` | BELUM | — |

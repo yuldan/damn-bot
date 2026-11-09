@@ -1,6 +1,7 @@
 package toolset
 
 import (
+	"maps"
 	"slices"
 	"testing"
 )
@@ -61,4 +62,55 @@ func TestF8TSET017FeishuDrive(t *testing.T) {
 func TestF8TSET031XSearch(t *testing.T) {
 	t.Parallel()
 	f8Toolset(t, "x_search", []string{"x_search"})
+}
+
+// TestF8TSETConnectorsBundle proves the composite bundle: it declares no
+// implementation of its own, includes the five per-surface toolsets, adds the
+// six tools that have no separate toolset, and resolves to the complete
+// connector catalog only when it is explicitly active.
+func TestF8TSETConnectorsBundle(t *testing.T) {
+	t.Parallel()
+	def := builtinByName(t, "hermes-connectors")
+	wantIncludes := []string{"discord", "discord_admin", "feishu_doc", "feishu_drive", "x_search"}
+	if !slices.Equal(def.Includes, wantIncludes) {
+		t.Fatalf("includes = %v", def.Includes)
+	}
+	wantTools := []string{
+		"ms_graph_mail", "ms_graph_calendar", "ms_graph_files", "teams_pipeline",
+		"google_meet", "osv_check", "discord", "discord_admin", "feishu_doc_read",
+		"feishu_drive_list_comments", "feishu_drive_list_comment_replies",
+		"feishu_drive_reply_comment", "feishu_drive_add_comment", "x_search",
+	}
+	sorted := slices.Sorted(slices.Values(wantTools))
+	if len(sorted) != 14 {
+		t.Fatalf("bundle tools = %d", len(sorted))
+	}
+	sel, err := Resolve(Config{Active: []string{"hermes-connectors"}}, "linux", available(wantTools...))
+	if err != nil || !slices.Equal(sel.Tools, sorted) || len(sel.Unavailable) != 0 {
+		t.Fatalf("bundle resolved = %+v, %v", sel, err)
+	}
+	// The bundle is the only composition naming the six toolset-less tools.
+	for _, tool := range []string{"ms_graph_mail", "ms_graph_calendar", "ms_graph_files", "teams_pipeline", "google_meet", "osv_check"} {
+		if !slices.Contains(def.Tools, tool) {
+			t.Fatalf("bundle does not declare %s", tool)
+		}
+		for _, other := range Builtin() {
+			if other.Name == "hermes-connectors" {
+				continue
+			}
+			if slices.Contains(resolveOne(builtinMap(), other.Name), tool) {
+				t.Fatalf("%s pulls in %s", other.Name, tool)
+			}
+		}
+	}
+	// Default-off: an empty selection does not mention any connector tool,
+	// and the bundle itself is absent from every other definition's closure.
+	for name := range maps.Keys(builtinMap()) {
+		if name == "hermes-connectors" {
+			continue
+		}
+		if slices.Contains(resolveOne(builtinMap(), name), "google_meet") {
+			t.Fatalf("%s enables google_meet by default", name)
+		}
+	}
 }

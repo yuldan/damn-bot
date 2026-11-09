@@ -6661,3 +6661,14 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 - Amandemen (ADR-332, C6): `TOOL-040`..`TOOL-044` menjadi `LULUS` lewat lima tes Feishu bernama; lane `feishu`.
 - Amandemen (ADR-332, C7): `TOOL-088`, `PLUG-018`, dan `GAP-GW-12` menjadi `LULUS` lewat tes Meet/X bernama; lane `meet`, `xsearch`.
 - Amandemen (ADR-332, C8): `TOOL-038`/`TOOL-039` menjadi `LULUS` lewat tes Discord/admin bernama; lane `discord`, `osv`.
+- Amandemen (ADR-332, C9): sub-section `[modules.connectors]` (graph/teams/feishu/meet/x_search/discord/osv, kredensial hanya nama env) menambah `config` **2.819 → 2.869** (terukur scc **2.865** setelah trim #837; +46) dan Σ core **57.214 → 57.264** ≤ **57.300** (ADR-334); `MODULE connectors` terukur **2.452/6.000**. Paket `netx` terukur **1.899/1.900** (tujuh lane egress). Lane connector dan toolset/bundel connectors dipindah ke berkas `!minimal` dengan stub minimal tanpa import `internal/connectors`; binary minimal **22.069.410/22.100.000 B** (headroom 30.590 B; baseline main `243da9a03` 22.073.506 B, +0 byte atau lebih kecil).
+
+## ADR-335 — Config cap 2.819 → 2.869 untuk sub-section `[modules.connectors]` (F8 C9)
+
+**Status:** Accepted 2026-11-09 (F8 connectors C9).
+
+**Konteks.** ADR-332 menetapkan modul connectors dan ADR-333/ADR-334 menaikkan baris `config` ke 2.819 dan plafon core ke 57.300. Slice C9 menambahkan tujuh sub-section TOML (`graph`, `teams`, `feishu`, `meet`, `x_search`, `discord`, `osv`) dengan kredensial hanya sebagai nama env; kode terukur +50 baris sehingga `config` menjadi 2.869 dan pagu 2.819 terlampaui.
+
+**Keputusan.** `loc.budget` baris `config` **2.819 → 2.869** (terukur scc 2.869). Σ core menjadi **57.264**, tetap di bawah plafon **57.300** (ADR-334), sehingga `maxCoreLOC` tidak berubah. `docs/ENGINEERING.md` dan `docs/CONFIG-REFERENCE.md` disinkronkan.
+
+**Konsekuensi.** (+) Kunci config connector dapat divalidasi ketat oleh loader tanpa membebani plafon core. (−) Baris `config` kembali tanpa headroom; kenaikan kunci config berikutnya butuh ADR terukur.

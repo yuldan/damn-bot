@@ -375,12 +375,13 @@ heal              1500 internal/heal
 # auth/tls_cert/tls_key + referensi kredensial basic/OIDC) menambah config
 # 2498 -> 2714 (terukur scc; Sigma core 56.893 -> 57.109 <= 57.200).
 # ADR-332 (F8 connectors C1): section [modules.connectors] core (switch +
-# timeout/retry/byte limits) menambah config 2714 -> 2740 (terukur 2739;
-# Sigma core 57.109 -> 57.135 <= 57.200).
+# timeout/retry/byte limits) menambah config 2714 -> 2740 (terukur 2739).
 # ADR-333 (F8 AUTO): [modules.auto.<fitur>] 12 section default-off + validasi
 # menambah config +80 (terukur gabungan 2819; Sigma core 57.135 -> 57.214).
-# ADR-334 menaikkan plafon core 57.200 -> 57.300 (headroom 85).
-config            2819 internal/config
+# ADR-334 menaikkan plafon core 57.200 -> 57.300.
+# ADR-335 (F8 connectors C9): tujuh sub-section connectors menambah +50
+# (terukur 2869); Sigma core 57.214 -> 57.264 <= 57.300.
+config            2869 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
