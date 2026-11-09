@@ -1,8 +1,8 @@
 # F8-ACCEPTANCE — Ledger acceptance F8 (web UI, ekosistem, otomatisasi)
 
-Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `c659f6f48`. Dari 167 baris data, **70 `LULUS`** (68 parity + 2 GAP), **95 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
+Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `5fc79ec10`. Dari 167 baris data, **72 `LULUS`** (70 parity + 2 GAP), **93 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
 
-Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 68 `LULUS`, 80 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
+Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 70 `LULUS`, 78 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
 
 Aturan gate:
 
@@ -41,9 +41,9 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | CLI-056 | `damnbot connectors` | lima sub list/accounts/connect/rename/disconnect; akun hosted; 0 token di output | `TestF8CLI056Connectors` | BELUM | PLUG-035 |
 | CLI-058 | `damnbot insights` | analitik pemakaian dari ledger; filter periode; 0 secret | `TestF8CLI058Insights` | BELUM | OPS-016 |
 | CLI-060 | `damnbot monitoring` | satu sub `status`; health gateway + ekspor diagnostik ter-redaksi | `TestF8CLI060Monitoring` | BELUM | OPS-018 |
-| CLI-068 | `damnbot dashboard` | satu sub `register`; menyajikan aset embedded; 0 URL eksternal | `TestF8CLI068Dashboard` | BELUM | UI-014/GAP-UX-08 |
+| CLI-068 | `damnbot dashboard` | satu sub `register`; menyajikan aset embedded; 0 URL eksternal | `TestF8CLI068Dashboard` | LULUS | UI-014/GAP-UX-08 |
 | CLI-069 | `damnbot serve` | backend headless untuk desktop/remote; bind loopback default; auth wajib | `TestF8CLI069Serve` | BELUM | UI-016 |
-| CLI-070 | `damnbot desktop` | alias `gui`; membuka web UI; 0 dependency Node/Electron saat runtime | `TestF8CLI070Desktop` | BELUM | UI-017 diganti web UI |
+| CLI-070 | `damnbot desktop` | alias `gui`; membuka web UI; 0 dependency Node/Electron saat runtime | `TestF8CLI070Desktop` | LULUS | UI-017 diganti web UI |
 | SLASH-027 | `/journey` | alias `/learning`, `/memory-graph`; sub list/delete/edit; output ≤ batas renderer | `TestF8SLASH027Journey` | BELUM | CLI-051 |
 | SLASH-030 | `/goal` | teks wajib; goal aktif lintas turn; dinilai judge (AUTO-014) | `TestF8SLASH030Goal` | BELUM | — |
 | SLASH-031 | `/heartbeat` | alias `/hb`; sub status/pause/resume/clear; interval minimum dihormati | `TestF8SLASH031Heartbeat` | BELUM | AUTO-016 |
@@ -285,4 +285,4 @@ Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 
 - Baris agregat §1: **7**. Jumlah baris data ledger: **167** (148 parity + 17 GAP + 0 EC + 2 carryover); total baris ledger termasuk agregat: **174**.
 - Katalog SKCAT: **58 bundled + 153 optional = 211** skill; PLUG-009 = **645** entri.
 - Budget F8: **21.800 Go** (`maxF8ModuleLOC`) + **≈9.900 JS/CSS** (≤ 10.000, SPEC §3.2.4); `maxModuleLOC` **132.000**.
-- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada `c659f6f48`: 167 baris data dengan **70 `LULUS`** (68 parity + 2 GAP), **95 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.
+- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada `5fc79ec10`: 167 baris data dengan **72 `LULUS`** (70 parity + 2 GAP), **93 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.

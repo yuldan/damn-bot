@@ -51,6 +51,11 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool
 	if code, ok := tryStarlark(args, stdout, stderr); ok {
 		return code, true
 	}
+	if args[0] == "gui" {
+		// CLI-070 documents `gui` as the desktop alias; it is resolved here
+		// explicitly instead of being hidden in the surface registry.
+		args = append([]string{"desktop"}, args[1:]...)
+	}
 	if args[0] == "send" {
 		return runSend(args[1:], stdout, stderr), true
 	}
