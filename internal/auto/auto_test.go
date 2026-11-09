@@ -216,6 +216,9 @@ func TestAutoSchedulerCancel(t *testing.T) {
 	if err := sch.Every(Title, time.Minute, func(context.Context) error { runs++; return nil }); err != nil {
 		t.Fatalf("Every: %v", err)
 	}
+	if got := sch.Pending(); got != 1 {
+		t.Fatalf("Pending = %d, want 1", got)
+	}
 	if got := sch.Tick(context.Background()); len(got) != 0 {
 		t.Fatalf("tick before due ran %v", got)
 	}
@@ -230,6 +233,9 @@ func TestAutoSchedulerCancel(t *testing.T) {
 	runSch := NewScheduler(nil)
 	if err := runSch.Every(Title, time.Hour, func(context.Context) error { return nil }); err != nil {
 		t.Fatalf("Every run task: %v", err)
+	}
+	if got := runSch.Pending(); got != 1 {
+		t.Fatalf("Pending = %d, want 1", got)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
