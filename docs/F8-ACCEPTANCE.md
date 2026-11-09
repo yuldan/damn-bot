@@ -1,8 +1,8 @@
 # F8-ACCEPTANCE — Ledger acceptance F8 (web UI, ekosistem, otomatisasi)
 
-Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `9fc5ae49b`. Seluruh 148 baris parity F8, 17 GAP F8, dan 6 baris agregat §1 masih `BELUM`; dua carryover F7 memakai `N/A — … (carryover F9)`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; tidak ada status yang diubah oleh dokumen saja.
+Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `c659f6f48`. Dari 167 baris data, **70 `LULUS`** (68 parity + 2 GAP), **95 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
 
-Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; seluruhnya `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
+Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 68 `LULUS`, 80 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
 
 Aturan gate:
 
@@ -122,7 +122,7 @@ Kontrak: setiap entri hub membawa `tos_risk`/`tos_note` (GAP-GW-07), signature e
 | SKILL-015 | Sumber skills.sh | sumber skills.sh; rate-limit + retry berbatas | `TestF8SKILL015SkillsSh` | LULUS | — |
 | SKILL-017 | Optional skills sync | pasang dari `optional-skills/` sesuai permintaan; 153 skill opsional | `TestF8SKILL017OptionalSync` | LULUS | SKCAT-013..035 |
 | SKILL-020 | Skill usage tracking | statistik pemakaian skill (input curator); agregat tanpa isi prompt | `TestF8SKILL020UsageTracking` | LULUS | — |
-| SKILL-021 | Curator | pemeliharaan background stale/archive/consolidate; hanya saat idle ≥ 2 jam; budget | `TestF8SKILL021Curator`, `TestF8CuratorBudget` | BELUM | AUTO-003 |
+| SKILL-021 | Curator | pemeliharaan background stale/archive/consolidate; hanya saat idle ≥ 2 jam; budget | `TestF8SKILL021Curator`, `TestF8CuratorBudget` | LULUS | AUTO-003; bukti `internal/skills/hub/curator_test.go:20,43` (#828 @ b6c83b5b7) |
 ## 6. Ledger parity F8 — SKCAT (35)
 
 Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md valid; referensi `requires`/`skill://` dan path script ada (0 menggantung); threat scan §14.4; 0 nilai kosong di katalog i18n terkait. Baris SKCAT-001..035 dibuktikan katalog embedded `internal/skills/catalog` (211 entri, digest per baris, kategori tertutup) dan tes bernama per kategori; sinkron opsional/hub memakai entri yang sama.
@@ -169,18 +169,18 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| AUTO-001 | Background review | review turn di background → usul memori/skill; default off; 0 call jalur kritis | `TestF8AUTO001BackgroundReview` | BELUM | P11 |
+| AUTO-001 | Background review | review turn di background → usul memori/skill; default off; 0 call jalur kritis | `TestF8AUTO001BackgroundReview` | LULUS | P11; bukti `internal/auto/features_medium_test.go:21` (#821 @ 8e99ed7cf) |
 | AUTO-002 | Title generation | judul sesi otomatis; default off; biaya per fitur | `TestF8AUTO002TitleGeneration` | LULUS | wiring serve: label setelah turn pertama; provider `purpose=auto`; `config` default-off |
 | AUTO-003 | Curator scheduler | curator saat idle ≥ 2 jam; pause/resume; budget | `TestF8AUTO003CuratorScheduler` | BELUM | SKILL-021 |
-| AUTO-004 | Idle/hygiene compaction | compaction sesi gateway saat idle/panjang; tidak memotong turn | `TestF8AUTO004IdleCompaction` | BELUM | — |
-| AUTO-012 | Blueprints | template otomasi siap pakai; slot divalidasi; default off | `TestF8AUTO012Blueprints` | BELUM | SLASH-078 |
-| AUTO-013 | Suggestions | saran otomasi accept/dismiss; default off; rate-limited | `TestF8AUTO013Suggestions` | BELUM | SLASH-077 |
+| AUTO-004 | Idle/hygiene compaction | compaction sesi gateway saat idle/panjang; tidak memotong turn | `TestF8AUTO004IdleCompaction` | LULUS | bukti `internal/auto/features_test.go:103` (#820 @ 665b3aeba) |
+| AUTO-012 | Blueprints | template otomasi siap pakai; slot divalidasi; default off | `TestF8AUTO012Blueprints` | LULUS | SLASH-078; bukti `internal/auto/features_medium_test.go:100` (#821 @ 8e99ed7cf) |
+| AUTO-013 | Suggestions | saran otomasi accept/dismiss; default off; rate-limited | `TestF8AUTO013Suggestions` | LULUS | SLASH-077; bukti `internal/auto/features_test.go:76` (#820 @ 665b3aeba) |
 | AUTO-014 | Goals + goal judge | tujuan berdiri lintas turn; judge terpisah; budget per fitur | `TestF8AUTO014GoalsJudge` | BELUM | SLASH-030 |
-| AUTO-015 | Loops / proactive | ulangi prompt pada interval di sesi; `--times`/`--until`; batas | `TestF8AUTO015Loops` | BELUM | SLASH-034 |
-| AUTO-016 | Heartbeat | prompt berulang saat sesi idle; pause/resume/clear | `TestF8AUTO016Heartbeat` | BELUM | SLASH-031 |
-| AUTO-030 | Disk cleanup plugin | lacak & bersihkan file sementara sesi; dry-run default | `TestF8AUTO030DiskCleanup` | BELUM | PLUG-017 |
+| AUTO-015 | Loops / proactive | ulangi prompt pada interval di sesi; `--times`/`--until`; batas | `TestF8AUTO015Loops` | LULUS | SLASH-034; bukti `internal/auto/features_medium_test.go:157` (#821 @ 8e99ed7cf) |
+| AUTO-016 | Heartbeat | prompt berulang saat sesi idle; pause/resume/clear | `TestF8AUTO016Heartbeat` | LULUS | SLASH-031; bukti `internal/auto/features_medium_test.go:190` (#821 @ 8e99ed7cf) |
+| AUTO-030 | Disk cleanup plugin | lacak & bersihkan file sementara sesi; dry-run default | `TestF8AUTO030DiskCleanup` | LULUS | PLUG-017 tetap BELUM; bukti `internal/auto/features_test.go:125` (#820 @ 665b3aeba) |
 | AUTO-031 | Auto maintenance CLI | pemeliharaan otomatis saat start CLI; 0 mutasi tanpa config | `TestF8AUTO031AutoMaintenance` | BELUM | — |
-| AUTO-032 | Outbound webhooks | kirim event ke webhook keluar; signature + retry berbatas | `TestF8AUTO032OutboundWebhooks` | BELUM | GW-011 |
+| AUTO-032 | Outbound webhooks | kirim event ke webhook keluar; signature + retry berbatas | `TestF8AUTO032OutboundWebhooks` | LULUS | GW-011; bukti `internal/auto/features_medium_test.go:253` (#821 @ 8e99ed7cf) |
 | UI-010 | Pets (petdex) | maskot animasi terminal; generate pet; default off | `TestF8UI010Pets` | BELUM | CLI-050 |
 | UI-011 | Personalities | persona preset; opt-in; katalog tervalidasi | `TestF8UI011Personalities` | BELUM | SLASH-049 |
 | UI-014 | Web dashboard | dashboard web dilayani binary; aset embedded; auth wajib | `TestF8UI014WebDashboard` | LULUS | GAP-SEC-06/07 |
@@ -216,25 +216,25 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 
 ## 9. GAP F8 (17) — SPEC §22.1
 
-| GAP | Kriteria verifikasi | Tes yang harus ada | Status |
-|---|---|---|---|
-| GAP-SEC-06 | setiap respons HTML membawa CSP nonce tanpa `unsafe-inline`/`unsafe-eval`, nosniff, no-referrer, COOP/CORP, Permissions-Policy; output model/tool dirender DOM builder (0 sink HTML) | `TestWebCSPHeaders`, `TestF8CSPNoSink` | BELUM |
-| GAP-SEC-07 | URL nonce sekali pakai (lokal 60 s, remote 10 menit) → cookie `__Host-` HttpOnly/Secure/SameSite=Strict; token tidak pernah di HTML/JS/localStorage/query; tiket WS/SSE/download 30 s; socket unix 0600 | `TestF8WebNonceExchange`, `TestF8WebTicketOneTime` | BELUM |
-| GAP-SEC-08 | non-GET/HEAD wajib `Sec-Fetch-Site` same-origin/none atau Origin terkonfigurasi + CSRF double-submit; Host allowlist; DNS rebinding ditolak 421 | `TestWebCSRF` | BELUM |
-| GAP-SEC-09 | session server-side (`web_sessions`), idle 12 jam, absolut 7 hari; logout/ganti password/revoke ≤ 1 s; OIDC end_session | `TestWebSessionRevoke` | BELUM |
-| GAP-SEC-17 | `doctor bundle` zip lokal 0600 ter-redaksi; `--upload` X25519 ciphertext; 0 host pastebin; 0 canary mentah | `TestF8DoctorBundle`, `TestF8BundleNoSecret` | BELUM |
-| GAP-REL-07 | deadline jam monotonic; TTFB 25 s + 5 s/32K tok (maks 90 s), idle 60 s; status "menunggu provider" terlihat di web setelah 10 s; fake clock ±1 jam 0 kill palsu | `TestF8WebProviderStatus`, `TestF8MonotonicDeadlines` | BELUM |
-| GAP-REL-16 | cron `after = [...]` DAG (siklus ditolak, kedalaman ≤ 5); job B menerima `execution_id` run A yang sama; `after_timeout_s` → `upstream_missing` | `TestF8CronAfterDAG` | BELUM |
-| GAP-GW-07 | setiap entri skills-hub/MCP hub punya `tos_risk`/`tos_note`; `high` butuh ack diketik; entri jailbreak → `pending`; pola dotenv threat scan | `TestF8HubTOSRisk`, `TestThreatScanDotenv` | BELUM |
-| GAP-GW-12 | bot Google Meet mengirim pengumuman consent ≤ 10 s; teks tidak kosong; `consent_announcement=false` butuh ack; node audio non-TLS ditolak | `TestF8MeetConsent`, `TestF8MeetNodeTLS` | LULUS |
-| GAP-PROV-05 | importer byterover/retaindb → memori native + 1 warning; upload provider eksternal ≤ 1 MiB/item | `TestExternalMemoryUploadCap` | BELUM |
-| GAP-UX-07 | transkrip HTML semantik, keyboard-only, focus trap, WCAG 2.2 AA, `prefers-reduced-motion`, 18 bahasa + RTL; axe 0 serious/critical | `TestF8WebA11y`, `TestContrastTokens` | BELUM |
-| GAP-UX-08 | 0 URL eksternal di aset/template/ekspor; font system stack; sesi export HTML self-contained; docs embedded ≤ 250 KB brotli | `TestWebAssetsNoExternalURL`, `TestHelpOffline` | BELUM |
-| GAP-UX-09 | kontrak server-request tunggal × 5 frontend dirender atau fallback terdefinisi; docs tergenerasi sinkron | `TestSurfaceParity`, `TestSurfaceDocSync` | BELUM |
-| GAP-UX-10 | web responsif ≥ 360 px, target ≥ 44 px, PWA installable, service worker cache-only aset; remote link sekali pakai | `TestRemoteLinkOneTime`, `TestF8WebResponsive` | BELUM |
-| GAP-INF-06 | suite eval deterministik seed tetap; regresi > 2 pp absolut/3% relatif gagal; run live ≤ `max_cost_usd` | `TestF8EvalDeterministic`, `TestF8EvalCostCap` | BELUM |
-| GAP-INF-08 | 0 nilai i18n kosong; 0 literal UI di luar katalog; key `critical` terisi di 18 locale; set locale identik | `TestI18nNoEmpty`, `TestNoUILiterals`, `TestCriticalKeysAllLocales`, `TestLocaleSetIdentical` | BELUM |
-| GAP-INF-09 | `[ui] reply_language` auto/follow_ui/kode; instruksi stable ≤ 12 tok; copy locale identik-en < 2% | `TestReplyLanguageLine`, `TestLocaleNotEnglishCopy` | BELUM |
+| GAP | Kriteria verifikasi | Tes yang harus ada | Status | Catatan |
+|---|---|---|---|---|
+| GAP-SEC-06 | setiap respons HTML membawa CSP nonce tanpa `unsafe-inline`/`unsafe-eval`, nosniff, no-referrer, COOP/CORP, Permissions-Policy; output model/tool dirender DOM builder (0 sink HTML) | `TestWebCSPHeaders`, `TestF8CSPNoSink` | BELUM | — |
+| GAP-SEC-07 | URL nonce sekali pakai (lokal 60 s, remote 10 menit) → cookie `__Host-` HttpOnly/Secure/SameSite=Strict; token tidak pernah di HTML/JS/localStorage/query; tiket WS/SSE/download 30 s; socket unix 0600 | `TestF8WebNonceExchange`, `TestF8WebTicketOneTime` | BELUM | — |
+| GAP-SEC-08 | non-GET/HEAD wajib `Sec-Fetch-Site` same-origin/none atau Origin terkonfigurasi + CSRF double-submit; Host allowlist; DNS rebinding ditolak 421 | `TestWebCSRF` | LULUS | bukti `internal/web/web_test.go:342` (#822 @ 091ea1ff7) |
+| GAP-SEC-09 | session server-side (`web_sessions`), idle 12 jam, absolut 7 hari; logout/ganti password/revoke ≤ 1 s; OIDC end_session | `TestWebSessionRevoke` | BELUM | — |
+| GAP-SEC-17 | `doctor bundle` zip lokal 0600 ter-redaksi; `--upload` X25519 ciphertext; 0 host pastebin; 0 canary mentah | `TestF8DoctorBundle`, `TestF8BundleNoSecret` | BELUM | — |
+| GAP-REL-07 | deadline jam monotonic; TTFB 25 s + 5 s/32K tok (maks 90 s), idle 60 s; status "menunggu provider" terlihat di web setelah 10 s; fake clock ±1 jam 0 kill palsu | `TestF8WebProviderStatus`, `TestF8MonotonicDeadlines` | BELUM | — |
+| GAP-REL-16 | cron `after = [...]` DAG (siklus ditolak, kedalaman ≤ 5); job B menerima `execution_id` run A yang sama; `after_timeout_s` → `upstream_missing` | `TestF8CronAfterDAG` | BELUM | — |
+| GAP-GW-07 | setiap entri skills-hub/MCP hub punya `tos_risk`/`tos_note`; `high` butuh ack diketik; entri jailbreak → `pending`; pola dotenv threat scan | `TestF8HubTOSRisk`, `TestThreatScanDotenv` | BELUM | `TestF8HubTOSRisk` belum ada; `TestThreatScanDotenv` (`cmd/damnbot/scan_test.go:11`) saja tidak memenuhi dua tes bernama |
+| GAP-GW-12 | bot Google Meet mengirim pengumuman consent ≤ 10 s; teks tidak kosong; `consent_announcement=false` butuh ack; node audio non-TLS ditolak | `TestF8MeetConsent`, `TestF8MeetNodeTLS` | LULUS | — |
+| GAP-PROV-05 | importer byterover/retaindb → memori native + 1 warning; upload provider eksternal ≤ 1 MiB/item | `TestExternalMemoryUploadCap` | BELUM | — |
+| GAP-UX-07 | transkrip HTML semantik, keyboard-only, focus trap, WCAG 2.2 AA, `prefers-reduced-motion`, 18 bahasa + RTL; axe 0 serious/critical | `TestF8WebA11y`, `TestContrastTokens` | BELUM | — |
+| GAP-UX-08 | 0 URL eksternal di aset/template/ekspor; font system stack; sesi export HTML self-contained; docs embedded ≤ 250 KB brotli | `TestWebAssetsNoExternalURL`, `TestHelpOffline` | BELUM | — |
+| GAP-UX-09 | kontrak server-request tunggal × 5 frontend dirender atau fallback terdefinisi; docs tergenerasi sinkron | `TestSurfaceParity`, `TestSurfaceDocSync` | BELUM | — |
+| GAP-UX-10 | web responsif ≥ 360 px, target ≥ 44 px, PWA installable, service worker cache-only aset; remote link sekali pakai | `TestRemoteLinkOneTime`, `TestF8WebResponsive` | BELUM | — |
+| GAP-INF-06 | suite eval deterministik seed tetap; regresi > 2 pp absolut/3% relatif gagal; run live ≤ `max_cost_usd` | `TestF8EvalDeterministic`, `TestF8EvalCostCap` | BELUM | — |
+| GAP-INF-08 | 0 nilai i18n kosong; 0 literal UI di luar katalog; key `critical` terisi di 18 locale; set locale identik | `TestI18nNoEmpty`, `TestNoUILiterals`, `TestCriticalKeysAllLocales`, `TestLocaleSetIdentical` | BELUM | — |
+| GAP-INF-09 | `[ui] reply_language` auto/follow_ui/kode; instruksi stable ≤ 12 tok; copy locale identik-en < 2% | `TestReplyLanguageLine`, `TestLocaleNotEnglishCopy` | BELUM | — |
 
 ## 10. EC F8 (0)
 
@@ -285,4 +285,4 @@ Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 
 - Baris agregat §1: **7**. Jumlah baris data ledger: **167** (148 parity + 17 GAP + 0 EC + 2 carryover); total baris ledger termasuk agregat: **174**.
 - Katalog SKCAT: **58 bundled + 153 optional = 211** skill; PLUG-009 = **645** entri.
 - Budget F8: **21.800 Go** (`maxF8ModuleLOC`) + **≈9.900 JS/CSS** (≤ 10.000, SPEC §3.2.4); `maxModuleLOC` **132.000**.
-- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`); F8 dimulai dari 0 `LULUS`.
+- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada `c659f6f48`: 167 baris data dengan **70 `LULUS`** (68 parity + 2 GAP), **95 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.
