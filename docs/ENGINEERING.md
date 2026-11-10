@@ -669,7 +669,7 @@ margin supaya gelombang build paralel tidak melewatinya:
 |---|---|---|
 | disk `/` terpakai | gagal bila **> 57%** | 60% ≈ 88 GB; margin 3 pp untuk file sementara selama build |
 | `MemAvailable` | gagal bila **< 41% `MemTotal`** (fallback 9 GiB bila tak terbaca) | avail 40% total = 9,4 GiB; used ≤ 59%; margin 1 pp |
-| load1 | gagal bila **> 5.5** | 10 vCPU × 60% = 6 CPU (0,5 headroom untuk beban sistem) |
+| load1 / load5 | gagal bila **load1 > 6.0 atau load5 > 6.0**; load1 > 5.5 = warning | 10 vCPU × 60% = 6 CPU; spike fork transien (load1 sesaat) bukan kegagalan |
 
 **Pemakaian.**
 
@@ -681,7 +681,7 @@ scripts/agent-guard.sh watch [--once]         # loop 120 dtk; --once = satu iter
 scripts/agent-heavy.sh <perintah…>            # WAJIB untuk build/test/benchmark berat
 scripts/agent-heavy.sh --force <perintah…>    # override cek ambang (flock + limit tetap)
 scripts/agent-heavy.sh --wait 600 <perintah…> # batas antre lock (default HEAVY_WAIT=1800 dtk)
-make agent-guard-test                         # 19 skenario self-test, tanpa data nyata
+make agent-guard-test                         # 21 skenario self-test, tanpa data nyata
 ```
 
 `cleanup` hanya menyentuh tiga hal: `go clean -cache` (hanya bila disk > 57%), direktori
@@ -707,9 +707,11 @@ make agent-guard-test                         # 19 skenario self-test, tanpa dat
 
 ```
 $ scripts/agent-guard.sh check
-disk /        : 35% (gagal bila > 57%)
-MemAvailable  : 20.07 GiB = 21043340 KiB (used 14.5%; gagal bila < 41% total = 9.62 GiB)
-load1         : 2.15 (gagal bila > 5.5)
+disk /        : 43% (gagal bila > 57%)
+MemAvailable  : 17.92 GiB = 18793364 KiB (used 23.6%; gagal bila < 41% total = 9.62 GiB)
+load1         : 2.63 (peringatan > 5.5; gagal > 6.0)
+load5         : 3.38 (gagal > 6.0)
+load15        : 4.18
 GUARD OK: resource di bawah ambang 60%
 
 $ scripts/agent-heavy.sh go env GOFLAGS
@@ -723,11 +725,14 @@ Banner `agent-heavy.sh` juga mencetak `GOMAXPROCS=2 GOFLAGS=-p=1 GOMEMLIMIT=1500
 dibuktikan oleh banner dan `procs=6`. Ambang RAM memakai **persentase** `MemTotal` (bukan angka GiB
 tetap) supaya used benar-benar ≤ 60%; `check`/`report` menampilkan `used%`, dan `report --json`
 menyertakan `mem_total_kib`, `mem_used_percent`, `mem_min_kib`, serta `mem_min_basis`.
-`scripts/agent-guard-test.sh` lulus 19/19 skenario: check 36% lulus, 58% gagal, avail 40,5% total
-ditolak / 41,5% lolos, fallback 9 GiB, MemAvailable/load gagal, report tabel+JSON, cleanup dipanggil
-di 57,5%, flag dibuat di 60,1% dan dicabut di 54%, cleanup fixture hanya menghapus stale tanpa fd,
-`agent-heavy` menolak saat guard gagal, limit terpasang (`2|-p=1|1500MiB|4194304|6`), proses kedua
-**mengantre** dengan `HEAVY_WAIT=5` lalu berhasil, dan `--wait 1` timeout → exit 1 dengan pesan jelas.
+`scripts/agent-guard-test.sh` lulus 21/21 skenario: check 36% lulus, 58% gagal, avail 40,5% total
+ditolak / 41,5% lolos, fallback 9 GiB, load1 6,2 gagal, load1 5,8/load5 4,0 lolos dengan warning,
+load5 6,1 gagal, report tabel+JSON (load1/load5/load15), cleanup dipanggil di 57,5%, flag dibuat di
+60,1% dan dicabut di 54%, cleanup fixture hanya menghapus stale tanpa fd, `agent-heavy` menolak saat
+guard gagal, limit terpasang (`2|-p=1|1500MiB|4194304|6`), proses kedua **mengantre** dengan
+`HEAVY_WAIT=5` lalu berhasil, dan `--wait 1` timeout → exit 1 dengan pesan jelas. Load1 sesaat dari
+burst fork (mis. 9,43 dengan `procs_running` 8) tidak lagi memblokir kerja; hanya load1/load5 > 6.0
+yang menjadi hard fail.
 
 ## 6. Disiplin test
 

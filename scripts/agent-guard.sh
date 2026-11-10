@@ -4,7 +4,8 @@
 # Aturan owner: total CPU/RAM/disk pekerjaan agent ≤ 60% host. Alat ini adalah gerbang
 # operasional, bukan pengganti limit kernel:
 #   check    gagal bila disk / > 57% (margin 3 pp), MemAvailable < 41% MemTotal
-#            (fallback 9 GiB bila MemTotal tak terbaca), atau load1 > 5.5.
+#            (fallback 9 GiB bila MemTotal tak terbaca), load1 > 6.0, atau load5 > 6.0.
+#            load1 > 5.5 hanya peringatan (burst fork transien bukan kegagalan).
 #   report   tabel metrik + status; --json untuk konsumen mesin.
 #   cleanup  hapus HANYA: `go clean -cache` (bila disk > 57%), direktori /tmp/go-build* dan
 #            /tmp/gocache-* yang berumur > 1 jam dan tidak sedang dibuka proses, serta
@@ -18,7 +19,7 @@
 #   GUARD_FAKE_DF=57.5          # persen disk, atau output `df -P` mentah
 #   GUARD_FAKE_MEMINFO=21153700 # KiB MemAvailable, atau isi /proc/meminfo
 #   GUARD_FAKE_MEMTOTAL=24641536 # KiB MemTotal, atau isi /proc/meminfo (0 = tak terbaca)
-#   GUARD_FAKE_LOADAVG=0.63     # load1, atau isi /proc/loadavg
+#   GUARD_FAKE_LOADAVG="0.63 1.43 1.41 1/1090"  # isi /proc/loadavg (1 field = load1/l5/l15)
 # Seam lain (hanya untuk tes/operasi aman): GUARD_STATE_DIR, GUARD_TMPDIR, GUARD_REPO_ROOT,
 # GUARD_DRY_RUN=1, GUARD_INTERVAL.
 set -euo pipefail
@@ -36,7 +37,8 @@ DISK_PAUSE=60
 DISK_RESUME=55
 MEM_AVAIL_PCT=41
 MEM_FALLBACK_KIB=$((9 * 1024 * 1024))
-LOAD_LIMIT=5.5
+LOAD_WARN=5.5
+LOAD_HARD=6.0
 
 die() {
 	echo "agent-guard: $*" >&2
@@ -47,7 +49,7 @@ usage() {
 	cat <<'EOF'
 Pemakaian: scripts/agent-guard.sh <check|report|cleanup|watch> [opsi]
 
-  check             exit 1 bila disk / > 57%, MemAvailable < 41% MemTotal (fallback 9 GiB), atau load1 > 5.5
+  check             exit 1 bila disk / > 57%, MemAvailable < 41% MemTotal (fallback 9 GiB), load1/load5 > 6.0
   report [--json]   cetak metrik + status (selalu exit 0)
   cleanup           bersihkan cache build sementara yang aman (lihat header)
   watch [--once]    loop 120 dtk; --once = satu iterasi untuk tes
@@ -112,13 +114,21 @@ mem_used_pct() {
 	awk -v t="${1:-0}" -v a="${2:-0}" 'BEGIN { if (t > 0) printf "%.1f", (t - a) * 100 / t; else printf "n/a" }'
 }
 
-# load1: rata-rata beban 1 menit.
-load1() {
+# loadavg: tiga nilai load (1/5/15 menit). Satu nilai fake berarti load1=load5=load15.
+loadavg() {
+	local v1 v2 v3
 	if [[ -n ${GUARD_FAKE_LOADAVG:-} ]]; then
-		awk '{ print $1; exit }' <<<"$GUARD_FAKE_LOADAVG"
-		return
+		read -r v1 v2 v3 _ <<<"$GUARD_FAKE_LOADAVG"
+	else
+		read -r v1 v2 v3 _ </proc/loadavg
 	fi
-	awk '{ print $1; exit }' /proc/loadavg
+	if [[ -z $v2 ]]; then
+		v2=$v1
+	fi
+	if [[ -z $v3 ]]; then
+		v3=$v2
+	fi
+	printf '%s %s %s\n' "$v1" "$v2" "$v3"
 }
 
 gt() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a > b) }'; }
@@ -126,14 +136,22 @@ lt() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a < b) }'; }
 
 status_disk() { gt "$1" "$DISK_LIMIT" && echo GAGAL || echo ok; }
 status_mem() { lt "$1" "$2" && echo GAGAL || echo ok; }
-status_load() { gt "$1" "$LOAD_LIMIT" && echo GAGAL || echo ok; }
+status_load() { # <load1> <load5> -> GAGAL | warn | ok
+	if gt "$1" "$LOAD_HARD" || gt "$2" "$LOAD_HARD"; then
+		echo GAGAL
+	elif gt "$1" "$LOAD_WARN"; then
+		echo warn
+	else
+		echo ok
+	fi
+}
 
 cmd_check() {
-	local disk mem_kib mem_total load fail=0 mem_gib mem_min mem_gib_min used used_disp mem_rule
+	local disk mem_kib mem_total load_1 load_5 load_15 fail=0 mem_gib mem_min mem_gib_min used used_disp mem_rule
 	disk=$(disk_pct)
 	mem_kib=$(mem_available_kib)
 	mem_total=$(mem_total_kib || true)
-	load=$(load1)
+	read -r load_1 load_5 load_15 <<<"$(loadavg)"
 	mem_gib=$(awk -v k="$mem_kib" 'BEGIN { printf "%.2f", k / 1048576 }')
 	mem_min=$(mem_min_kib "$mem_total")
 	mem_gib_min=$(awk -v k="$mem_min" 'BEGIN { printf "%.2f", k / 1048576 }')
@@ -151,7 +169,9 @@ cmd_check() {
 
 	printf 'disk /        : %s%% (gagal bila > %s%%)\n' "$disk" "$DISK_LIMIT"
 	printf 'MemAvailable  : %s GiB = %s KiB (used %s; gagal bila %s)\n' "$mem_gib" "$mem_kib" "$used_disp" "$mem_rule"
-	printf 'load1         : %s (gagal bila > %s)\n' "$load" "$LOAD_LIMIT"
+	printf 'load1         : %s (peringatan > %s; gagal > %s)\n' "$load_1" "$LOAD_WARN" "$LOAD_HARD"
+	printf 'load5         : %s (gagal > %s)\n' "$load_5" "$LOAD_HARD"
+	printf 'load15        : %s\n' "$load_15"
 
 	if gt "$disk" "$DISK_LIMIT"; then
 		echo "GUARD GAGAL disk: ${disk}% > ${DISK_LIMIT}%" >&2
@@ -165,9 +185,11 @@ cmd_check() {
 		fi
 		fail=1
 	fi
-	if gt "$load" "$LOAD_LIMIT"; then
-		echo "GUARD GAGAL load: ${load} > ${LOAD_LIMIT}" >&2
+	if gt "$load_1" "$LOAD_HARD" || gt "$load_5" "$LOAD_HARD"; then
+		echo "GUARD GAGAL load: load1=${load_1} load5=${load_5} (hard fail > ${LOAD_HARD})" >&2
 		fail=1
+	elif gt "$load_1" "$LOAD_WARN"; then
+		echo "GUARD PERINGATAN load1: ${load_1} > ${LOAD_WARN} (bukan kegagalan; load5=${load_5})" >&2
 	fi
 	if ((fail)); then
 		return 1
@@ -176,7 +198,7 @@ cmd_check() {
 }
 
 cmd_report() {
-	local json=0 disk mem_kib mem_total load mem_gib ok=true flag=false
+	local json=0 disk mem_kib mem_total load_1 load_5 load_15 load_state mem_gib ok=true flag=false
 	local mem_min mem_gib_min used used_disp used_json mem_rule mem_basis
 	if [[ ${1:-} == --json ]]; then
 		json=1
@@ -186,7 +208,8 @@ cmd_report() {
 	disk=$(disk_pct)
 	mem_kib=$(mem_available_kib)
 	mem_total=$(mem_total_kib || true)
-	load=$(load1)
+	read -r load_1 load_5 load_15 <<<"$(loadavg)"
+	load_state=$(status_load "$load_1" "$load_5")
 	mem_gib=$(awk -v k="$mem_kib" 'BEGIN { printf "%.2f", k / 1048576 }')
 	mem_min=$(mem_min_kib "$mem_total")
 	mem_gib_min=$(awk -v k="$mem_min" 'BEGIN { printf "%.2f", k / 1048576 }')
@@ -206,7 +229,7 @@ cmd_report() {
 		mem_total=0
 		used_json=null
 	fi
-	if [[ $(status_disk "$disk") == GAGAL || $(status_mem "$mem_kib" "$mem_min") == GAGAL || $(status_load "$load") == GAGAL ]]; then
+	if [[ $(status_disk "$disk") == GAGAL || $(status_mem "$mem_kib" "$mem_min") == GAGAL || $load_state == GAGAL ]]; then
 		ok=false
 	fi
 	if [[ -e $PAUSE_FLAG ]]; then
@@ -214,20 +237,24 @@ cmd_report() {
 	fi
 
 	if ((json)); then
-		printf '{"disk_percent":%s,"disk_limit_percent":%s,"mem_total_kib":%s,"mem_available_kib":%s,"mem_used_percent":%s,"mem_min_kib":%s,"mem_min_basis":"%s","load1":%s,"load_limit":%s,"ok":%s,"pause_flag":%s}\n' \
-			"$disk" "$DISK_LIMIT" "$mem_total" "$mem_kib" "$used_json" "$mem_min" "$mem_basis" "$load" "$LOAD_LIMIT" "$ok" "$flag"
+		printf '{"disk_percent":%s,"disk_limit_percent":%s,"mem_total_kib":%s,"mem_available_kib":%s,"mem_used_percent":%s,"mem_min_kib":%s,"mem_min_basis":"%s","load1":%s,"load5":%s,"load15":%s,"load_limit":%s,"load_warn_limit":%s,"ok":%s,"pause_flag":%s}\n' \
+			"$disk" "$DISK_LIMIT" "$mem_total" "$mem_kib" "$used_json" "$mem_min" "$mem_basis" "$load_1" "$load_5" "$load_15" "$LOAD_HARD" "$LOAD_WARN" "$ok" "$flag"
 		return 0
 	fi
 
 	printf '%-16s %-22s %-22s %s\n' METRIK NILAI AMBANG STATUS
 	printf '%-16s %-22s %-22s %s\n' 'disk /' "${disk}%" ">${DISK_LIMIT}% gagal" "$(status_disk "$disk")"
 	printf '%-16s %-22s %-22s %s\n' MemAvailable "${mem_gib} GiB (used ${used_disp})" "$mem_rule" "$(status_mem "$mem_kib" "$mem_min")"
-	printf '%-16s %-22s %-22s %s\n' load1 "$load" ">${LOAD_LIMIT} gagal" "$(status_load "$load")"
+	printf '%-16s %-22s %-22s %s\n' load1 "$load_1" ">${LOAD_WARN} warn; >${LOAD_HARD} gagal" "$load_state"
+	printf '%-16s %-22s %-22s %s\n' load5 "$load_5" ">${LOAD_HARD} gagal" "$(gt "$load_5" "$LOAD_HARD" && echo GAGAL || echo ok)"
+	printf '%-16s %-22s %-22s %s\n' load15 "$load_15" "informasi" "-"
 	printf '%-16s %-22s %-22s %s\n' PAUSE_HEAVY "$([[ $flag == true ]] && echo ada || echo tidak-ada)" "disk > ${DISK_PAUSE}%" "$([[ $flag == true ]] && echo pause || echo ok)"
-	if [[ $ok == true ]]; then
-		echo "STATUS: OK (di bawah ambang 60%)"
-	else
+	if [[ $ok == false ]]; then
 		echo "STATUS: GAGAL (minimal satu metrik melewati ambang)"
+	elif [[ $load_state == warn ]]; then
+		echo "STATUS: OK (warning load1 > ${LOAD_WARN}, bukan kegagalan)"
+	else
+		echo "STATUS: OK (di bawah ambang 60%)"
 	fi
 }
 
