@@ -25,6 +25,9 @@ func usedKeys() []string {
 		"web.unreachable", "web.auto", "web.preview", "web.apply",
 		"web.readonly", "web.preview_refused", "web.review_diff",
 		"web.applied", "web.apply_expired",
+		"web.panes", "web.projects", "web.pane_kind", "web.pane_target",
+		"web.pane_open", "web.pane_close", "web.pane_refused", "web.pane_closed",
+		"web.terminal",
 	}
 }
 

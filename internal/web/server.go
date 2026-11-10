@@ -33,6 +33,12 @@ const (
 	ModeOnce  = "once"
 	ModeBasic = "basic"
 	ModeOIDC  = "oidc"
+	// ModeDrain is the non-interactive shared-bearer provider of the drain
+	// control endpoint (UI-015); it never mints a browser session.
+	ModeDrain = "drain"
+	// ModeNous is the Nous Portal authorization-code + PKCE provider
+	// (UI-015).
+	ModeNous = "nous"
 )
 
 // Errors returned by [New] before anything listens.
@@ -66,6 +72,12 @@ type Config struct {
 	Basic BasicVerifier
 	// OIDC is the authorization-code seam; nil disables the mode.
 	OIDC OIDCProvider
+	// Nous is the Nous Portal authorization-code + PKCE seam; nil disables
+	// the mode.
+	Nous OIDCProvider
+	// Drain verifies the non-interactive shared bearer secret; nil disables
+	// the mode.
+	Drain DrainVerifier
 	// NonceTTL is the one-use link lifetime; 0 means 60 s.
 	NonceTTL time.Duration
 	// RemoteTTL is the lifetime of a `--remote` link; 0 means 10 min.
@@ -80,6 +92,12 @@ type Config struct {
 	Locales []string
 	// Settings previews/applies a `[ui]` patch; nil keeps settings read-only.
 	Settings SettingsWriter
+	// Panes is the terminal/preview seam of the dashboard (UI-017); nil
+	// leaves /api/panes unavailable.
+	Panes PaneBackend
+	// Projects is the named-workspace source of the dashboard; nil leaves
+	// /api/projects unavailable.
+	Projects ProjectSource
 	// DataDir expands the <state_dir> placeholder of a unix listen.
 	DataDir string
 	// ProviderWait reports how long the oldest running turn has waited for
@@ -188,6 +206,14 @@ func validateAuth(cfg *Config) error {
 	case ModeOIDC:
 		if cfg.OIDC == nil {
 			return fmt.Errorf("%w: oidc", ErrAuthSeam)
+		}
+	case ModeNous:
+		if cfg.Nous == nil {
+			return fmt.Errorf("%w: nous", ErrAuthSeam)
+		}
+	case ModeDrain:
+		if cfg.Drain == nil {
+			return fmt.Errorf("%w: drain", ErrAuthSeam)
 		}
 	default:
 		return fmt.Errorf("web: unknown auth mode %q", cfg.Auth)

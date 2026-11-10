@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -59,8 +60,15 @@ type BasicVerifier interface {
 // end_session URL so logout also ends the upstream SSO session (GAP-SEC-09).
 type OIDCProvider interface {
 	AuthorizeURL(state, nonce string) string
-	Exchange(ctx context.Context, code string) (principal string, err error)
+	Exchange(ctx context.Context, code, state string) (principal string, err error)
 	EndSessionURL(principal string) string
+}
+
+// DrainVerifier checks the non-interactive shared bearer secret of the drain
+// control endpoint (UI-015). A verifier is constructed only from a secret of
+// at least 256 bits; a weak secret is refused before the listener starts.
+type DrainVerifier interface {
+	VerifyBearer(token string) bool
 }
 
 // nonceSet holds the one-use exchange nonces (GAP-SEC-07).
@@ -174,11 +182,11 @@ func (s *Server) exchange(w http.ResponseWriter, r *http.Request) {
 
 // callback completes the OIDC code flow (GET /auth/callback).
 func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.Auth != ModeOIDC || !s.nonces.redeem(r.URL.Query().Get("state")) {
+	if s.oauthProvider() == nil || !s.nonces.redeem(r.URL.Query().Get("state")) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	principal, err := s.cfg.OIDC.Exchange(r.Context(), r.URL.Query().Get("code"))
+	principal, err := s.oauthProvider().Exchange(r.Context(), r.URL.Query().Get("code"), r.URL.Query().Get("state"))
 	if err != nil || principal == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -201,14 +209,26 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, row *Session) {
 			s.logWarn("revoke session", rerr)
 		}
 	}
-	if s.cfg.Auth == ModeOIDC && s.cfg.OIDC != nil {
-		if end := s.cfg.OIDC.EndSessionURL(row.Principal); end != "" {
+	if p := s.oauthProvider(); p != nil {
+		if end := p.EndSessionURL(row.Principal); end != "" {
 			w.Header().Set(endSessionHeader, end)
 		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	http.SetCookie(w, &http.Cookie{Name: csrfCookie, Value: "", Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// oauthProvider selects the configured authorization-code seam.
+func (s *Server) oauthProvider() OIDCProvider {
+	switch s.cfg.Auth {
+	case ModeOIDC:
+		return s.cfg.OIDC
+	case ModeNous:
+		return s.cfg.Nous
+	default:
+		return nil
+	}
 }
 
 // authenticate resolves the session for r, including the basic-auth mode
@@ -221,6 +241,11 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (Session, 
 				s.logWarn("touch session", terr)
 			}
 			return row, true
+		}
+	}
+	if s.cfg.Auth == ModeDrain && s.cfg.Drain != nil {
+		if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && s.cfg.Drain.VerifyBearer(token) {
+			return Session{Principal: "drain"}, true
 		}
 	}
 	if s.cfg.Auth == ModeBasic && s.cfg.Basic != nil {
@@ -260,4 +285,18 @@ func doubleSubmit(r *http.Request) bool {
 	}
 	got := r.Header.Get(csrfHeader)
 	return subtle.ConstantTimeCompare([]byte(got), []byte(c.Value)) == 1
+}
+
+// drainControl is the non-interactive drain endpoint (UI-015). The bearer
+// secret is the whole authorization: no cookie, no CSRF, and no token echo.
+func (s *Server) drainControl(w http.ResponseWriter, r *http.Request, row *Session) {
+	if row.Principal != "drain" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "draining"}); err != nil {
+		s.logWarn("encode drain", err)
+	}
 }

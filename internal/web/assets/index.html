@@ -8,7 +8,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body data-msg-signed-in="{{.T "web.signed_in"}}" data-msg-waiting-provider="{{.T "web.waiting_provider"}}" data-msg-expired="{{.T "web.expired"}}" data-msg-stream-open="{{.T "web.stream_open"}}" data-msg-reconnecting="{{.T "web.reconnecting"}}">
+<body data-msg-expired="{{.T "web.expired"}}" data-msg-pane-closed="{{.T "web.pane_closed"}}" data-msg-pane-refused="{{.T "web.pane_refused"}}" data-msg-reconnecting="{{.T "web.reconnecting"}}" data-msg-signed-in="{{.T "web.signed_in"}}" data-msg-stream-open="{{.T "web.stream_open"}}" data-msg-waiting-provider="{{.T "web.waiting_provider"}}">
 <header class="bar">
   <h1>{{.T "web.title"}}</h1>
   <p id="principal" class="muted"></p>
@@ -20,6 +20,25 @@
     <h2>{{.T "web.session"}}</h2>
     <p id="session-state" class="muted" role="status" aria-live="polite">{{.T "web.connecting"}}</p>
     <p id="provider-state" class="muted" role="status" aria-live="polite"></p>
+  </section>
+  <section class="card" id="panes">
+    <h2>{{.T "web.panes"}}</h2>
+    <form id="pane-open" class="row">
+      <label for="pane-kind">{{.T "web.pane_kind"}}</label>
+      <select id="pane-kind">
+        <option value="preview">{{.T "web.preview"}}</option>
+        <option value="terminal">{{.T "web.terminal"}}</option>
+      </select>
+      <label for="pane-target">{{.T "web.pane_target"}}</label>
+      <input id="pane-target" name="target" autocomplete="off">
+      <button type="submit">{{.T "web.pane_open"}}</button>
+    </form>
+    <ul id="pane-list" class="list"></ul>
+    <pre id="pane-output" class="output" hidden></pre>
+  </section>
+  <section class="card" id="projects">
+    <h2>{{.T "web.projects"}}</h2>
+    <ul id="project-list" class="list"></ul>
   </section>
   <section class="card" id="events" role="log" aria-live="polite" aria-relevant="additions">
     <h2>{{.T "web.events"}}</h2>
@@ -34,5 +53,6 @@
   <button id="approval-ok" type="button">{{.T "web.approve"}}</button>
 </dialog>
 <script type="module" src="/assets/app.js"></script>
+<script type="module" src="/assets/panes.js"></script>
 </body>
 </html>

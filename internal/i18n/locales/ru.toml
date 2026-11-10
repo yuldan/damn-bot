@@ -52,3 +52,13 @@
 "web.waiting_provider" = "Ожидание провайдера %d с"
 "web.approve" = "Одобрить"
 "web.deny" = "Отклонить"
+
+"web.panes" = "Panes"
+"web.projects" = "Projects"
+"web.pane_kind" = "Pane kind"
+"web.pane_target" = "Target"
+"web.pane_open" = "Open pane"
+"web.pane_close" = "Close pane"
+"web.pane_refused" = "Pane request refused."
+"web.pane_closed" = "Pane closed."
+"web.terminal" = "Terminal"

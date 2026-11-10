@@ -54,6 +54,12 @@ func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dat
 		return nil, serr
 	}
 	wc.Settings = settings
+	panes, perr := newWebPanes(dataDir)
+	if perr != nil {
+		return nil, perr
+	}
+	wc.Panes = panes
+	wc.Projects = panes
 	secret, serr := newControlSecret()
 	if serr != nil {
 		return nil, serr
@@ -80,6 +86,9 @@ func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dat
 	return func(ctx context.Context) error {
 		if rerr := removeWebState(dataDir); rerr != nil {
 			sessionsPrintf(stderr, "web ui: %s\n", cleanLine(rerr.Error()))
+		}
+		if cerr := panes.CloseAll(ctx); cerr != nil {
+			sessionsPrintf(stderr, "web ui: %s\n", cleanLine(cerr.Error()))
 		}
 		return srv.Shutdown(ctx)
 	}, nil
