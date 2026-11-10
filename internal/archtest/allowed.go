@@ -71,7 +71,7 @@ func f8ModuleImports(m map[string][]string) {
 	m["internal/plugins/resolve"] = []string{"internal/plugins/catalog"}
 	// Bundled-plugin seams delegate to the existing feature modules; the
 	// registry itself is stdlib-only.
-	m["internal/plugins/builtin"] = []string{"internal/auto", "internal/memoryproviders"}
+	m["internal/plugins/builtin"] = []string{"internal/auto", "internal/connectors", "internal/memoryproviders"}
 }
 
 func allowedImports() map[string][]string {

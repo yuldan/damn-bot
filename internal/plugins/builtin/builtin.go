@@ -56,6 +56,9 @@ func Plugins() []Plugin {
 		{ID: ContextEngineID, Target: TargetContextEngine, DefaultOff: true},
 		{ID: DashboardAuthID, Target: TargetDashboardAuth, DefaultOff: true, Providers: authProviderNames()},
 		{ID: DiskCleanupID, Target: TargetDiskCleanup, DefaultOff: true},
+		{ID: AchievementsID, Target: TargetAchievements, DefaultOff: true},
+		{ID: SecurityGuideID, Target: TargetSecurityGuide, DefaultOff: true},
+		{ID: HostedConnectorID, Target: TargetHostedConnector, DefaultOff: false},
 	}
 }
 
