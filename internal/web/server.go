@@ -95,6 +95,7 @@ type Server struct {
 	assets  fs.FS
 	tmpl    *templateSet
 	nonces  nonceSet
+	tickets ticketSet
 	mu      sync.Mutex
 	pending map[string]pendingPatch
 }
@@ -149,6 +150,7 @@ func New(cfg *Config) (*Server, error) {
 		s.srv.ErrorLog = slog.NewLogLogger(c.Log.Handler(), slog.LevelWarn)
 	}
 	s.nonces.init(c.Now)
+	s.tickets.init(c.Now)
 	return s, nil
 }
 
@@ -264,6 +266,7 @@ func (s *Server) listenUnix(ctx context.Context) (net.Listener, error) {
 	if err != nil {
 		return nil, fmt.Errorf("web: listen unix: %w", err)
 	}
+	ln = uidListener{Listener: ln}
 	if err := os.Chmod(path, 0o600); err != nil {
 		if cerr := ln.Close(); cerr != nil {
 			s.logWarn("close socket listener", cerr)

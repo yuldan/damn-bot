@@ -11,9 +11,15 @@ import (
 const ssePing = 15 * time.Second
 
 // events streams the dashboard event channel (SPEC §13.2). The session cookie
-// authenticates it; EventSource sends cookies same-origin, so no token travels
-// in a query string.
+// authenticates the request and the 30 s one-use ticket in ?ticket= authorises
+// this single stream open (GAP-SEC-07). A ticket is not a session token and is
+// dead after the first use, so a copied URL cannot reopen the stream.
 func (s *Server) events(w http.ResponseWriter, r *http.Request, row *Session) {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil || !s.tickets.redeem(r.URL.Query().Get("ticket"), sessionHash(c.Value)) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unavailable", http.StatusInternalServerError)

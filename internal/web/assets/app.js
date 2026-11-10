@@ -20,14 +20,29 @@ fetch("/api/session", { headers: { Accept: "application/json" } })
     sessionState.textContent = msg.msgExpired ?? "";
   });
 
-const stream = new EventSource("/api/events");
-stream.addEventListener("hello", (event) => {
-  const data = JSON.parse(event.data);
-  eventsState.textContent = fill(msg.msgStreamOpen, data.principal);
-});
-stream.addEventListener("error", () => {
-  eventsState.textContent = msg.msgReconnecting ?? "";
-});
+// The stream needs a one-use 30 s ticket (GAP-SEC-07); the session token
+// itself never leaves the HttpOnly cookie.
+fetch("/api/ticket", {
+  method: "POST",
+  headers: { "X-CSRF-Token": csrf ?? "" },
+})
+  .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
+  .then((data) => openStream(data.ticket))
+  .catch(() => {
+    eventsState.textContent = msg.msgReconnecting ?? "";
+  });
+
+function openStream(ticket) {
+  const stream = new EventSource("/api/events?ticket=" + encodeURIComponent(ticket));
+  stream.addEventListener("hello", (event) => {
+    const data = JSON.parse(event.data);
+    eventsState.textContent = fill(msg.msgStreamOpen, data.principal);
+  });
+  stream.addEventListener("error", () => {
+    eventsState.textContent = msg.msgReconnecting ?? "";
+  });
+  return stream;
+}
 
 logout.addEventListener("click", () => {
   fetch("/api/logout", {

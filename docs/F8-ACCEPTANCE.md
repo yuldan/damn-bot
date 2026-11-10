@@ -218,22 +218,22 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 
 | GAP | Kriteria verifikasi | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|
-| GAP-SEC-06 | setiap respons HTML membawa CSP nonce tanpa `unsafe-inline`/`unsafe-eval`, nosniff, no-referrer, COOP/CORP, Permissions-Policy; output model/tool dirender DOM builder (0 sink HTML) | `TestWebCSPHeaders`, `TestF8CSPNoSink` | LULUS | — |
-| GAP-SEC-07 | URL nonce sekali pakai (lokal 60 s, remote 10 menit) → cookie `__Host-` HttpOnly/Secure/SameSite=Strict; token tidak pernah di HTML/JS/localStorage/query; tiket WS/SSE/download 30 s; socket unix 0600 | `TestF8WebNonceExchange`, `TestF8WebTicketOneTime` | BELUM | — |
-| GAP-SEC-08 | non-GET/HEAD wajib `Sec-Fetch-Site` same-origin/none atau Origin terkonfigurasi + CSRF double-submit; Host allowlist; DNS rebinding ditolak 421 | `TestWebCSRF` | LULUS | bukti `internal/web/web_test.go:342` (#822 @ 091ea1ff7) |
-| GAP-SEC-09 | session server-side (`web_sessions`), idle 12 jam, absolut 7 hari; logout/ganti password/revoke ≤ 1 s; OIDC end_session | `TestWebSessionRevoke` | LULUS | `internal/web/gap_sec09_test.go:24`; idle/absolut + revoke-all + OIDC `end_session` |
+| GAP-SEC-06 | setiap respons HTML membawa CSP nonce tanpa `unsafe-inline`/`unsafe-eval`, nosniff, no-referrer, COOP/CORP, Permissions-Policy; output model/tool dirender DOM builder (0 sink HTML) | `TestWebCSPHeaders`, `TestF8CSPNoSink` | BELUM | — |
+| GAP-SEC-07 | URL nonce sekali pakai (lokal 60 s, remote 10 menit) → cookie `__Host-` HttpOnly/Secure/SameSite=Strict; token tidak pernah di HTML/JS/localStorage/query; tiket WS/SSE/download 30 s; socket unix 0600 | `TestF8WebNonceExchange`, `TestF8WebTicketOneTime` | LULUS | — |
+| GAP-SEC-08 | non-GET/HEAD wajib `Sec-Fetch-Site` same-origin/none atau Origin terkonfigurasi + CSRF double-submit; Host allowlist; DNS rebinding ditolak 421 | `TestWebCSRF` | BELUM | bukti `internal/web/web_test.go:342` (#822 @ 091ea1ff7) |
+| GAP-SEC-09 | session server-side (`web_sessions`), idle 12 jam, absolut 7 hari; logout/ganti password/revoke ≤ 1 s; OIDC end_session | `TestWebSessionRevoke` | BELUM | `internal/web/gap_sec09_test.go:24`; idle/absolut + revoke-all + OIDC `end_session` |
 | GAP-SEC-17 | `doctor bundle` zip lokal 0600 ter-redaksi; `--upload` X25519 ciphertext; 0 host pastebin; 0 canary mentah | `TestF8DoctorBundle`, `TestF8BundleNoSecret` | BELUM | — |
 | GAP-REL-07 | deadline jam monotonic; TTFB 25 s + 5 s/32K tok (maks 90 s), idle 60 s; status "menunggu provider" terlihat di web setelah 10 s; fake clock ±1 jam 0 kill palsu | `TestF8WebProviderStatus`, `TestF8MonotonicDeadlines` | BELUM | — |
 | GAP-REL-16 | cron `after = [...]` DAG (siklus ditolak, kedalaman ≤ 5); job B menerima `execution_id` run A yang sama; `after_timeout_s` → `upstream_missing` | `TestF8CronAfterDAG` | BELUM | — |
 | GAP-GW-07 | setiap entri skills-hub/MCP hub punya `tos_risk`/`tos_note`; `high` butuh ack diketik; entri jailbreak → `pending`; pola dotenv threat scan | `TestF8HubTOSRisk`, `TestThreatScanDotenv` | BELUM | `TestF8HubTOSRisk` belum ada; `TestThreatScanDotenv` (`cmd/damnbot/scan_test.go:11`) saja tidak memenuhi dua tes bernama |
-| GAP-GW-12 | bot Google Meet mengirim pengumuman consent ≤ 10 s; teks tidak kosong; `consent_announcement=false` butuh ack; node audio non-TLS ditolak | `TestF8MeetConsent`, `TestF8MeetNodeTLS` | LULUS | — |
+| GAP-GW-12 | bot Google Meet mengirim pengumuman consent ≤ 10 s; teks tidak kosong; `consent_announcement=false` butuh ack; node audio non-TLS ditolak | `TestF8MeetConsent`, `TestF8MeetNodeTLS` | BELUM | — |
 | GAP-PROV-05 | importer byterover/retaindb → memori native + 1 warning; upload provider eksternal ≤ 1 MiB/item | `TestExternalMemoryUploadCap` | BELUM | — |
 | GAP-UX-07 | transkrip HTML semantik, keyboard-only, focus trap, WCAG 2.2 AA, `prefers-reduced-motion`, 18 bahasa + RTL; axe 0 serious/critical | `TestF8WebA11y`, `TestContrastTokens` | BELUM | — |
 | GAP-UX-08 | 0 URL eksternal di aset/template/ekspor; font system stack; sesi export HTML self-contained; docs embedded ≤ 250 KB brotli | `TestWebAssetsNoExternalURL`, `TestHelpOffline` | BELUM | — |
 | GAP-UX-09 | kontrak server-request tunggal × 5 frontend dirender atau fallback terdefinisi; docs tergenerasi sinkron | `TestSurfaceParity`, `TestSurfaceDocSync` | BELUM | — |
 | GAP-UX-10 | web responsif ≥ 360 px, target ≥ 44 px, PWA installable, service worker cache-only aset; remote link sekali pakai | `TestRemoteLinkOneTime`, `TestF8WebResponsive` | BELUM | — |
-| GAP-INF-06 | suite eval deterministik seed tetap; regresi > 2 pp absolut/3% relatif gagal; run live ≤ `max_cost_usd` | `TestF8EvalDeterministic`, `TestF8EvalCostCap` | LULUS | — |
-| GAP-INF-08 | 0 nilai i18n kosong; 0 literal UI di luar katalog; key `critical` terisi di 18 locale; set locale identik | `TestI18nNoEmpty`, `TestNoUILiterals`, `TestCriticalKeysAllLocales`, `TestLocaleSetIdentical`, `TestSettingsWritableLocalized`, `TestSettingsReadOnlyFallbackLocalized` | LULUS | `internal/i18n/i18n_test.go:238`; `internal/web/i18n_assets_test.go:26`; set tunggal `cmd/damnbot/locale_set_test.go:19` |
+| GAP-INF-06 | suite eval deterministik seed tetap; regresi > 2 pp absolut/3% relatif gagal; run live ≤ `max_cost_usd` | `TestF8EvalDeterministic`, `TestF8EvalCostCap` | BELUM | — |
+| GAP-INF-08 | 0 nilai i18n kosong; 0 literal UI di luar katalog; key `critical` terisi di 18 locale; set locale identik | `TestI18nNoEmpty`, `TestNoUILiterals`, `TestCriticalKeysAllLocales`, `TestLocaleSetIdentical`, `TestSettingsWritableLocalized`, `TestSettingsReadOnlyFallbackLocalized` | BELUM | `internal/i18n/i18n_test.go:238`; `internal/web/i18n_assets_test.go:26`; set tunggal `cmd/damnbot/locale_set_test.go:19` |
 | GAP-INF-09 | `[ui] reply_language` auto/follow_ui/kode; instruksi stable ≤ 12 tok; copy locale identik-en < 2% | `TestReplyLanguageLine`, `TestLocaleNotEnglishCopy` | BELUM | — |
 ## 10. EC F8 (0)
 
