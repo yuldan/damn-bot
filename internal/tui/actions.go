@@ -38,6 +38,8 @@ func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
 		return m.sessionSlash(cmd)
 	case slashPaste, slashImage:
 		return m.imageSlash(cmd)
+	case slashF8:
+		return m.f8Slash(cmd)
 	}
 	return nil
 }

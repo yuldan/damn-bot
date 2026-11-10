@@ -34,6 +34,7 @@ const (
 
 	slashPaste
 	slashImage
+	slashF8
 )
 
 // slashCommand is one parsed single-line slash invocation.
@@ -77,6 +78,18 @@ func slashCatalog() []slashItem {
 
 		{"/paste", "attach an image from the clipboard", slashPaste},
 		{"/image", "attach a local image for the next prompt", slashImage},
+
+		{"/goal", "standing goal text|status|clear", slashF8},
+		{"/heartbeat", "idle beat status|pause|resume|clear|set", slashF8},
+		{"/loop", "recurring prompt interval text [--times N]", slashF8},
+		{"/suggestions", "suggestions accept|dismiss|catalog|clear", slashF8},
+		{"/suggest", "alias of /suggestions", slashF8},
+		{"/blueprint", "blueprint catalog|<name> slot=value", slashF8},
+		{"/bp", "alias of /blueprint", slashF8},
+		{"/journey", "skill timeline list|delete|edit", slashF8},
+		{"/learning", "alias of /journey", slashF8},
+		{"/memory-graph", "alias of /journey", slashF8},
+		{"/pet", "mascot list|toggle|select|show|scale|off", slashF8},
 	}
 }
 
