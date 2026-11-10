@@ -69,6 +69,9 @@ func f8ModuleImports(m map[string][]string) {
 	// anything, so it has no host/netx edge.
 	m["internal/plugins/catalog"] = nil
 	m["internal/plugins/resolve"] = []string{"internal/plugins/catalog"}
+	// Bundled-plugin seams delegate to the existing feature modules; the
+	// registry itself is stdlib-only.
+	m["internal/plugins/builtin"] = []string{"internal/auto", "internal/memoryproviders"}
 }
 
 func allowedImports() map[string][]string {
