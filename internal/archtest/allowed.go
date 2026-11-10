@@ -75,7 +75,7 @@ func f8ModuleImports(m map[string][]string) {
 	// F8 desktop/web GUI (ADR-346): the module validates workspace targets
 	// through the sandbox leaf and reports through the host seam; the GUI
 	// itself is a caller-supplied Surface, never an OS or shell call.
-	m["internal/desktopui"] = []string{"internal/modules/host", "internal/sandbox"}
+	m["internal/desktopui"] = []string{"internal/modules/host", "internal/sandbox", "internal/redact"}
 }
 
 func allowedImports() map[string][]string {

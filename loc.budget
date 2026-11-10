@@ -562,4 +562,6 @@ MODULE memprovider 1000 internal/memoryproviders
 # (katalog embedded 645 entri plugin pihak ketiga + resolusi ke target MCP/
 # skill/modul). Cap SPEC §3.2.4 F8 1.000; Σ F8 21.800 -> 22.800 dan
 # maxF8ModuleLOC 21.800 -> 22.800 (baris ini di luar Σ core).
+# ADR-346: `internal/desktopui` tidak menambah baris MODULE; ia dihitung pada
+# baris `web` di atas.
 MODULE plugins 1000 internal/plugins

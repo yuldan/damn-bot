@@ -15,6 +15,16 @@ func f8Toolsets() []Definition {
 		}},
 		{Name: "x_search", Description: "Search X posts and threads through xAI (default off)", Tools: []string{"x_search"}},
 		{
+			Name: "desktop_ui", Description: "Desktop and web GUI pane, preview, terminal, theme and tip tools (default off)",
+			Tools: []string{
+				"annotate_preview", "close_terminal", "drive_preview", "focus_pane",
+				"desktop_preview", "react_to_message", "read_terminal", "read_window_below",
+				"set_theme", "show_tip", "gui_tour",
+			},
+		},
+		{Name: "project", Description: "Named Desktop Project workspaces (default off)", Tools: []string{"desktop_project"}},
+		{Name: "onboarding", Description: "First-run onboarding card (default off)", Tools: []string{"setup_beat"}},
+		{
 			Name: "hermes-connectors", Description: "Connector bundle: Graph, Teams, Feishu, Meet, X search, Discord, OSV (default off)",
 			Tools: []string{
 				"ms_graph_mail", "ms_graph_calendar", "ms_graph_files", "teams_pipeline", "google_meet", "osv_check",

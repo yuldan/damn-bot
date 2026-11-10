@@ -64,17 +64,17 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 |---|---|---|---|---|---|
 | TOOL-020 | `manage_catalog` | kartu approval instalasi plugin/skill; hanya sesi GUI; ack diketik untuk entri `tos_risk=high` | `TestF8TOOL020ManageCatalog` | BELUM | TSET-011 |
 | TOOL-024 | `manage_connections` | kelola akun connector hosted + link otorisasi; opt-in; token hanya referensi vault | `TestF8TOOL024ManageConnections` | BELUM | TSET-010 |
-| TOOL-027 | `annotate_preview` | anotasi elemen pane preview; target harus pane aktif | `TestF8TOOL027AnnotatePreview` | BELUM | TSET-002 |
-| TOOL-028 | `close_terminal` | tutup pane terminal desktop; pane asing ditolak | `TestF8TOOL028CloseTerminal` | BELUM | — |
-| TOOL-029 | `desktop_preview` | buka file/URL di pane preview; path workspace atau URL https | `TestF8TOOL029DesktopPreview` | BELUM | — |
-| TOOL-030 | `drive_preview` | klik/ketik/elemen di pane preview; aksi destruktif approval | `TestF8TOOL030DrivePreview` | BELUM | — |
-| TOOL-031 | `focus_pane` | fokus pane GUI tertentu; nama pane divalidasi | `TestF8TOOL031FocusPane` | BELUM | — |
-| TOOL-032 | `gui_tour` | alias legacy `tour`; tur terpandu; hanya bila tours aktif | `TestF8TOOL032GUITour` | BELUM | — |
-| TOOL-033 | `react_to_message` | reaksi emoji pada pesan GUI; emoji dari allowlist | `TestF8TOOL033ReactToMessage` | BELUM | — |
-| TOOL-034 | `read_terminal` | baca output pane terminal; output dibatasi + ter-redaksi | `TestF8TOOL034ReadTerminal` | BELUM | — |
-| TOOL-035 | `read_window_below` | baca jendela/pane di bawah chat; pane hilang → kosong bukan panic | `TestF8TOOL035ReadWindowBelow` | BELUM | — |
-| TOOL-036 | `set_theme` | ganti tema desktop; tema asing ditolak | `TestF8TOOL036SetTheme` | BELUM | — |
-| TOOL-037 | `show_tip` | alias legacy `tip`; tip kontekstual; `notices=false` → 0 tip | `TestF8TOOL037ShowTip` | BELUM | GAP-OPS-09 |
+| TOOL-027 | `annotate_preview` | anotasi elemen pane preview; target harus pane aktif | `TestF8TOOL027AnnotatePreview` | LULUS | TSET-002 |
+| TOOL-028 | `close_terminal` | tutup pane terminal desktop; pane asing ditolak | `TestF8TOOL028CloseTerminal` | LULUS | — |
+| TOOL-029 | `desktop_preview` | buka file/URL di pane preview; path workspace atau URL https | `TestF8TOOL029DesktopPreview` | LULUS | — |
+| TOOL-030 | `drive_preview` | klik/ketik/elemen di pane preview; aksi destruktif approval | `TestF8TOOL030DrivePreview` | LULUS | — |
+| TOOL-031 | `focus_pane` | fokus pane GUI tertentu; nama pane divalidasi | `TestF8TOOL031FocusPane` | LULUS | — |
+| TOOL-032 | `gui_tour` | alias legacy `tour`; tur terpandu; hanya bila tours aktif | `TestF8TOOL032GUITour` | LULUS | — |
+| TOOL-033 | `react_to_message` | reaksi emoji pada pesan GUI; emoji dari allowlist | `TestF8TOOL033ReactToMessage` | LULUS | — |
+| TOOL-034 | `read_terminal` | baca output pane terminal; output dibatasi + ter-redaksi | `TestF8TOOL034ReadTerminal` | LULUS | — |
+| TOOL-035 | `read_window_below` | baca jendela/pane di bawah chat; pane hilang → kosong bukan panic | `TestF8TOOL035ReadWindowBelow` | LULUS | — |
+| TOOL-036 | `set_theme` | ganti tema desktop; tema asing ditolak | `TestF8TOOL036SetTheme` | LULUS | — |
+| TOOL-037 | `show_tip` | alias legacy `tip`; tip kontekstual; `notices=false` → 0 tip | `TestF8TOOL037ShowTip` | LULUS | GAP-OPS-09 |
 | TOOL-038 | `discord` | baca/partisipasi Discord: pesan, cari member, buat thread; token dari seam | `TestF8TOOL038Discord` | LULUS | TSET-014 |
 | TOOL-039 | `discord_admin` | admin server: channel, role, pin; butuh scope admin + approval | `TestF8TOOL039DiscordAdmin` | LULUS | TSET-015 |
 | TOOL-040 | `feishu_doc_read` | baca dokumen Feishu/Lark; hasil `<untrusted>`; batas ukuran | `TestF8TOOL040FeishuDocRead` | LULUS | TSET-016 |
@@ -82,23 +82,23 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 | TOOL-042 | `feishu_drive_list_comment_replies` | daftar balasan komentar; paginasi berbatas | `TestF8TOOL042FeishuListReplies` | LULUS | — |
 | TOOL-043 | `feishu_drive_list_comments` | daftar komentar dokumen; tanpa akses → kosong | `TestF8TOOL043FeishuListComments` | LULUS | — |
 | TOOL-044 | `feishu_drive_reply_comment` | balas komentar; id komentar divalidasi | `TestF8TOOL044FeishuReplyComment` | LULUS | — |
-| TOOL-071 | `setup_beat` | kartu onboarding first-run; hanya sesi GUI; sekali per instalasi | `TestF8TOOL071SetupBeat` | BELUM | TSET-024 |
-| TOOL-072 | `desktop_project` | buat/ganti Desktop Project (workspace bernama); path di luar workspace ditolak | `TestF8TOOL072DesktopProject` | BELUM | TSET-022 |
+| TOOL-071 | `setup_beat` | kartu onboarding first-run; hanya sesi GUI; sekali per instalasi | `TestF8TOOL071SetupBeat` | LULUS | TSET-024 |
+| TOOL-072 | `desktop_project` | buat/ganti Desktop Project (workspace bernama); path di luar workspace ditolak | `TestF8TOOL072DesktopProject` | LULUS | TSET-022 |
 | TOOL-088 | `x_search` | cari post/thread X via xAI; opt-in; hasil `<untrusted>` + batas | `TestF8TOOL088XSearch` | LULUS | TSET-031 |
 
 ## 4. Ledger parity F8 — TSET (10) dan MEM (6)
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| TSET-002 | toolset `desktop_ui` | 11 tool, default off, hanya surface desktop/web; 0 shell/write | `TestF8TSET002DesktopUI` | BELUM | TOOL-027..037,071,072 |
+| TSET-002 | toolset `desktop_ui` | 11 tool, default off, hanya surface desktop/web; 0 shell/write | `TestF8TSET002DesktopUI` | LULUS | TOOL-027..037,071,072 |
 | TSET-010 | toolset `connections` | 1 tool `manage_connections`, default off | `TestF8TSET010Connections` | BELUM | — |
 | TSET-011 | toolset `catalog` | 1 tool `manage_catalog`, default off | `TestF8TSET011Catalog` | BELUM | — |
 | TSET-014 | toolset `discord` | 1 tool, default off, hanya bila adapter Discord aktif | `TestF8TSET014Discord` | LULUS | PLAT-005 |
 | TSET-015 | toolset `discord_admin` | 1 tool, default off, scope admin eksplisit | `TestF8TSET015DiscordAdmin` | LULUS | — |
 | TSET-016 | toolset `feishu_doc` | 1 tool, default off | `TestF8TSET016FeishuDoc` | LULUS | — |
 | TSET-017 | toolset `feishu_drive` | 4 tool, default off; mutasi approval | `TestF8TSET017FeishuDrive` | LULUS | — |
-| TSET-022 | toolset `project` | 1 tool, default off, hanya surface desktop | `TestF8TSET022Project` | BELUM | — |
-| TSET-024 | toolset `onboarding` | 1 tool, default off, hanya first-run | `TestF8TSET024Onboarding` | BELUM | — |
+| TSET-022 | toolset `project` | 1 tool, default off, hanya surface desktop | `TestF8TSET022Project` | LULUS | — |
+| TSET-024 | toolset `onboarding` | 1 tool, default off, hanya first-run | `TestF8TSET024Onboarding` | LULUS | — |
 | TSET-031 | toolset `x_search` | 1 tool, default off; opt-in eksplisit | `TestF8TSET031XSearch` | LULUS | — |
 | MEM-005 | Plugin provider memori eksternal | satu provider aktif per `memory.provider`; provider asing → error; upload ≤ 1 MiB/item | `TestF8MEM005ExternalProvider`, `TestExternalMemoryUploadCap` | LULUS | GAP-PROV-05; ADR-338 |
 | MEM-008 | Memory provider Honcho | config & profil Honcho; token dari secret; 0 upload default | `TestF8MEM008Honcho` | LULUS | PLUG-022; wiring `assemblerAdapter`, ADR-338 |

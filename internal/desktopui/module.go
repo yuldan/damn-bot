@@ -10,25 +10,62 @@ import (
 	"sync"
 
 	"github.com/damnbot/damnbot/internal/modules/host"
+	"github.com/damnbot/damnbot/internal/redact"
 )
 
-// Module is the desktop/web GUI module.
+// Module is the desktop/web GUI module. Start and Stop are no-ops: the seam
+// is owned by the shell, and activation performs no work (P16).
 type Module struct {
-	surface Surface
-	mu      sync.Mutex
-	status  host.Status
+	surface  Surface
+	cfg      Section
+	store    host.Store
+	redactor *redact.Redactor
+	mu       sync.Mutex
+	status   host.Status
+	shown    bool
+	projects projectState
 }
 
-// New returns a module over surface; a nil surface fails closed.
-func New(surface Surface) *Module {
-	return &Module{surface: surface, status: host.StatusStopped}
+// New returns a module over surface with notices enabled. A nil surface is
+// legal: every call then fails closed with module_unavailable instead of
+// pretending to act.
+func New(surface Surface) *Module { return NewWithSection(surface, Section{Notices: true}) }
+
+// NewWithSection is New with the core [ui] facts.
+func NewWithSection(surface Surface, cfg Section) *Module {
+	return &Module{surface: surface, cfg: cfg, redactor: redact.New(redact.Options{}), status: host.StatusStopped}
+}
+
+// NewFromHost binds the module's namespaced store (onboarding once per
+// installation and the Desktop Projects file) and decodes [ui] notices.
+func NewFromHost(h host.Host, raw json.RawMessage, surface Surface) (*Module, error) {
+	cfg := Section{Notices: true}
+	if len(raw) > 0 {
+		if err := decode(raw, &cfg); err != nil {
+			return nil, invalid("invalid desktop_ui section")
+		}
+	}
+	m := NewWithSection(surface, cfg)
+	if h != nil {
+		if st, err := h.Storage("module/desktop_ui"); err == nil {
+			m.store = st
+		}
+	}
+	return m, nil
 }
 
 // Start marks the module ready; it never opens the GUI.
-func (m *Module) Start(context.Context) error {
+func (m *Module) Start(ctx context.Context) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.status = host.StatusReady
-	m.mu.Unlock()
+	if m.store == nil {
+		return nil
+	}
+	if v, ok, err := m.store.Get(ctx, []byte(setupKey)); err == nil {
+		m.shown = ok && len(v) > 0
+	}
+	m.projects = loadProjects(ctx, m.store)
 	return nil
 }
 
@@ -47,15 +84,21 @@ func (m *Module) Stop(context.Context) error {
 	return nil
 }
 
-// Invoke validates one call and performs at most one surface action.
+// Invoke validates one call and performs at most one surface action. The
+// caller already validated the schema and approval; this layer enforces the
+// GUI origin, the pane ownership and every closed allowlist again, because a
+// module is a security boundary too (SPEC §3.2.1).
 func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, env host.Env) (host.Result, error) {
-	name := Canonical(tool)
 	if !GUI(env) {
 		return host.Result{}, denied("desktop tools require a desktop or web session")
 	}
 	if m.surface == nil {
 		return host.Result{}, unavailable(nil)
 	}
+	return m.dispatch(ctx, Canonical(tool), args, env)
+}
+
+func (m *Module) dispatch(ctx context.Context, name string, args json.RawMessage, env host.Env) (host.Result, error) {
 	switch name {
 	case "annotate_preview":
 		return m.annotate(ctx, args)
@@ -71,8 +114,20 @@ func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, 
 		return m.tour(ctx, args)
 	case "react_to_message":
 		return m.react(ctx, args)
+	case "read_terminal":
+		return m.readTerminal(ctx, args)
+	case "read_window_below":
+		return m.readBelow(ctx)
+	case "set_theme":
+		return m.setTheme(ctx, args)
+	case "show_tip":
+		return m.showTip(ctx, args)
+	case "setup_beat":
+		return m.setupBeat(ctx)
+	case "desktop_project":
+		return m.project(ctx, args, env.Cwd)
 	}
-	return host.Result{}, &host.Error{Code: "unknown_tool", Message: "desktop tool is not in this slice: " + tool}
+	return host.Result{}, &host.Error{Code: "unknown_tool", Message: "desktop tool is not in this slice: " + name}
 }
 
 type annotateArgs struct {

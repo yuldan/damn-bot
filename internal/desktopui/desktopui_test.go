@@ -8,6 +8,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/modules/host"
@@ -24,6 +26,12 @@ type fakeSurface struct {
 	tour      string
 	react     [2]string
 	closePane string
+	termOut   string
+	belowOut  string
+	theme     string
+	tip       string
+	setup     int
+	project   string
 	err       error
 }
 
@@ -66,6 +74,36 @@ func (f *fakeSurface) Tour(_ context.Context, name string) error {
 
 func (f *fakeSurface) React(_ context.Context, id, emoji string) error {
 	f.calls, f.react = append(f.calls, "react"), [2]string{id, emoji}
+	return f.err
+}
+
+func (f *fakeSurface) ReadTerminal(_ context.Context, pane string, max int) (string, error) {
+	f.calls = append(f.calls, "read-"+pane)
+	return f.termOut, f.err
+}
+
+func (f *fakeSurface) ReadBelow(context.Context, int) (string, error) {
+	f.calls = append(f.calls, "below")
+	return f.belowOut, f.err
+}
+
+func (f *fakeSurface) SetTheme(_ context.Context, theme string) error {
+	f.calls, f.theme = append(f.calls, "theme"), theme
+	return f.err
+}
+
+func (f *fakeSurface) ShowTip(_ context.Context, tip string) error {
+	f.calls, f.tip = append(f.calls, "tip"), tip
+	return f.err
+}
+
+func (f *fakeSurface) SetupBeat(context.Context) error {
+	f.calls, f.setup = append(f.calls, "setup"), f.setup+1
+	return f.err
+}
+
+func (f *fakeSurface) Project(_ context.Context, name string) error {
+	f.calls, f.project = append(f.calls, "project"), name
 	return f.err
 }
 
@@ -281,4 +319,182 @@ func TestDesktopUISurfaceClosed(t *testing.T) {
 	if err := m.Stop(context.Background()); err != nil || m.Status() != host.StatusStopped {
 		t.Fatalf("stop = %v status = %q", err, m.Status())
 	}
+}
+
+type memStore struct {
+	mu   sync.Mutex
+	data map[string][]byte
+}
+
+func newMemStore() *memStore { return &memStore{data: map[string][]byte{}} }
+
+func (s *memStore) Get(_ context.Context, key []byte) ([]byte, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v, ok := s.data[string(key)]
+	return v, ok, nil
+}
+
+func (s *memStore) Put(_ context.Context, key, value []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[string(key)] = append([]byte(nil), value...)
+	return nil
+}
+
+func (s *memStore) Delete(_ context.Context, key []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data, string(key))
+	return nil
+}
+
+func (s *memStore) List(_ context.Context, prefix []byte) ([][]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out [][]byte
+	for k, v := range s.data {
+		if strings.HasPrefix(k, string(prefix)) {
+			out = append(out, v)
+		}
+	}
+	return out, nil
+}
+
+type storeHost struct {
+	host.Host
+	store host.Store
+}
+
+func (h storeHost) Storage(string) (host.Store, error) { return h.store, nil }
+
+func moduleFromStore(t *testing.T, s Surface, store host.Store) *Module {
+	t.Helper()
+	m, err := NewFromHost(storeHost{store: store}, json.RawMessage(`{"notices":true}`), s)
+	if err != nil {
+		t.Fatalf("NewFromHost: %v", err)
+	}
+	if err := m.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	return m
+}
+
+func TestF8TOOL034ReadTerminal(t *testing.T) {
+	t.Parallel()
+	s := &fakeSurface{panes: []string{"terminal-1"}, termOut: "hello sk-live-secret-1234567890\n"}
+	m := New(s)
+	env := guiEnv(t, OriginWeb, t.TempDir())
+	res, err := invoke(t, m, env, "read_terminal", `{"pane":"terminal-1","lines":50}`)
+	if err != nil {
+		t.Fatalf("read_terminal: %v", err)
+	}
+	if strings.Contains(res.Content, "sk-live-secret") || !strings.Contains(res.Content, "hello") {
+		t.Fatalf("content not redacted: %q", res.Content)
+	}
+	_, err = invoke(t, m, env, "read_terminal", `{"pane":"terminal-9"}`)
+	wantCode(t, err, "not_found")
+	long := New(&fakeSurface{active: "terminal-1", termOut: strings.Repeat("x", maxOutputBytes+10)})
+	res, err = invoke(t, long, env, "read_terminal", `{}`)
+	if err != nil || !strings.Contains(res.Content, "[truncated]") || len(res.Content) > maxOutputBytes+32 {
+		t.Fatalf("bounded content = %d bytes, %v", len(res.Content), err)
+	}
+}
+
+func TestF8TOOL035ReadWindowBelow(t *testing.T) {
+	t.Parallel()
+	m := New(&fakeSurface{belowOut: "pane text"})
+	env := guiEnv(t, OriginDesktop, t.TempDir())
+	res, err := invoke(t, m, env, "read_window_below", `{}`)
+	if err != nil || res.Content != "pane text" {
+		t.Fatalf("below = %+v, %v", res, err)
+	}
+	gone := New(&fakeSurface{err: ErrPaneMissing})
+	res, err = invoke(t, gone, env, "read_window_below", `{}`)
+	if err != nil || res.Content != "" {
+		t.Fatalf("missing pane = %+v, %v (want empty success)", res, err)
+	}
+}
+
+func TestF8TOOL036SetTheme(t *testing.T) {
+	t.Parallel()
+	s := &fakeSurface{}
+	m := New(s)
+	env := guiEnv(t, OriginWeb, t.TempDir())
+	if _, err := invoke(t, m, env, "set_theme", `{"theme":"dark"}`); err != nil || s.theme != "dark" {
+		t.Fatalf("set_theme = %v theme=%q", err, s.theme)
+	}
+	_, err := invoke(t, m, env, "set_theme", `{"theme":"neon"}`)
+	wantCode(t, err, "invalid_args")
+	if len(s.calls) != 1 {
+		t.Fatalf("unknown theme reached the surface: %v", s.calls)
+	}
+}
+
+func TestF8TOOL037ShowTip(t *testing.T) {
+	t.Parallel()
+	s := &fakeSurface{}
+	env := guiEnv(t, OriginDesktop, t.TempDir())
+	if _, err := invoke(t, New(s), env, "show_tip", `{"tip":"hello"}`); err != nil || s.tip != "hello" {
+		t.Fatalf("tip = %v %q", err, s.tip)
+	}
+	quiet := &fakeSurface{}
+	if res, err := invoke(t, NewWithSection(quiet, Section{}), env, "tip", `{"tip":"hello"}`); err != nil || res.Content != "" {
+		t.Fatalf("notices off = %+v, %v", res, err)
+	}
+	if len(quiet.calls) != 0 {
+		t.Fatalf("notices off reached the surface: %v", quiet.calls)
+	}
+}
+
+func TestF8TOOL071SetupBeat(t *testing.T) {
+	t.Parallel()
+	store := newMemStore()
+	first := &fakeSurface{}
+	m := moduleFromStore(t, first, store)
+	env := guiEnv(t, OriginWeb, t.TempDir())
+	if res, err := invoke(t, m, env, "setup_beat", `{}`); err != nil || !strings.Contains(res.Content, "onboarding shown") {
+		t.Fatalf("first = %+v, %v", res, err)
+	}
+	if res, err := invoke(t, m, env, "setup_beat", `{}`); err != nil || !strings.Contains(res.Content, "already shown") {
+		t.Fatalf("second = %+v, %v", res, err)
+	}
+	if first.setup != 1 {
+		t.Fatalf("card shown %d times", first.setup)
+	}
+	// A new process with the same installation store does not show it again.
+	second := &fakeSurface{}
+	m2 := moduleFromStore(t, second, store)
+	if _, err := invoke(t, m2, env, "setup_beat", `{}`); err != nil || second.setup != 0 {
+		t.Fatalf("second installation = %d, %v", second.setup, err)
+	}
+}
+
+func TestF8TOOL072DesktopProject(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	sub := filepath.Join(root, "src")
+	if err := os.MkdirAll(sub, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	s := &fakeSurface{}
+	m := New(s)
+	env := guiEnv(t, OriginDesktop, root)
+	res, err := invoke(t, m, env, "desktop_project", `{"action":"create","name":"alpha","folders":["src"]}`)
+	if err != nil || !strings.Contains(res.Content, "project alpha") {
+		t.Fatalf("create = %+v, %v", res, err)
+	}
+	if s.project != "alpha" {
+		t.Fatalf("surface project = %q", s.project)
+	}
+	if _, serr := invoke(t, m, env, "desktop_project", `{"action":"switch","name":"alpha"}`); serr != nil {
+		t.Fatalf("switch: %v", serr)
+	}
+	_, err = invoke(t, m, env, "desktop_project", `{"action":"create","name":"beta","root":"`+outside+`"}`)
+	wantCode(t, err, "outside_workspace")
+	_, err = invoke(t, m, env, "desktop_project", `{"action":"switch","name":"ghost"}`)
+	wantCode(t, err, "not_found")
+	_, err = invoke(t, m, env, "desktop_project", `{"action":"create","name":"Bad Name"}`)
+	wantCode(t, err, "invalid_args")
 }

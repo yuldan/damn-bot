@@ -10,6 +10,7 @@ import (
 	"github.com/damnbot/damnbot/internal/browser"
 	"github.com/damnbot/damnbot/internal/computeruse"
 	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/desktopui"
 	"github.com/damnbot/damnbot/internal/media"
 	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/modules/host"
@@ -234,6 +235,8 @@ func moduleEnabled(cfg *config.Config) func(string) bool {
 		switch id {
 		case f8DesktopUIModuleID:
 			// Default off: only a selected GUI toolset enables the catalog.
+			// A selected tool still requires a desktop/web session and an
+			// attached surface at invoke time.
 			return desktopUIEnabled(cfg)
 		case f6WebModuleID:
 			return web.Enabled
@@ -315,13 +318,13 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 	}
 }
 
+// desktopModuleConfig carries the desktop_ui section ([ui] notices) without
+// growing the moduleConfig switch past its complexity gate.
 func desktopModuleConfig(id string, cfg *config.Config) (host.Config, bool) {
 	if id != f8DesktopUIModuleID {
 		return host.Config{}, false
 	}
-	raw, err := json.Marshal(struct {
-		Notices bool `json:"notices"`
-	}{Notices: cfg.UI.Notices})
+	raw, err := json.Marshal(desktopui.Section{Notices: cfg.UI.Notices})
 	if err != nil {
 		return host.Config{}, false
 	}

@@ -33,6 +33,10 @@ func runTools(reg *tools.Registry, allowed map[string]bool) ([]assemble.Tool, er
 	return out, nil
 }
 
+// availableNames is the availability set handed to toolset.Resolve: eager
+// registry tools plus the enabled modules' deferred catalog. Deferred tools
+// are real members of a toolset even though they never appear in the eager
+// payload, so leaving them out marked every module toolset unavailable.
 func availableNames(reg *tools.Registry, mods runModules) map[string]bool {
 	out := registryNames(reg)
 	if mods.deferred != nil {
