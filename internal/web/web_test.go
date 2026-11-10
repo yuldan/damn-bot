@@ -705,7 +705,8 @@ func TestWebSettingsPreviewApply(t *testing.T) {
 		t.Fatalf("token replay = %d", replay)
 	}
 	page := get(t, ts, "/settings", session)
-	if !strings.Contains(page.body, `id="language-select"`) || !strings.Contains(page.body, "Preview change") {
+	if !strings.Contains(page.body, `id="settings-form"`) ||
+		!strings.Contains(page.body, `id="language-select"`) {
 		t.Fatalf("settings form missing")
 	}
 }

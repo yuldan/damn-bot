@@ -1,6 +1,8 @@
 // One-use link exchange (GAP-SEC-07). The nonce travels in the URL fragment,
 // so it is never sent to the server, logged, or kept in the history entry.
+// Messages come from the catalog via data-msg-* attributes (GAP-INF-08).
 const status = document.querySelector("#status");
+const msg = document.body.dataset;
 
 function fail(text) {
   status.textContent = text;
@@ -10,7 +12,7 @@ const nonce = decodeURIComponent(location.hash.slice(1));
 history.replaceState(null, "", "/auth");
 
 if (!nonce) {
-  fail("Open the one-time link printed by `damnbot serve open`.");
+  fail(msg.msgNoNonce ?? "");
 } else {
   fetch("/auth/exchange", {
     method: "POST",
@@ -21,8 +23,8 @@ if (!nonce) {
       if (res.ok) {
         location.replace("/");
       } else {
-        fail("This link was already used or has expired.");
+        fail(msg.msgUsed ?? "");
       }
     })
-    .catch(() => fail("The local server did not answer."));
+    .catch(() => fail(msg.msgUnreachable ?? ""));
 }

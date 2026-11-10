@@ -1,41 +1,47 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{.Lang}}" dir="{{.Dir}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>damnbot settings</title>
+<title>{{.T "web.settings"}}</title>
 <meta name="damnbot-csrf" content="{{.CSRF}}">
 <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body>
+<body data-msg-preview-refused="{{.T "web.preview_refused"}}"
+      data-msg-review="{{.T "web.review_diff"}}"
+      data-msg-applied="{{.T "web.applied"}}"
+      data-msg-expired="{{.T "web.apply_expired"}}">
 <header class="bar">
-  <h1>Settings</h1>
-  <a href="/">Dashboard</a>
+  <h1>{{.T "web.settings"}}</h1>
+  <a href="/">{{.T "web.dashboard"}}</a>
 </header>
 <main>
   <section class="card">
-    <h2>Language</h2>
-    <p class="muted">Current: <strong id="language">{{.Language}}</strong> (config key <code>ui.language</code>).</p>
+    <h2>{{.T "web.language"}}</h2>
+    <p class="muted">{{.T "web.current" .Language}}</p>
     {{if .Writable}}
     <form id="settings-form">
-      <label for="language-select">Language</label>
+      <label for="language-select">{{.T "web.language"}}</label>
       <select id="language-select">
-        <option value="auto">auto</option>
+        <option value="auto">{{.T "web.auto"}}</option>
         {{range .Locales}}<option value="{{.}}">{{.}}</option>{{end}}
       </select>
-      <button type="submit">Preview change</button>
+      <button type="submit">{{.T "web.preview"}}</button>
     </form>
     <pre id="diff" class="diff" hidden></pre>
-    <button id="apply" type="button" hidden>Apply change</button>
+    <button id="apply" type="button" hidden>{{.T "web.apply"}}</button>
     <p id="settings-status" class="muted"></p>
     {{else}}
-    <p class="muted">This build keeps settings read-only.</p>
+    <p class="muted">{{.T "web.readonly"}}</p>
+    <ul id="locales">
+      {{range .Locales}}<li>{{.}}</li>{{end}}
+    </ul>
     {{end}}
   </section>
   <script type="module" src="/assets/settings.js"></script>
   <section class="card">
-    <h2>Theme</h2>
-    <p class="muted">The dashboard follows the terminal theme family (`tern-dark` by default).</p>
+    <h2>{{.T "web.theme"}}</h2>
+    <p class="muted">{{.T "web.theme_note"}}</p>
   </section>
 </main>
 </body>

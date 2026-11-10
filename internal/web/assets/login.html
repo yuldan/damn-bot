@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{.Lang}}" dir="{{.Dir}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>damnbot sign in</title>
+<title>{{.T "web.signin"}}</title>
 <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body>
+<body data-msg-no-nonce="{{.T "web.no_nonce"}}" data-msg-used="{{.T "web.link_used"}}" data-msg-unreachable="{{.T "web.unreachable"}}">
 <main class="card signin">
-  <h1>damnbot</h1>
-  <p id="status" class="muted">Signing in…</p>
+  <h1>{{.T "web.title"}}</h1>
+  <p id="status" class="muted">{{.T "web.signing_in"}}</p>
 </main>
 <script type="module" src="/assets/login.js"></script>
 </body>
