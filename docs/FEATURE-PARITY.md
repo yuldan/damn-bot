@@ -71,7 +71,7 @@ ls locales/*.yaml | grep -v tui              # 17 bahasa
 ```
 
 Konvensi kolom:
-- **status** (ditambahkan integrasi Spec 1.0, ADR-022/033/034): `planned` = wajib ada di 1.0; `LULUS` = baris dibangun dan ditutup oleh ledger acceptance fase-nya (ADR-323); `dropped-with-approval (NP-xx)` = di-drop dengan persetujuan user tercatat di ADR-022 (tabel NP di akhir dokumen); `external-bridge (ADR-034)` = dipenuhi lewat proses terpisah opsional di luar binary `damnbot`. Rekap: planned 702, LULUS 134, dropped-with-approval 17, external-bridge 1 (total 854). Penyebut gate parity SCORECARD [I] = 854 − 17 = 837 (planned + LULUS + external-bridge). Kolom `status` selalu sel terakhir baris. Kolom `fase` diisi per baris dari tabel "Pemetaan parity → fase" di ROADMAP (ADR-063 N-33, ADR-064) dan dicek `TestParityPhaseColumn` (837/837); keputusan judgement per baris tercatat di ADR-064. Kolom `modul` diturunkan dari prefix lewat SPEC §8; kolom `test`/`bench` diisi saat fase pembangunnya (aturan di SPEC §8).
+- **status** (ditambahkan integrasi Spec 1.0, ADR-022/033/034): `planned` = wajib ada di 1.0; `LULUS` = baris dibangun dan ditutup oleh ledger acceptance fase-nya (ADR-323); `dropped-with-approval (NP-xx)` = di-drop dengan persetujuan user tercatat di ADR-022 (tabel NP di akhir dokumen); `external-bridge (ADR-034)` = dipenuhi lewat proses terpisah opsional di luar binary `damnbot`. Rekap: planned 699, LULUS 137, dropped-with-approval 17, external-bridge 1 (total 854). Penyebut gate parity SCORECARD [I] = 854 − 17 = 837 (planned + LULUS + external-bridge). Kolom `status` selalu sel terakhir baris. Kolom `fase` diisi per baris dari tabel "Pemetaan parity → fase" di ROADMAP (ADR-063 N-33, ADR-064) dan dicek `TestParityPhaseColumn` (837/837); keputusan judgement per baris tercatat di ADR-064. Kolom `modul` diturunkan dari prefix lewat SPEC §8; kolom `test`/`bench` diisi saat fase pembangunnya (aturan di SPEC §8).
 - **fase** (ADR-064): `F1`..`F9` = fase pembangun baris; nilainya wajib salah satu fase yang selnya tidak kosong untuk prefix baris itu di tabel "Pemetaan parity → fase" ROADMAP. `—` = baris `dropped-with-approval` (tidak dibangun). Letaknya tepat sebelum kolom `status`. ADR-139: baris permukaan slash yang kapabilitasnya sudah ada di F2 berfase F3 (REPL/TUI), dan tiga baris F2 dipindah (MEM-022 → F5; MEM-023, PLUG-014 → F8).
 - **Sumber**: `path:line` bila spesifik (baris dihitung otomatis dari pola definisi), path saja bila fitur berbasis modul.
 - **Default**: dari `hermes_cli/config_defaults.py` (kunci config dikutip), `toolsets.py` (`_HERMES_CORE_TOOLS`), dan `hermes_cli/tools_config.py:110` (`_DEFAULT_OFF_TOOLSETS`). "opt-in" = harus dipanggil/diaktifkan pengguna; "tersedia" = command selalu ada.
@@ -743,13 +743,13 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | PLUG-016 | Plugin: dashboard_auth | 4 provider auth dashboard | `plugins/dashboard_auth/_shared.py` | opt-in | — | lihat UI | F8 | LULUS |
 | PLUG-017 | Plugin: disk-cleanup | Bersihkan file ephemeral | `plugins/disk-cleanup/disk_cleanup.py` | opt-in | — |  | F8 | LULUS |
 | PLUG-018 | Plugin: google_meet | Join Google Meet, transkripsi caption, bicara realtime | `plugins/google_meet/plugin.yaml`, `plugins/google_meet/meet_bot.py` | opt-in | extra `google-meet` (playwright), Node |  | F8 | LULUS |
-| PLUG-019 | Plugin: hermes-achievements | Achievement/gamifikasi di dashboard | `plugins/hermes-achievements/README.md` | opt-in | — |  | F8 | planned |
+| PLUG-019 | Plugin: hermes-achievements | Achievement/gamifikasi di dashboard | `plugins/hermes-achievements/README.md` | opt-in | — |  | F8 | LULUS |
 | PLUG-020 | Plugin: image_gen | 8 backend generate gambar | `plugins/image_gen/_common.py` | opt-in | lihat MEDIA |  | F6 | LULUS |
 | PLUG-021 | Plugin: kanban (dashboard, systemd) | UI dashboard kanban & unit systemd | `plugins/kanban/dashboard`, `plugins/kanban/systemd` | opt-in | systemd |  | F7 | LULUS |
 | PLUG-022 | Plugin: memory | Slot/plugin memory provider (Honcho) (V-30/ADR-054; byterover/retaindb = MEM-006/MEM-007, NP-21) | `plugins/memory/__init__.py` | off | lihat MEM |  | F8 | planned |
 | PLUG-023 | Plugin: model-providers | 41 direktori profil provider model | `plugins/model-providers/README.md` | on (bundled) | lihat PROV |  | F5 | planned |
 | PLUG-024 | Plugin: platforms | 27 adapter platform chat | `gateway/platforms/ADDING_A_PLATFORM.md` | per-platform | lihat PLAT |  | F7 | LULUS |
-| PLUG-025 | Plugin: security-guidance | Peringatan keamanan pada hasil write file | `plugins/security-guidance/plugin.yaml`, `plugins/security-guidance/patterns.py` | opt-in | — |  | F8 | planned |
+| PLUG-025 | Plugin: security-guidance | Peringatan keamanan pada hasil write file | `plugins/security-guidance/plugin.yaml`, `plugins/security-guidance/patterns.py` | opt-in | — |  | F8 | LULUS |
 | PLUG-026 | Plugin: teams_pipeline | Pipeline rapat Microsoft Teams via Graph | `plugins/teams_pipeline/plugin.yaml`, `plugins/teams_pipeline/pipeline.py` | opt-in | Microsoft Graph creds |  | F8 | LULUS |
 | PLUG-027 | Plugin: video_gen | 4 backend generate video | `plugins/video_gen/xai/plugin.yaml` | opt-in | lihat MEDIA |  | F6 | LULUS |
 | PLUG-028 | Plugin: web | 11 backend web search/extract | `plugins/web/__init__.py` | auto (`web.backend: ""`) | lihat EXEC/TOOL |  | F6 | LULUS |
@@ -759,7 +759,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | PLUG-032 | MCP catalog/picker | Pilih & pasang MCP dari optional-mcps | `hermes_cli/mcp_catalog.py`, `hermes_cli/mcp_picker.py` | opt-in | — |  | F5 | planned |
 | PLUG-033 | MCP security scan | Audit server MCP (OSV) | `hermes_cli/mcp_security.py` | opt-in | OSV.dev |  | F5 | planned |
 | PLUG-034 | Optional MCPs (65) | Manifest MCP remote yang disetujui Nous | `optional-mcps/linear/manifest.yaml` | opt-in | semua transport http; oauth 55, none 10 | daftar di kategori MCPX | F5 | planned |
-| PLUG-035 | Connectors (hosted) | Connector app hosted + akun, via tool manage_connections | `tools/connectors/tool.py`, `hermes_cli/connectors_cmd.py` | on (`tools.connectors.enabled`) | Nous Portal |  | F8 | planned |
+| PLUG-035 | Connectors (hosted) | Connector app hosted + akun, via tool manage_connections | `tools/connectors/tool.py`, `hermes_cli/connectors_cmd.py` | on (`tools.connectors.enabled`) | Nous Portal |  | F8 | LULUS |
 | PLUG-036 | Tool search / deferred tools | Tool ditunda, ditemukan via pencarian katalog | `tools/tool_search.py`, `tools/tool_search_catalog.py` | auto (`tools.tool_search.enabled: auto`) | — | daftar defer di config | F2 | planned |
 
 ## 9b. PLUG — optional MCPs (65 manifest)
