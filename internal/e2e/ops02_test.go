@@ -131,6 +131,7 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"feishu":             {"tool", "enabled"},
 		"teams":              {"tool", "enabled"},
 		"graph":              {"tool", "enabled"},
+		"memory-honcho":      {"tool", "enabled"},
 	}
 	if !background {
 		want["update"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}
