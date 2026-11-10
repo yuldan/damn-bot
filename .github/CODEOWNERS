@@ -33,6 +33,7 @@
 /internal/modules/ @yuldan
 /internal/mcp/ @yuldan
 /internal/memory/ @yuldan
+/internal/memoryproviders/ @yuldan
 /internal/media/ @yuldan
 /internal/importer/ @yuldan
 /internal/codeintel/ @yuldan

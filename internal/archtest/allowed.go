@@ -109,6 +109,9 @@ func allowedImports() map[string][]string {
 		"internal/doctor":            {"internal/ctxdb", "internal/gateway"},
 		"internal/compaction":        {"internal/loop/event", "internal/budget"},
 		"internal/memory":            {"internal/redact"},
+		// F8 external memory providers (MEM-005/008, ADR-340): the framework
+		// owns its HTTP seam and uses the shared redactor for error text.
+		"internal/memoryproviders": {"internal/redact"},
 
 		"internal/journal":   {"internal/loop/event", "internal/sandbox"},
 		"internal/budget":    nil,

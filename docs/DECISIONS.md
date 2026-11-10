@@ -6715,3 +6715,14 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Bukti.** `TestWebListenConflict` (port sama, wildcard vs loopback dua arah, IPv6 wildcard/loopback, port beda, host beda, mode polling, unix) dan `TestF8WebServe` (binary nyata: remote tanpa `allow_remote` exit 78). Nol perubahan default, dependency, atau budget.
 
 **Konsekuensi.** (+) Tidak ada kejutan bagi deployment lama; konflik selalu gagal cepat dengan pesan actionable. (+) Satu sumber kebenaran: SPEC tetap memegang default web. (−) Operator yang mengaktifkan webhook pada port default harus menyetel salah satu knob secara eksplisit; ini disengaja (fail-closed, bukan autodetect).
+## ADR-340 — Memory providers F8: registry tertutup, seam HTTP, dan batas bersama (MEM-005/008)
+
+**Status:** Accepted 2026-11-09 (F8; melanjutkan ADR-330). Diperluas oleh slice Honcho dan wiring di stack yang sama.
+
+**Konteks.** SPEC §9.10 menetapkan satu memory provider eksternal, Honcho, dengan `<untrusted>`, cap bersama retrieval 800 token, timeout 1,5 s, dan upload ≤ 1 MiB/item; ByteRover/RetainDB tidak di-port (GAP-PROV-05, NP-21/ADR-033). SPEC §3.2.4/ADR-330 mengalokasikan `MODULE memprovider` 1.000 LOC tetapi barisnya belum dibukukan.
+
+**Keputusan.** (1) `internal/memoryproviders.Builtin()` berisi tepat satu provider, `honcho`; `Lookup` mengembalikan `ErrDropped` untuk `byterover`/`retaindb` dengan alasan NP-21 dan `ErrUnknownProvider` untuk nama lain. (2) Satu client menegakkan timeout 1,5 s per operasi, cap 800 token, upload ≤ 1 MiB/item, label sumber `[a-z0-9:_-]`, `Snippet.Wrapped()` yang menetralkan setiap varian `</untrusted>`, serta error ter-redaksi lewat `internal/redact`. (3) HTTP adalah seam `Doer` yang diinjeksi; tidak ada lane `netx` baru. (4) Baris `MODULE memprovider 1000 internal/memoryproviders` dibukukan (terukur 304 pada slice ini); Σ core tidak berubah.
+
+**Bukti.** `TestF8MEMProviderRegistryClosed`, `TestF8MemProviderDrop`, `TestF8MemProviderTimeout`, `TestF8MemProviderUntrusted`, `TestF8MemProviderRedactsError`, `TestExternalMemoryUploadCap`, `TestF8MemProviderTokenCap`.
+
+**Konsekuensi.** (+) Batas dan redaksi hidup di satu tempat, dan default-off tidak membuat transport. (−) Implementasi Honcho dan wiring config menyusul di stack yang sama; nama provider tetap terdaftar tetapi `Open` gagal-tertutup sampai slice itu mendarat.
