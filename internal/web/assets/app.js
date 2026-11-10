@@ -48,6 +48,45 @@ function openStream(ticket) {
   return stream;
 }
 
+// Approval modal focus trap (GAP-UX-07): Tab cycles inside the dialog and
+// Escape refuses, so keyboard-only users never lose the focus ring.
+const dialog = document.querySelector("#approval");
+const trap = () => {
+  const buttons = dialog.querySelectorAll("button");
+  if (buttons.length === 0) return;
+  const first = buttons[0];
+  const last = buttons[buttons.length - 1];
+  dialog.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      dialog.close();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+};
+
+// Streaming text is batched per sentence and appended as one semantic article
+// block, never one live-region update per token.
+function appendBlock(role, text) {
+  const article = document.createElement("article");
+  const heading = document.createElement("h3");
+  heading.textContent = role;
+  const body = document.createElement("p");
+  body.textContent = text;
+  article.appendChild(heading);
+  article.appendChild(body);
+  document.querySelector("#transcript").appendChild(article);
+}
+
+trap();
+
 logout.addEventListener("click", () => {
   fetch("/api/logout", {
     method: "POST",

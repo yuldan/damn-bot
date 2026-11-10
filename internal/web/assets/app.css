@@ -87,3 +87,19 @@ button:hover { border-color: var(--accent); }
     scroll-behavior: auto !important;
   }
 }
+
+dialog {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  max-width: min(90vw, 480px);
+}
+
+dialog::backdrop { background: rgb(0 0 0 / 0.6); }
+
+dialog button { margin-left: 8px; }
+
+article { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+
+article h3 { font-size: 13px; margin: 0 0 4px; color: var(--muted); }

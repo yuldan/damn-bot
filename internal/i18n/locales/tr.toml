@@ -50,3 +50,5 @@
 "critical.budget.title" = "Bütçe"
 "critical.safe_mode.title" = "GÜVENLİ MOD"
 "web.waiting_provider" = "Sağlayıcı bekleniyor %d sn"
+"web.approve" = "Onayla"
+"web.deny" = "Reddet"

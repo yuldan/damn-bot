@@ -50,3 +50,5 @@
 "critical.budget.title" = "預算"
 "critical.safe_mode.title" = "安全模式"
 "web.waiting_provider" = "正在等待供應商 %d 秒"
+"web.approve" = "核准"
+"web.deny" = "拒絕"

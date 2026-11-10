@@ -50,3 +50,5 @@
 "critical.budget.title" = "Бюджет"
 "critical.safe_mode.title" = "БЕЗОПАСНЫЙ РЕЖИМ"
 "web.waiting_provider" = "Ожидание провайдера %d с"
+"web.approve" = "Одобрить"
+"web.deny" = "Отклонить"

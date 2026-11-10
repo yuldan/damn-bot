@@ -50,3 +50,5 @@
 "critical.budget.title" = "الميزانية"
 "critical.safe_mode.title" = "الوضع الآمن"
 "web.waiting_provider" = "في انتظار المزوّد %d ث"
+"web.approve" = "موافقة"
+"web.deny" = "رفض"

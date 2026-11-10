@@ -54,3 +54,5 @@
 "critical.budget.title" = "Budget"
 "critical.safe_mode.title" = "SAFE MODE"
 "web.waiting_provider" = "Waiting for provider %d s"
+"web.approve" = "Approve"
+"web.deny" = "Deny"

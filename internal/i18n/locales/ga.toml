@@ -50,3 +50,5 @@
 "critical.budget.title" = "Buiséad"
 "critical.safe_mode.title" = "MÓD SÁBHÁILTE"
 "web.waiting_provider" = "Ag fanacht leis an soláthraí %d s"
+"web.approve" = "Ceadaigh"
+"web.deny" = "Diúltaigh"

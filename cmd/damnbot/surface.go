@@ -117,9 +117,17 @@ func surfaceHelp(stdout, stderr io.Writer, topic []string) int {
 		writeSurfaceList(stdout, locale)
 		return 0
 	case 1:
+	case 2:
+		if topic[0] != "docs" {
+			sessionsPrintf(stderr, "help: one topic expected, got %d\n", len(topic))
+			return 2
+		}
 	default:
 		sessionsPrintf(stderr, "help: one topic expected, got %d\n", len(topic))
 		return 2
+	}
+	if topic[0] == "docs" {
+		return helpDocsCommand(topic[1:], stdout, stderr)
 	}
 	e, ok := lookupSurface(topic[0])
 	if !ok {

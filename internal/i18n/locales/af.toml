@@ -50,3 +50,5 @@
 "critical.budget.title" = "Begroting"
 "critical.safe_mode.title" = "VEILIGE MODUS"
 "web.waiting_provider" = "Wag op die verskaffer %d s"
+"web.approve" = "Goedkeur"
+"web.deny" = "Weier"
