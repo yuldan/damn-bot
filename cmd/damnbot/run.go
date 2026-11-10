@@ -767,3 +767,16 @@ func (c ctxSpill) Get(ctx context.Context, sha string) ([]byte, error) {
 	}
 	return data, nil
 }
+
+// replyLanguage resolves `[ui] reply_language` for the stable tier: auto adds
+// no line, follow_ui uses the resolved UI language, and a code is itself.
+func replyLanguage(cfg *config.Config) string {
+	switch cfg.UI.ReplyLanguage {
+	case "", "auto":
+		return ""
+	case "follow_ui":
+		return i18n.Resolve(cfg.UI.Language)
+	default:
+		return i18n.Resolve(cfg.UI.ReplyLanguage)
+	}
+}

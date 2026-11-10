@@ -60,6 +60,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.healthz(w)
 	case strings.HasPrefix(p, "/assets/"):
 		s.asset(w, r)
+	case p == "/manifest.webmanifest" || p == "/sw.js" || p == "/icon-192.png" || p == "/icon-512.png":
+		s.pwaFile(w, r, strings.TrimPrefix(p, "/"))
 	case s.authRoute(w, r, p):
 	case s.apiRoute(w, r, p):
 	case s.settingsRoute(w, r, p):

@@ -129,7 +129,7 @@ func servableAsset(name string) bool {
 		return false
 	}
 	switch path.Ext(name) {
-	case ".js", ".css", ".svg", ".woff2":
+	case ".js", ".css", ".svg", ".png", ".woff2":
 		return true
 	default:
 		return false
