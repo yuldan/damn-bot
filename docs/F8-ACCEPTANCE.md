@@ -1,9 +1,8 @@
 # F8-ACCEPTANCE — Ledger acceptance F8 (web UI, ekosistem, otomatisasi)
 
-Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `0e8101d04`. Dari 167 baris data, **79 `LULUS`** (74 parity + 5 GAP), **86 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
+Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `7f8fbeaac`. Dari 167 baris data, **82 `LULUS`** (77 parity + 5 GAP), **83 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
 
-Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 74 `LULUS`, 74 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
-
+Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 77 `LULUS`, 71 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
 Aturan gate:
 
 - **Penutupan (ADR-330, melanjutkan ADR-326/ADR-323).** Baris hanya `LULUS` bila PR yang sama menambah tes bernama, mengubah baris parity F8 menjadi `LULUS`, dan mengubah baris ledger `BELUM`→`LULUS`. Baris yang tidak dapat dibuktikan ditulis `N/A — <alasan teknis> (carryover F9)`, bukan `BELUM`. Baris agregat hanya `LULUS` setelah semua anggota tertutup.
@@ -195,9 +194,9 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
 | PLUG-009 | Plugin catalog (645 entri) | katalog pihak ketiga SHA-pinned; signature + anti-rollback; entri rusak ditolak | `TestF8PLUG009PluginCatalog`, `TestF8PluginCatalog645` | LULUS | `internal/plugins/catalog` + `internal/plugins/resolve` + `damnbot plugins list\|show\|verify` (ADR-345, `internal/plugins/catalog/plugins.tsv`); signature/anti-rollback manifest provider/MCP: `internal/mcp/catalog` (GAP-SEC-20) |
-| PLUG-014 | Plugin: context_engine | slot engine konteks alternatif; default off; engine asing ditolak | `TestF8PLUG014ContextEngine` | BELUM | MEM-023 |
-| PLUG-016 | Plugin: dashboard_auth | 4 provider auth dashboard; token hanya cookie/session store | `TestF8PLUG016DashboardAuth` | BELUM | UI-015 |
-| PLUG-017 | Plugin: disk-cleanup | bersihkan file ephemeral; dry-run + allowlist path | `TestF8PLUG017DiskCleanup` | BELUM | AUTO-030 |
+| PLUG-014 | Plugin: context_engine | slot engine konteks alternatif; default off; engine asing ditolak | `TestF8PLUG014ContextEngine` | LULUS | `internal/plugins/builtin` context-engine seam (default off, foreign engine rejected; `internal/memoryproviders`, ADR-345) |
+| PLUG-016 | Plugin: dashboard_auth | 4 provider auth dashboard; token hanya cookie/session store | `TestF8PLUG016DashboardAuth` | LULUS | `internal/plugins/builtin` four dashboard auth providers basic/drain/nous_oauth/oidc_self_hosted; token only via web session store (ADR-345) |
+| PLUG-017 | Plugin: disk-cleanup | bersihkan file ephemeral; dry-run + allowlist path | `TestF8PLUG017DiskCleanup` | LULUS | `internal/plugins/builtin` disk-cleanup seam: dry-run default + allowlist, delegates AUTO-030 `internal/auto` (ADR-345) |
 | PLUG-018 | Plugin: google_meet | join Meet, transkripsi caption, bicara realtime; pengumuman consent ≤ 10 s | `TestF8PLUG018GoogleMeet`, `TestF8MeetConsent` | LULUS | GAP-GW-12 |
 | PLUG-019 | Plugin: hermes-achievements | achievement/gamifikasi dashboard; event lokal 0 LLM call | `TestF8PLUG019Achievements` | BELUM | — |
 | PLUG-022 | Plugin: memory | slot/plugin memory provider (Honcho); provider tunggal; ByteRover/RetainDB drop | `TestF8PLUG022MemoryProvider` | BELUM | MEM-005; NP-21 |
@@ -284,4 +283,4 @@ Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 
 - Baris agregat §1: **7**. Jumlah baris data ledger: **167** (148 parity + 17 GAP + 0 EC + 2 carryover); total baris ledger termasuk agregat: **174**.
 - Katalog SKCAT: **58 bundled + 153 optional = 211** skill; PLUG-009 = **645** entri.
 - Budget F8: **22.800 Go** (`maxF8ModuleLOC`, ADR-345) + **≈9.900 JS/CSS** (≤ 10.000, SPEC §3.2.4); `maxModuleLOC` **132.000**.
-- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada `274a58935`: 167 baris data dengan **79 `LULUS`** (74 parity + 5 GAP), **86 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.
+- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada `274a58935`: 167 baris data dengan **82 `LULUS`** (77 parity + 5 GAP), **83 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.
