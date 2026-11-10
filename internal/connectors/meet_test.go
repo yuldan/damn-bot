@@ -22,7 +22,7 @@ func meetModule(t *testing.T, node, goos string) *Module {
 		t.Fatalf("meet raw: %v", err)
 	}
 	cfg := Config{Enabled: true, Timeout: 5 * time.Second, Meet: raw}
-	m := New(&cfg, Deps{Secrets: testSecrets, GOOS: goos, Now: time.Now, InsecureTestNode: true})
+	m := New(&cfg, Deps{Secrets: testSecrets, GOOS: goos, Now: time.Now, Manage: &ManageDeps{InsecureTestNode: true}})
 	if err := m.Start(t.Context()); err != nil {
 		t.Fatalf("start: %v", err)
 	}

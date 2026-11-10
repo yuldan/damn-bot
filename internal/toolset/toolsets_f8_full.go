@@ -14,6 +14,8 @@ func f8Toolsets() []Definition {
 			"feishu_drive_reply_comment", "feishu_drive_add_comment",
 		}},
 		{Name: "x_search", Description: "Search X posts and threads through xAI (default off)", Tools: []string{"x_search"}},
+		{Name: "connections", Description: "Manage hosted connector accounts and vault references (default off)", Tools: []string{"manage_connections"}},
+		{Name: "catalog", Description: "Search the plugin catalog and request installs through the desktop card (default off)", Tools: []string{"manage_catalog"}},
 		{
 			Name: "desktop_ui", Description: "Desktop and web GUI pane, preview, terminal, theme and tip tools (default off)",
 			Tools: []string{

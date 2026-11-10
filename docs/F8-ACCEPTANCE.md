@@ -36,7 +36,7 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | CLI-050 | `damnbot pets` | 8 sub (list, install, select, show, off, scale, remove, doctor); fetch petdex opt-in fake server; 0 aset eksternal runtime | `TestF8CLI050Pets` | BELUM | UI-010 |
 | CLI-051 | `damnbot journey` | alias `learning`, `memory-graph`; tiga sub list/delete/edit; timeline kronologis tanpa duplikat | `TestF8CLI051Journey` | BELUM | MEM-035 |
 | CLI-052 | `damnbot memory` | empat sub setup/status/off/reset; provider tunggal aktif; config hanya referensi secret | `TestF8CLI052Memory` | BELUM | MEM-005/008 |
-| CLI-056 | `damnbot connectors` | lima sub list/accounts/connect/rename/disconnect; akun hosted; 0 token di output | `TestF8CLI056Connectors` | BELUM | PLUG-035 |
+| CLI-056 | `damnbot connectors` | lima sub list/accounts/connect/rename/disconnect; akun hosted; 0 token di output | `TestF8CLI056Connectors` | LULUS | PLUG-035 |
 | CLI-058 | `damnbot insights` | analitik pemakaian dari ledger; filter periode; 0 secret | `TestF8CLI058Insights` | LULUS | OPS-016 |
 | CLI-060 | `damnbot monitoring` | satu sub `status`; health gateway + ekspor diagnostik ter-redaksi | `TestF8CLI060Monitoring` | LULUS | OPS-018 |
 | CLI-068 | `damnbot dashboard` | satu sub `register`; menyajikan aset embedded; 0 URL eksternal | `TestF8CLI068Dashboard` | LULUS | UI-014/GAP-UX-08 |
@@ -62,8 +62,8 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| TOOL-020 | `manage_catalog` | kartu approval instalasi plugin/skill; hanya sesi GUI; ack diketik untuk entri `tos_risk=high` | `TestF8TOOL020ManageCatalog` | BELUM | TSET-011 |
-| TOOL-024 | `manage_connections` | kelola akun connector hosted + link otorisasi; opt-in; token hanya referensi vault | `TestF8TOOL024ManageConnections` | BELUM | TSET-010 |
+| TOOL-020 | `manage_catalog` | kartu approval instalasi plugin/skill; hanya sesi GUI; ack diketik untuk entri `tos_risk=high` | `TestF8TOOL020ManageCatalog` | LULUS | TSET-011 |
+| TOOL-024 | `manage_connections` | kelola akun connector hosted + link otorisasi; opt-in; token hanya referensi vault | `TestF8TOOL024ManageConnections` | LULUS | TSET-010 |
 | TOOL-027 | `annotate_preview` | anotasi elemen pane preview; target harus pane aktif | `TestF8TOOL027AnnotatePreview` | LULUS | TSET-002 |
 | TOOL-028 | `close_terminal` | tutup pane terminal desktop; pane asing ditolak | `TestF8TOOL028CloseTerminal` | LULUS | — |
 | TOOL-029 | `desktop_preview` | buka file/URL di pane preview; path workspace atau URL https | `TestF8TOOL029DesktopPreview` | LULUS | — |
@@ -91,8 +91,8 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
 | TSET-002 | toolset `desktop_ui` | 11 tool, default off, hanya surface desktop/web; 0 shell/write | `TestF8TSET002DesktopUI` | LULUS | TOOL-027..037,071,072 |
-| TSET-010 | toolset `connections` | 1 tool `manage_connections`, default off | `TestF8TSET010Connections` | BELUM | — |
-| TSET-011 | toolset `catalog` | 1 tool `manage_catalog`, default off | `TestF8TSET011Catalog` | BELUM | — |
+| TSET-010 | toolset `connections` | 1 tool `manage_connections`, default off | `TestF8TSET010Connections` | LULUS | — |
+| TSET-011 | toolset `catalog` | 1 tool `manage_catalog`, default off | `TestF8TSET011Catalog` | LULUS | — |
 | TSET-014 | toolset `discord` | 1 tool, default off, hanya bila adapter Discord aktif | `TestF8TSET014Discord` | LULUS | PLAT-005 |
 | TSET-015 | toolset `discord_admin` | 1 tool, default off, scope admin eksplisit | `TestF8TSET015DiscordAdmin` | LULUS | — |
 | TSET-016 | toolset `feishu_doc` | 1 tool, default off | `TestF8TSET016FeishuDoc` | LULUS | — |

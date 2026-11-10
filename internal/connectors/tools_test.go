@@ -11,8 +11,8 @@ import (
 func TestConnectorsToolCatalog(t *testing.T) {
 	t.Parallel()
 	tools := Tools()
-	if len(tools) != 14 {
-		t.Fatalf("tools = %d, want 14", len(tools))
+	if len(tools) != 16 {
+		t.Fatalf("tools = %d, want 16", len(tools))
 	}
 	names := make([]string, 0, len(tools))
 	for _, tool := range tools {

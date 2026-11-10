@@ -64,6 +64,16 @@ func TestF8TSET031XSearch(t *testing.T) {
 	f8Toolset(t, "x_search", []string{"x_search"})
 }
 
+func TestF8TSET010Connections(t *testing.T) {
+	t.Parallel()
+	f8Toolset(t, "connections", []string{"manage_connections"})
+}
+
+func TestF8TSET011Catalog(t *testing.T) {
+	t.Parallel()
+	f8Toolset(t, "catalog", []string{"manage_catalog"})
+}
+
 // TestF8TSETConnectorsBundle proves the composite bundle: it declares no
 // implementation of its own, includes the five per-surface toolsets, adds the
 // six tools that have no separate toolset, and resolves to the complete

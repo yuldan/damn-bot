@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -80,7 +81,8 @@ func TestF8CLI052Memory(t *testing.T) {
 }
 
 // TestF8CLI056Connectors covers list/accounts and the hosted-account
-// refusal without printing a token (CLI-056, PLUG-035).
+// lifecycle on the shared 0600 store; no subcommand accepts or prints a token
+// value (CLI-056, PLUG-035).
 func TestF8CLI056Connectors(t *testing.T) {
 	code, out, _ := runF8CLI(t, runConnectors, "list")
 	if code != f8ExitOK || !strings.Contains(out, "graph scopes=3 tools=3") || !strings.Contains(out, "feishu") {
@@ -93,20 +95,61 @@ enabled = true
 enabled = true
 client_secret_env = "GRAPH_SECRET"
 `)
-	code, out, _ = runF8CLI(t, runConnectors, "--config", cfg, "accounts")
+	dir := t.TempDir()
+	code, out, _ = runF8CLI(t, runConnectors, "--config", cfg, "--data-dir", dir, "accounts")
 	if code != f8ExitOK || !strings.Contains(out, "graph enabled=true secret_env=GRAPH_SECRET") {
 		t.Fatalf("accounts = %d %q", code, out)
 	}
 	if strings.Contains(out, "secret-value") {
 		t.Fatalf("account token leaked: %q", out)
 	}
-	for _, sub := range []string{"connect", "rename", "disconnect"} {
-		code, _, errs := runF8CLI(t, runConnectors, sub, "graph", "x")
-		if code != f8ExitUnavailable || !strings.Contains(errs, "module_unavailable") {
-			t.Fatalf("%s = %d %q", sub, code, errs)
-		}
+	cliConnectorsLifecycle(t, dir)
+	unknown, _, _ := runF8CLI(t, runConnectors, "nope")
+	if unknown != f8ExitUsage {
+		t.Fatalf("unknown = %d", unknown)
 	}
-	if code, _, _ := runF8CLI(t, runConnectors, "nope"); code != f8ExitUsage {
-		t.Fatalf("unknown = %d", code)
+}
+
+func cliConnectorsLifecycle(t *testing.T, dir string) {
+	t.Helper()
+	code, out, errs := runF8CLI(t, runConnectors, "--data-dir", dir, "connect", "graph", "work", "Work mail")
+	if code != f8ExitOK || !strings.Contains(out, "connected graph/work token=keychain") || strings.Contains(out, "secret") || errs != "" {
+		t.Fatalf("connect = %d %q %q", code, out, errs)
+	}
+	code, out, _ = runF8CLI(t, runConnectors, "--data-dir", dir, "accounts")
+	if code != f8ExitOK || !strings.Contains(out, "hosted graph/work label=Work mail token=keychain") {
+		t.Fatalf("hosted accounts = %d %q", code, out)
+	}
+	cliConnectorsRenameDisconnect(t, dir)
+	info, err := os.Stat(filepath.Join(dir, "hosted.json"))
+	if err != nil {
+		t.Fatalf("store stat: %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("store mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
+func cliConnectorsRenameDisconnect(t *testing.T, dir string) {
+	t.Helper()
+	renamed, _, _ := runF8CLI(t, runConnectors, "--data-dir", dir, "rename", "graph", "work", "Renamed")
+	if renamed != f8ExitOK {
+		t.Fatalf("rename = %d", renamed)
+	}
+	code, out, _ := runF8CLI(t, runConnectors, "--data-dir", dir, "accounts")
+	if code != f8ExitOK || !strings.Contains(out, "hosted graph/work label=Renamed") {
+		t.Fatalf("renamed = %d %q", code, out)
+	}
+	foreign, _, _ := runF8CLI(t, runConnectors, "--data-dir", dir, "connect", "foreign", "x")
+	if foreign != f8ExitUsage {
+		t.Fatalf("foreign connector = %d", foreign)
+	}
+	disconnected, _, _ := runF8CLI(t, runConnectors, "--data-dir", dir, "disconnect", "graph", "work")
+	if disconnected != f8ExitOK {
+		t.Fatalf("disconnect = %d", disconnected)
+	}
+	code, out, _ = runF8CLI(t, runConnectors, "--data-dir", dir, "accounts")
+	if code != f8ExitOK || strings.Contains(out, "hosted graph/work") {
+		t.Fatalf("disconnected = %d %q", code, out)
 	}
 }
