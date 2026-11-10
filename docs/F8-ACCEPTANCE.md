@@ -31,7 +31,7 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
 | CLI-012 | `damnbot proxy` | tiga sub `start`, `status`, `providers`; proxy OpenAI-compatible ke provider OAuth; 0 token di output/log | `TestF8CLI012Proxy`, `TestF8CLI012ProxySubcommands` | BELUM | surface UI-022 |
-| CLI-030 | `damnbot project` | 11 sub (create, list, show, add-folder, remove-folder, rename, set-primary, use, archive, restore, bind-board); workspace multi-folder; path di luar workspace ditolak | `TestF8CLI030Project`, `TestF8CLI030ProjectSubcommands` | BELUM | OPS-038 |
+| CLI-030 | `damnbot project` | 11 sub (create, list, show, add-folder, remove-folder, rename, set-primary, use, archive, restore, bind-board); workspace multi-folder; path di luar workspace ditolak | `TestF8CLI030Project`, `TestF8CLI030ProjectSubcommands` | LULUS | OPS-038 |
 | CLI-036 | `damnbot dump` | ringkasan setup untuk dukungan; redaksi §14.3 + PII; 0 secret mentah | `TestF8CLI036Dump` | LULUS | OPS-010 |
 | CLI-037 | `damnbot debug` | dua sub `share`, `delete`; upload hanya opt-in dan terenkripsi; 0 host pastebin | `TestF8CLI037Debug` | LULUS | GAP-SEC-17 |
 | CLI-049 | `damnbot curator` | 17 sub (status, usage, run, pause, resume, pin, unpin, list-unmanaged, adopt, restore, list-archived, archive, prune, backup, rollback, ledger, purge); mutasi idempoten | `TestF8CLI049Curator`, `TestF8CLI049CuratorSubcommands` | BELUM | SKILL-021 |

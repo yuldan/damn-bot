@@ -152,3 +152,99 @@ func TestF8CLI058Insights(t *testing.T) {
 		t.Fatalf("negative days = %d", code)
 	}
 }
+
+func TestF8CLI030Project(t *testing.T) {
+	data := t.TempDir()
+	root := t.TempDir()
+	for _, name := range []string{"a", "b"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
+	code, out, errs := runF8CLI(t, runProject, "--data-dir", data, "create", "alpha", "--root", root, "--folder", a)
+	if code != f8ExitOK || !strings.Contains(out, "created project alpha") {
+		t.Fatalf("create = %d %q %q", code, out, errs)
+	}
+	if code, out, _ = runF8CLI(t, runProject, "--data-dir", data, "list"); code != f8ExitOK || !strings.Contains(out, "alpha folders=1") {
+		t.Fatalf("list = %d %q", code, out)
+	}
+	if _, out, _ = runF8CLI(t, runProject, "--data-dir", data, "show", "alpha"); !strings.Contains(out, "root: "+root) {
+		t.Fatalf("show = %q", out)
+	}
+	projectFolderChecks(t, data, a, b)
+	projectMetaChecks(t, data)
+	outside := t.TempDir()
+	code, _, errs = runF8CLI(t, runProject, "--data-dir", data, "add-folder", "beta", outside)
+	if code != f8ExitUsage || !strings.Contains(errs, "outside workspace") {
+		t.Fatalf("outside folder = %d %q", code, errs)
+	}
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(filepath.Join(data, "projects.json"))
+		if err != nil || fi.Mode().Perm() != 0o600 {
+			t.Fatalf("store mode = %v, %v", fi, err)
+		}
+	}
+}
+
+func projectFolderChecks(t *testing.T, data, a, b string) {
+	t.Helper()
+	code, out, errs := runF8CLI(t, runProject, "--data-dir", data, "add-folder", "alpha", b)
+	if code != f8ExitOK || !strings.Contains(out, "added folder") {
+		t.Fatalf("add-folder = %d %q %q", code, out, errs)
+	}
+	if code, out, _ = runF8CLI(t, runProject, "--data-dir", data, "add-folder", "alpha", b); code != f8ExitOK || !strings.Contains(out, "already listed") {
+		t.Fatalf("idempotent add-folder = %d %q", code, out)
+	}
+	if code, out, _ = runF8CLI(t, runProject, "--data-dir", data, "set-primary", "alpha", b); code != f8ExitOK || !strings.Contains(out, "primary alpha = "+b) {
+		t.Fatalf("set-primary = %d %q", code, out)
+	}
+	if _, out, _ = runF8CLI(t, runProject, "--data-dir", data, "remove-folder", "alpha", a); !strings.Contains(out, "removed folder") {
+		t.Fatalf("remove-folder = %q", out)
+	}
+}
+
+func projectMetaChecks(t *testing.T, data string) {
+	t.Helper()
+	code, out, _ := runF8CLI(t, runProject, "--data-dir", data, "rename", "alpha", "beta")
+	if code != f8ExitOK || !strings.Contains(out, "renamed alpha -> beta") {
+		t.Fatalf("rename = %d %q", code, out)
+	}
+	if code, out, _ = runF8CLI(t, runProject, "--data-dir", data, "use", "beta"); code != f8ExitOK || !strings.Contains(out, "current project beta") {
+		t.Fatalf("use = %d %q", code, out)
+	}
+	if _, out, _ = runF8CLI(t, runProject, "--data-dir", data, "bind-board", "beta", "main"); !strings.Contains(out, "bound beta board=main") {
+		t.Fatalf("bind-board = %q", out)
+	}
+	if _, out, _ = runF8CLI(t, runProject, "--data-dir", data, "list"); !strings.Contains(out, "*beta") {
+		t.Fatalf("current marker = %q", out)
+	}
+	if code, _, _ = runF8CLI(t, runProject, "--data-dir", data, "archive", "beta"); code != f8ExitOK {
+		t.Fatalf("archive = %d", code)
+	}
+	if _, out, _ = runF8CLI(t, runProject, "--data-dir", data, "list"); strings.Contains(out, "beta") {
+		t.Fatalf("archived still listed: %q", out)
+	}
+	if _, out, _ = runF8CLI(t, runProject, "--data-dir", data, "list", "--all"); !strings.Contains(out, "beta") {
+		t.Fatalf("list --all = %q", out)
+	}
+	if code, _, _ = runF8CLI(t, runProject, "--data-dir", data, "restore", "beta"); code != f8ExitOK {
+		t.Fatalf("restore = %d", code)
+	}
+}
+
+func TestF8CLI030ProjectSubcommands(t *testing.T) {
+	data := t.TempDir()
+	if code, _, errs := runF8CLI(t, runProject, "--data-dir", data, "nope"); code != f8ExitUsage || !strings.Contains(errs, "unknown subcommand") {
+		t.Fatalf("unknown = %d %q", code, errs)
+	}
+	if code, _, errs := runF8CLI(t, runProject, "--data-dir", data, "create", "Bad Name", "--root", t.TempDir()); code != f8ExitUsage || !strings.Contains(errs, "must match") {
+		t.Fatalf("bad name = %d %q", code, errs)
+	}
+	if code, _, _ := runF8CLI(t, runProject, "--data-dir", data, "show", "absent"); code != f8ExitFail {
+		t.Fatalf("show absent = %d", code)
+	}
+	if code, _, _ := runF8CLI(t, runProject); code != f8ExitUsage {
+		t.Fatalf("bare project = %d", code)
+	}
+}
