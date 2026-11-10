@@ -25,6 +25,7 @@ type turn struct {
 	history   []Message
 	out       chan<- event.Update
 	start     time.Time
+	monoStart time.Time
 
 	usage     event.Usage
 	tainted   bool
@@ -153,7 +154,7 @@ func (t *turn) preflight(ctx context.Context) (outcome, bool) {
 	if ctx.Err() != nil {
 		return t.cancelled(), true
 	}
-	if t.cfg.MaxWall > 0 && t.cfg.Now().Sub(t.start) > t.cfg.MaxWall {
+	if t.cfg.MaxWall > 0 && t.cfg.Since(t.monoStart) > t.cfg.MaxWall {
 		return outcome{stop: event.StopCancelled, detail: event.DetailMaxWall}, true
 	}
 	return outcome{}, false

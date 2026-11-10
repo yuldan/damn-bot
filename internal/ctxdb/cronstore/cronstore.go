@@ -6,6 +6,7 @@ package cronstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -22,6 +23,8 @@ type Job struct {
 	Prompt                       string
 	Owner, CatchUp, ApprovalMode string
 	Overlap, Gate                string
+	After                        []string
+	AfterTimeout                 time.Duration
 	MaxCatchUp                   int
 	Enabled                      bool
 	CreatedAt                    time.Time
@@ -51,19 +54,27 @@ func (s Store) Jobs(ctx context.Context) ([]Job, error) {
 		}
 		for _, id := range ids {
 			var (
-				j       Job
-				enabled int64
-				created int64
+				j        Job
+				enabled  int64
+				created  int64
+				afterRaw string
+				afterS   int64
 			)
 			err := tx.Get(`SELECT id, name, schedule, coalesce(tz, ''), cwd, prompt, approval_mode,
-					catch_up, max_catch_up, overlap, owner_identity, coalesce(gate, ''), enabled, created_at
+					catch_up, max_catch_up, overlap, owner_identity, coalesce(gate, ''), enabled, created_at,
+					after, after_timeout_s
 				FROM cron_jobs WHERE id = ?1`, []any{id},
 				&j.ID, &j.Name, &j.Schedule, &j.TZ, &j.Cwd, &j.Prompt, &j.ApprovalMode,
-				&j.CatchUp, &j.MaxCatchUp, &j.Overlap, &j.Owner, &j.Gate, &enabled, &created)
+				&j.CatchUp, &j.MaxCatchUp, &j.Overlap, &j.Owner, &j.Gate, &enabled, &created,
+				&afterRaw, &afterS)
 			if err != nil {
 				return fmt.Errorf("read job %s: %w", id, err)
 			}
 			j.Enabled, j.CreatedAt = enabled != 0, time.UnixMilli(created)
+			j.AfterTimeout = time.Duration(afterS) * time.Second
+			if err := json.Unmarshal([]byte(afterRaw), &j.After); err != nil {
+				return fmt.Errorf("read job %s after: %w", id, err)
+			}
 			out = append(out, j)
 		}
 		return nil
@@ -91,6 +102,23 @@ func (s Store) State(ctx context.Context, jobID string) (State, error) {
 		return State{}, nil
 	}
 	return State{Last: time.UnixMilli(last)}, nil
+}
+
+// RunAt returns the terminal run of jobID at the same slot.
+func (s Store) RunAt(ctx context.Context, jobID string, at time.Time) (rowID int64, session string, finished time.Time, ok bool, err error) {
+	var finishMs int64
+	err = s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT id, coalesce(session_id, ''), coalesce(finished_at, 0)
+			FROM cron_runs WHERE job_id = ?1 AND scheduled_at = ?2 AND outcome IS NOT NULL`,
+			[]any{jobID, at.UnixMilli()}, &rowID, &session, &finishMs)
+	})
+	if errors.Is(err, ctxdb.ErrNotFound) {
+		return 0, "", time.Time{}, false, nil
+	}
+	if err != nil {
+		return 0, "", time.Time{}, false, fmt.Errorf("run at %s: %w", jobID, err)
+	}
+	return rowID, session, time.UnixMilli(finishMs), true, nil
 }
 
 // Active counts open slots: started rows are running, unstarted rows queued.

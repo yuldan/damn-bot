@@ -384,18 +384,19 @@ type Spiller interface {
 
 // Config bounds one Loop. Zero values take the defaults in New.
 type Config struct {
-	MaxIterations   int           // default 40 (SPEC §3.4)
-	MaxInputTokens  int64         // turn input cap, 0 = unlimited
-	MaxOutputTokens int64         // turn output cap, 0 = unlimited
-	MaxWall         time.Duration // wall-clock cap, 0 = unlimited (REL-07)
-	MaxIdentical    int           // no_progress threshold, default 3 (COST-07)
-	MaxInline       int           // per-result inline chars, default 4000 (P5)
-	MaxInlineTurn   int           // turn aggregate inline chars, default 24000 (P5)
-	StreamBuffer    int           // stream channel capacity, default 16
-	ParallelTools   int           // concurrent read-effect dispatches, default 4
-	KillGrace       time.Duration // cancellation confirmation window, default 1s (REL-06)
-	CompactAt       int           // percent of window that triggers compaction, default 75
-	OverflowAt      int           // percent of window that stops the turn, default 90
+	MaxIterations   int                           // default 40 (SPEC §3.4)
+	MaxInputTokens  int64                         // turn input cap, 0 = unlimited
+	MaxOutputTokens int64                         // turn output cap, 0 = unlimited
+	MaxWall         time.Duration                 // wall-clock cap, 0 = unlimited (REL-07)
+	Since           func(time.Time) time.Duration // monotonic elapsed; 0 = time.Since
+	MaxIdentical    int                           // no_progress threshold, default 3 (COST-07)
+	MaxInline       int                           // per-result inline chars, default 4000 (P5)
+	MaxInlineTurn   int                           // turn aggregate inline chars, default 24000 (P5)
+	StreamBuffer    int                           // stream channel capacity, default 16
+	ParallelTools   int                           // concurrent read-effect dispatches, default 4
+	KillGrace       time.Duration                 // cancellation confirmation window, default 1s (REL-06)
+	CompactAt       int                           // percent of window that triggers compaction, default 75
+	OverflowAt      int                           // percent of window that stops the turn, default 90
 	Now             func() time.Time
 	NewTurnID       func() string
 }

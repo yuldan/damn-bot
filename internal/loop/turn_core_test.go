@@ -130,6 +130,7 @@ func TestCoreMaxWall(t *testing.T) {
 		}
 		return base.Add(2 * time.Second)
 	}
+	f.cfg.Since = func(time.Time) time.Duration { return 2 * time.Second }
 	if got := terminal(t, f.run(t)); got.Stop != event.StopCancelled || got.Detail != "max_wall" {
 		t.Fatalf("stop = %s/%s", got.Stop, got.Detail)
 	}

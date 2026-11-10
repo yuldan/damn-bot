@@ -11,9 +11,9 @@ import (
 // masuk Σ core. Preseden: baris infra non-produksi NEW-34 juga di luar Σ core; kelas MODULE selalu
 // dilewati `budgetCoreSum` dan tetap ditegakkan per-baris oleh `scripts/loc-check.sh budget`.
 const (
-	maxModuleLOC   = 132000 // Σ kelas MODULE: F3 19.800 + F4 18.700 + F5 20.300 + F6 24.500 = 83.300; + F7 25.100 = 108.400; + F8 allocation 22.800 = 131.200; installed F8 22.000 + F1–F7 108.400 = 130.400, +backup 1.467 = 131.867 ≤ 132.000 (ADR-330, ADR-345). F8 rows are booked by each package PR (ADR-326 pattern); none exist yet.
+	maxModuleLOC   = 132000 // Σ kelas MODULE: F3 19.800 + F4 18.712 + F5 20.300 + F6 24.500 = 83.312; + F7 25.100 = 108.412; + F8 allocation 22.800 = 131.212; installed F8 22.000 + F1–F7 108.412 = 130.412, +backup 1.467 = 131.879 ≤ 132.000 (ADR-330, ADR-345). F8 rows are booked by each package PR (ADR-326 pattern); none exist yet.
 	maxF3ModuleLOC = 21500  // ROADMAP F3 = 21.500 (tui + acp + importer/ops); F3 tanpa backup
-	maxF4ModuleLOC = 18700  // ROADMAP F4 = 20.000: heal core 1.500 + MODULE 18.700 (ADR-244, ADR-245, ADR-248)
+	maxF4ModuleLOC = 18712  // ROADMAP F4 = 20.012: heal core 1.500 + MODULE 18.712 (ADR-244, ADR-245, ADR-248, ADR-330 P1c)
 	maxF6ModuleLOC = 24500  // SPEC §3.2.4 F6: web 3.000 + browser 5.500 + media 9.500 + voice 4.500 + computer-use 2.000 (ADR-309/ADR-310)
 	maxF7ModuleLOC = 25100  // SPEC §3.2.4 F7: gwplat 13.000 + gwapi 3.000 + gwpeer 4.000 + gwwa 600 + gwmatrix 1.500 + kanban 3.000 (ADR-326)
 	maxF8ModuleLOC = 22800  // ROADMAP F8 = 22.800: web 5.000 + connectors 6.000 + skills-hub/memory-providers 3.500 + auto 4.000 + plugins 1.000 (ADR-345) + i18n 800 + batch 2.500 (ADR-330)
@@ -125,7 +125,7 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 	wantCaps := map[string]int{
 		"tui": 10000, "acp": 2500, "importer": 2600, "setup": 1300,
 		"doctor": 1100, "update": 1500, "profiles": 800,
-		"obs": 4000, "gateway": 9300, "gwstore": 1200, "cron": 3500, "cronstore": 200,
+		"obs": 4000, "gateway": 9300, "gwstore": 1200, "cron": 3500, "cronstore": 212,
 		"scorecard": 500, "mcp": 6500, "delegate": 2000, "backend": 4800, "codeintel": 7000, // mcp: SPEC §3.2.4:291, ADR-268; delegate: §3.2.4:290, ADR-273.
 		"webtools": 3000, "browser": 5500, "media": 9500, "voice": 4500, "computeruse": 2000, // SPEC §3.2.4, ADR-309; `web` dibangun sebagai internal/webtools.
 		"gwplat": 13000, "gwapi": 3000, "gwpeer": 4000, "gwwa": 600, "gwmatrix": 1500, "kanban": 3000, // SPEC §3.2.4 F7, ADR-326.
@@ -238,7 +238,7 @@ func f3ModuleFamily(name string) bool {
 	return name == "tui" || name == "acp" || f3OpsFamily(name)
 }
 
-// f4ModuleFamily: baris MODULE F4 (ADR-244, ADR-245, ADR-248); ROADMAP F4 = 20.000 termasuk `heal` core 1.500.
+// f4ModuleFamily: baris MODULE F4 (ADR-244, ADR-245, ADR-248); ROADMAP F4 = 20.012 termasuk `heal` core 1.500.
 func f4ModuleFamily(name string) bool {
 	switch name {
 	case "obs", "gateway", "gwstore", "cron", "cronstore", "scorecard":
