@@ -54,18 +54,38 @@ else
 	no "check 58% seharusnya gagal"
 fi
 
-scenario "check gagal di MemAvailable 8 GiB dan load1 6.0"
+scenario "check gagal di MemAvailable 8 GiB"
 if ! fake_env "$state" "$work" GUARD_FAKE_DF=36 GUARD_FAKE_MEMINFO=$((8 * 1024 * 1024)) \
 	"$GUARD" check >"$last_out" 2>&1 && contains "$last_out" 'GUARD GAGAL memory'; then
 	ok "check menolak avail 8 GiB di bawah 41% total"
 else
 	no "check seharusnya menolak MemAvailable 8 GiB"
 fi
-if ! fake_env "$state" "$work" GUARD_FAKE_DF=36 GUARD_FAKE_LOADAVG=6.0 \
-	"$GUARD" check >"$last_out" 2>&1 && contains "$last_out" 'GUARD GAGAL load'; then
-	ok "check menolak load1 > 5.5"
+scenario "load1 6,2 gagal (hard fail > 6.0)"
+if ! fake_env "$state" "$work" GUARD_FAKE_DF=36 GUARD_FAKE_LOADAVG='6.2 4.0 3.5' \
+	"$GUARD" check >"$last_out" 2>&1 &&
+	contains "$last_out" 'GUARD GAGAL load: load1=6.2 load5=4.0'; then
+	ok "load1 6,2 ditolak"
 else
-	no "check seharusnya menolak load1 6.0"
+	no "load1 6,2 seharusnya ditolak"
+fi
+
+scenario "load1 5,8 dengan load5 4,0 lolos dengan warning"
+if fake_env "$state" "$work" GUARD_FAKE_DF=36 GUARD_FAKE_LOADAVG='5.8 4.0 3.5' \
+	"$GUARD" check >"$last_out" 2>&1 &&
+	contains "$last_out" 'GUARD PERINGATAN load1: 5.8 > 5.5' && contains "$last_out" 'GUARD OK'; then
+	ok "load1 5,8 hanya warning dan exit 0"
+else
+	no "load1 5,8 seharusnya lolos dengan warning"
+fi
+
+scenario "load5 6,1 gagal meski load1 rendah"
+if ! fake_env "$state" "$work" GUARD_FAKE_DF=36 GUARD_FAKE_LOADAVG='4.0 6.1 3.5' \
+	"$GUARD" check >"$last_out" 2>&1 &&
+	contains "$last_out" 'GUARD GAGAL load: load1=4.0 load5=6.1'; then
+	ok "load5 6,1 ditolak"
+else
+	no "load5 6,1 seharusnya ditolak"
 fi
 
 scenario "ambang RAM berbasis persentase (41% MemTotal)"
@@ -99,7 +119,10 @@ else
 	no "report tabel tidak sesuai"
 fi
 if fake_env "$state" "$work" GUARD_FAKE_DF=36 "$GUARD" report --json >"$last_out" 2>&1 &&
-	contains "$last_out" '"disk_percent":36' && contains "$last_out" '"ok":true'; then
+	contains "$last_out" '"disk_percent":36' && contains "$last_out" '"load1":0.63' &&
+	contains "$last_out" '"load5":0.63' && contains "$last_out" '"load15":0.63' &&
+	contains "$last_out" '"load_limit":6.0' && contains "$last_out" '"load_warn_limit":5.5' &&
+	contains "$last_out" '"ok":true'; then
 	ok "report --json memuat nilai dan status"
 else
 	no "report --json tidak sesuai"
