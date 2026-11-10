@@ -927,7 +927,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | OPS-007 | Config management | config.yaml + .env, migrasi versi, backup config | `hermes_cli/config.py`, `hermes_cli/config_migrations.py`, `hermes_cli/config_backups.py` | on | — | `hermes config` | F3 | planned |
 | OPS-008 | Setup wizard | Setup interaktif provider/platform/terminal/TTS | `hermes_cli/setup.py`, `hermes_cli/setup_quick.py` | first run | — | `hermes setup` | F3 | planned |
 | OPS-009 | Logging | Log rotasi per komponen | `hermes_logging.py`, `hermes_cli/logs.py` | on (INFO, 5 MB × 3) | — | `hermes logs` | F1 | planned |
-| OPS-010 | Debug upload / dump | Upload laporan debug & dump setup | `hermes_cli/debug.py`, `hermes_cli/diagnostics_upload.py`, `hermes_cli/dump.py` | opt-in | Network | redaksi debug | F8 | planned |
+| OPS-010 | Debug upload / dump | Upload laporan debug & dump setup | `hermes_cli/debug.py`, `hermes_cli/diagnostics_upload.py`, `hermes_cli/dump.py` | opt-in | Network | redaksi debug | F8 | LULUS |
 | OPS-011 | Doctor | Cek config, dependensi, konektivitas, platform | `hermes_cli/doctor.py`, `hermes_cli/doctor_connectivity.py` | opt-in | — |  | F3 | planned |
 | OPS-012 | Status | Status semua komponen | `hermes_cli/status.py`, `hermes_cli/status_report.py` | opt-in | — | `/status` | F3 | planned |
 | OPS-013 | Usage / rate limits | Jendela rate limit akun & token usage | `agent/account_usage.py`, `agent/rate_limit_tracker.py`, `hermes_state_usage.py` | on | — | `hermes usage`, `/usage` | F3 | planned |

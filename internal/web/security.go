@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/i18n"
 )
@@ -291,10 +292,21 @@ func (s *Server) healthz(w http.ResponseWriter) {
 	}
 }
 
-// sessionInfo returns the principal only; the session token is never echoed.
+// ProviderWaitVisible is the REL-07 threshold: a turn silent this long is
+// reported to the web frontend as "menunggu provider".
+const ProviderWaitVisible = 10 * time.Second
+
+// sessionInfo returns the principal and, after the REL-07 threshold, the
+// provider wait in whole seconds. The session token is never echoed.
 func (s *Server) sessionInfo(w http.ResponseWriter, _ *http.Request, row *Session) {
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]string{"principal": row.Principal, "auth": s.cfg.Auth}); err != nil {
+	body := map[string]any{"principal": row.Principal, "auth": s.cfg.Auth}
+	if s.cfg.ProviderWait != nil {
+		if wait := s.cfg.ProviderWait(); wait >= ProviderWaitVisible {
+			body["waiting_provider_s"] = int64(wait / time.Second)
+		}
+	}
+	if err := json.NewEncoder(w).Encode(body); err != nil {
 		s.logWarn("encode session", err)
 	}
 }

@@ -49,3 +49,4 @@
 "critical.destructive.confirm" = "此操作无法撤销。是否继续？"
 "critical.budget.title" = "预算"
 "critical.safe_mode.title" = "安全模式"
+"web.waiting_provider" = "正在等待提供商 %d 秒"

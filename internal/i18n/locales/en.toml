@@ -53,3 +53,4 @@
 "critical.destructive.confirm" = "This action cannot be undone. Continue?"
 "critical.budget.title" = "Budget"
 "critical.safe_mode.title" = "SAFE MODE"
+"web.waiting_provider" = "Waiting for provider %d s"

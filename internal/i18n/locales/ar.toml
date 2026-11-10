@@ -49,3 +49,4 @@
 "critical.destructive.confirm" = "لا يمكن التراجع عن هذا الإجراء. هل تريد المتابعة؟"
 "critical.budget.title" = "الميزانية"
 "critical.safe_mode.title" = "الوضع الآمن"
+"web.waiting_provider" = "في انتظار المزوّد %d ث"

@@ -20,8 +20,13 @@ type doctorFlags struct {
 }
 
 func runDoctor(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 && args[0] == "tools" {
-		return runDoctorTools(args[1:], stdout, stderr)
+	if len(args) > 0 {
+		switch args[0] {
+		case "tools":
+			return runDoctorTools(args[1:], stdout, stderr)
+		case "bundle":
+			return runDoctorBundle(args[1:], stdout, stderr)
+		}
 	}
 	opt, ok := parseDoctorFlags(args, stderr)
 	if !ok {
