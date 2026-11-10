@@ -115,21 +115,3 @@ func (a *f8SlashAdapter) petToggle(dir string, owner bool, sub string, args []st
 	changed, err := petsSelect(args, st, io.Discard, io.Discard)
 	return a.finishPets(dir, st, changed, err, nil)
 }
-
-func (a *f8SlashAdapter) finishPets(dir string, st *f8PetsState, changed bool, err error, b *strings.Builder) string {
-	if err != nil {
-		return "pet: " + cleanLine(err.Error())
-	}
-	if changed {
-		if serr := f8Save(f8StorePath(dir, "pets.json"), st); serr != nil {
-			return "pet: " + cleanLine(serr.Error())
-		}
-	}
-	if b == nil {
-		return "pet " + st.Active
-	}
-	return strings.TrimSuffix(b.String(), "\n")
-}
-
-// hatchSlash implements /hatch, /generate-pet (SLASH-073) with a local,
-// deterministic pet. Network generation is opt-in and unavailable here.

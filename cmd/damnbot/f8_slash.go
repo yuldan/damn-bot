@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/auto"
 	"github.com/damnbot/damnbot/internal/gateway"
@@ -41,6 +42,8 @@ func canonicalF8(name string) string {
 		return "blueprint"
 	case "hb":
 		return "heartbeat"
+	case "proactive":
+		return "loop"
 	case "learning", "memory-graph":
 		return "journey"
 	case "generate-pet":
@@ -50,7 +53,7 @@ func canonicalF8(name string) string {
 	}
 }
 
-func (a *f8SlashAdapter) handle(_ context.Context, owner bool, sessionID, name string, args []string) string {
+func (a *f8SlashAdapter) handle(ctx context.Context, owner bool, sessionID, name string, args []string) string {
 	dir, err := f8Dir(a.dir)
 	if err != nil {
 		return "f8: " + cleanLine(err.Error())
@@ -63,10 +66,24 @@ func (a *f8SlashAdapter) handle(_ context.Context, owner bool, sessionID, name s
 		return f8Blueprint(args)
 	case "goal":
 		return a.goal(dir, owner, sessionID, args)
+	case "subgoal":
+		return a.subgoal(dir, owner, sessionID, args)
+	case "heartbeat":
+		return a.heartbeat(dir, owner, sessionID, args)
+	case "loop":
+		return a.loop(dir, owner, sessionID, args)
+	case "personality":
+		return a.personality(dir, owner, args)
+	case "insights":
+		return f8SlashInsights(ctx, dir, args)
 	case "journey":
 		return a.journeySlash(dir, owner, args)
 	case "pet":
 		return a.petSlash(dir, owner, args)
+	case "hatch":
+		return a.hatchSlash(dir, owner, args)
+	case "debug":
+		return a.debugSlash(dir, owner, args)
 	default:
 		return "unknown command /" + name
 	}
@@ -325,3 +342,127 @@ func f8GoalClear(dir, sessionID string) string {
 	}
 	return "goal cleared"
 }
+
+func parseLoopArgs(args []string) (f8Loop, string) {
+	var out f8Loop
+	rest := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--times":
+			if i+1 >= len(args) {
+				return out, "loop: --times needs a value"
+			}
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n < 1 || n > 1000 {
+				return out, "loop: --times must be 1..1000"
+			}
+			out.Times = n
+			i++
+		case "--until":
+			if i+1 >= len(args) {
+				return out, "loop: --until needs RFC3339"
+			}
+			if _, err := time.Parse(time.RFC3339, args[i+1]); err != nil {
+				return out, "loop: --until must be RFC3339"
+			}
+			out.Until = args[i+1]
+			i++
+		default:
+			rest = append(rest, args[i])
+		}
+	}
+	if len(rest) < 2 {
+		return out, "usage: /loop <seconds> <prompt> [--times N] [--until RFC3339]"
+	}
+	secs, err := strconv.Atoi(rest[0])
+	if err != nil {
+		return out, "loop: seconds must be an integer"
+	}
+	out.IntervalS = secs
+	out.Prompt = strings.Join(rest[1:], " ")
+	return out, ""
+}
+
+func (a *f8SlashAdapter) loop(dir string, owner bool, sessionID string, args []string) string {
+	path := f8StorePath(dir, "slash-loops.json")
+	st, err := f8LoadSlash[f8Loop](path)
+	if err != nil {
+		return "loop: " + cleanLine(err.Error())
+	}
+	if len(args) == 0 || args[0] == "status" {
+		l, ok := st.Sessions[sessionID]
+		if !ok {
+			return "loop off"
+		}
+		return fmt.Sprintf("loop interval=%ds times=%d prompt=%s", l.IntervalS, l.Times, f8Redact(l.Prompt))
+	}
+	if msg := f8OwnerOnly(owner, "loop"); msg != "" {
+		return msg
+	}
+	if args[0] == "clear" {
+		if _, ok := st.Sessions[sessionID]; !ok {
+			return "loop off"
+		}
+		delete(st.Sessions, sessionID)
+		if err := f8SaveSlash(path, &st); err != nil {
+			return "loop: " + cleanLine(err.Error())
+		}
+		return "loop cleared"
+	}
+	spec, msg := parseLoopArgs(args)
+	if msg != "" {
+		return msg
+	}
+	until := time.Time{}
+	if spec.Until != "" {
+		var perr error
+		until, perr = time.Parse(time.RFC3339, spec.Until)
+		if perr != nil {
+			return "loop: --until must be RFC3339"
+		}
+	}
+	if _, err := auto.NewLoop(auto.LoopSpec{Interval: time.Duration(spec.IntervalS) * time.Second, Prompt: spec.Prompt, Times: spec.Times, Until: until}); err != nil {
+		return "loop: " + cleanLine(err.Error())
+	}
+	st.Sessions[sessionID] = spec
+	if err := f8SaveSlash(path, &st); err != nil {
+		return "loop: " + cleanLine(err.Error())
+	}
+	return fmt.Sprintf("loop saved interval=%ds times=%d", spec.IntervalS, spec.Times)
+}
+
+// f8Personas is the closed persona catalog.
+func f8Personas() []string { return []string{"concise", "default", "mentor", "skeptic"} }
+
+func (a *f8SlashAdapter) personality(dir string, owner bool, args []string) string {
+	path := f8StorePath(dir, "personality.json")
+	state := struct {
+		Current string `json:"current"`
+	}{}
+	if err := f8Load(path, &state); err != nil {
+		return "personality: " + cleanLine(err.Error())
+	}
+	current := state.Current
+	if current == "" {
+		current = "default"
+	}
+	if len(args) == 0 || args[0] == "status" || args[0] == "list" {
+		return "personality " + current + "; presets: " + strings.Join(f8Personas(), " ")
+	}
+	if msg := f8OwnerOnly(owner, "personality"); msg != "" {
+		return msg
+	}
+	if len(args) != 1 || !slices.Contains(f8Personas(), args[0]) {
+		return "personality: unknown preset " + cleanArg(args[0])
+	}
+	if args[0] == current {
+		return "personality " + current
+	}
+	state.Current = args[0]
+	if err := f8Save(path, &state); err != nil {
+		return "personality: " + cleanLine(err.Error())
+	}
+	return "personality " + state.Current
+}
+
+// f8SlashInsights renders the compact ledger report (SLASH-094).

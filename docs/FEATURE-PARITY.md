@@ -255,7 +255,7 @@ Sumber: `hermes_cli/commands.py` (103 `CommandDef`). Deskripsi verbatim hermes, 
 | SLASH-091 | `/subscription` | View your Nous plan and change it in the browser | `hermes_cli/commands.py:321` | tersedia (CLI-only); kategori Info | — | alias: /upgrade | — | dropped-with-approval (NP-19) |
 | SLASH-092 | `/login` | Sign in with a Nous account (keeps your connectors) | `hermes_cli/commands.py:323` | tersedia (CLI + gateway); kategori Info | — |  | — | dropped-with-approval (NP-19) |
 | SLASH-093 | `/topup` | Show your Nous balance and manage billing on the portal | `hermes_cli/commands.py:325` | tersedia (CLI + gateway); kategori Info | — |  | — | dropped-with-approval (NP-19) |
-| SLASH-094 | `/insights` | Show usage insights and analytics | `hermes_cli/commands.py:326` | tersedia (CLI + gateway); kategori Info | — | args `[days]` | F8 | planned |
+| SLASH-094 | `/insights` | Show usage insights and analytics | `hermes_cli/commands.py:326` | tersedia (CLI + gateway); kategori Info | — | args `[days]` | F8 | LULUS |
 | SLASH-095 | `/platforms` | Show gateway/messaging platform status | `hermes_cli/commands.py:328` | tersedia (CLI-only); kategori Info | — | alias: /gateway | F4 | planned |
 | SLASH-096 | `/platform` | Pause, resume, or list a failing gateway platform | `hermes_cli/commands.py:330` | tersedia (gateway-only); kategori Info | — | args `<pause\\|resume\\|list> [name]` | F4 | planned |
 | SLASH-097 | `/copy` | Copy the last assistant response to clipboard | `hermes_cli/commands.py:332` | tersedia (CLI-only); kategori Info | — | args `[number]` | F3 | planned |

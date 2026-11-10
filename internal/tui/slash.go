@@ -80,16 +80,24 @@ func slashCatalog() []slashItem {
 		{"/image", "attach a local image for the next prompt", slashImage},
 
 		{"/goal", "standing goal text|status|clear", slashF8},
+		{"/subgoal", "goal criteria text|list|remove", slashF8},
 		{"/heartbeat", "idle beat status|pause|resume|clear|set", slashF8},
+		{"/hb", "alias of /heartbeat", slashF8},
 		{"/loop", "recurring prompt interval text [--times N]", slashF8},
+		{"/proactive", "alias of /loop", slashF8},
+		{"/personality", "persona list|<name>", slashF8},
 		{"/suggestions", "suggestions accept|dismiss|catalog|clear", slashF8},
 		{"/suggest", "alias of /suggestions", slashF8},
 		{"/blueprint", "blueprint catalog|<name> slot=value", slashF8},
 		{"/bp", "alias of /blueprint", slashF8},
+		{"/insights", "usage analytics for the last N days", slashF8},
 		{"/journey", "skill timeline list|delete|edit", slashF8},
 		{"/learning", "alias of /journey", slashF8},
 		{"/memory-graph", "alias of /journey", slashF8},
 		{"/pet", "mascot list|toggle|select|show|scale|off", slashF8},
+		{"/hatch", "generate a pet from a description", slashF8},
+		{"/generate-pet", "alias of /hatch", slashF8},
+		{"/debug", "local one-use debug share and delete", slashF8},
 	}
 }
 

@@ -55,7 +55,7 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | SLASH-077 | `/suggestions` | alias `/suggest`; sub accept/dismiss/catalog/clear; saran default off | `TestF8SLASH077Suggestions` | LULUS | AUTO-013 |
 | SLASH-078 | `/blueprint` | alias `/bp`; nama template + `slot=value` tervalidasi; slot asing ditolak | `TestF8SLASH078Blueprint` | LULUS | AUTO-012 |
 | SLASH-079 | `/curator` | sub status/run/pause/resume/pin/unpin/restore/list-archived; sama dengan CLI-049 | `TestF8SLASH079Curator` | BELUM | — |
-| SLASH-094 | `/insights` | argumen `days`; output analitik ≤ batas renderer | `TestF8SLASH094Insights` | BELUM | CLI-058 |
+| SLASH-094 | `/insights` | argumen `days`; output analitik ≤ batas renderer | `TestF8SLASH094Insights` | LULUS | CLI-058 |
 | SLASH-102 | `/debug` | upload laporan debug; tautan sekali pakai; konten ter-redaksi; 0 host pastebin | `TestF8SLASH102Debug` | BELUM | OPS-010/GAP-SEC-17 |
 
 ## 3. Ledger parity F8 — TOOL (23)
