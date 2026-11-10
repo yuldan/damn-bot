@@ -53,6 +53,7 @@ func TestGAPF5_SEC20CLI(t *testing.T) {
 		Kind: catalog.KindMCP, Name: "demo", Version: "1.0", Serial: 2,
 		Entries: []catalog.Entry{{
 			ID: "server", Commit: strings.Repeat("a", 40), SHA256: strings.Repeat("b", 64),
+			ToSRisk: "none", ToSNote: "demo server",
 		}},
 	}
 	write(&m, true)

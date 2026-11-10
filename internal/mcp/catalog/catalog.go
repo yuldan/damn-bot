@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Kind is the catalog a manifest describes.
@@ -40,6 +41,10 @@ type Entry struct {
 	Commit  string `json:"commit"`
 	SHA256  string `json:"sha256"`
 	Archive string `json:"archive,omitempty"`
+	// ToSRisk/ToSNote are mandatory for an MCP hub entry (GAP-GW-07); a
+	// provider catalog entry does not carry them.
+	ToSRisk string `json:"tos_risk,omitempty"`
+	ToSNote string `json:"tos_note,omitempty"`
 }
 
 // Manifest is the signed payload. Signature is the base64 ed25519 signature
@@ -93,22 +98,40 @@ func (m *Manifest) validate() error {
 		return fmt.Errorf("%w: entries", ErrMalformed)
 	}
 	for i := range m.Entries {
-		e := &m.Entries[i]
-		if e.ID == "" || len(e.ID) > 128 {
-			return fmt.Errorf("%w: entry %d id", ErrEntry, i)
+		if err := m.validateEntry(i); err != nil {
+			return err
 		}
-		if len(e.Commit) != 40 {
-			return fmt.Errorf("%w: %s commit", ErrEntry, e.ID)
-		}
-		if _, err := hex.DecodeString(e.Commit); err != nil {
-			return fmt.Errorf("%w: %s commit", ErrEntry, e.ID)
-		}
-		if len(e.SHA256) != 64 {
-			return fmt.Errorf("%w: %s sha256", ErrEntry, e.ID)
-		}
-		if _, err := hex.DecodeString(e.SHA256); err != nil {
-			return fmt.Errorf("%w: %s sha256", ErrEntry, e.ID)
-		}
+	}
+	return nil
+}
+
+func (m *Manifest) validateEntry(i int) error {
+	e := &m.Entries[i]
+	if e.ID == "" || len(e.ID) > 128 {
+		return fmt.Errorf("%w: entry %d id", ErrEntry, i)
+	}
+	if len(e.Commit) != 40 {
+		return fmt.Errorf("%w: %s commit", ErrEntry, e.ID)
+	}
+	if _, err := hex.DecodeString(e.Commit); err != nil {
+		return fmt.Errorf("%w: %s commit", ErrEntry, e.ID)
+	}
+	if len(e.SHA256) != 64 {
+		return fmt.Errorf("%w: %s sha256", ErrEntry, e.ID)
+	}
+	if _, err := hex.DecodeString(e.SHA256); err != nil {
+		return fmt.Errorf("%w: %s sha256", ErrEntry, e.ID)
+	}
+	if m.Kind != KindMCP {
+		return nil
+	}
+	switch e.ToSRisk {
+	case "none", "low", "high":
+	default:
+		return fmt.Errorf("%w: %s tos_risk %q", ErrEntry, e.ID, e.ToSRisk)
+	}
+	if len(strings.TrimSpace(e.ToSNote)) == 0 {
+		return fmt.Errorf("%w: %s tos_note", ErrEntry, e.ID)
 	}
 	return nil
 }

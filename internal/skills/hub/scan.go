@@ -71,5 +71,12 @@ func threatRules() []threatRule {
 		{".config/gcloud", "secret_exfil", "high", "reads cloud credentials"},
 		{"security find-generic-password", "secret_exfil", "high", "reads the keychain"},
 		{"secrets.json", "secret_exfil", "high", "reads a secret file"},
+		// GAP-GW-07: loading the whole dotenv file is a medium env_file
+		// finding (quarantined, never auto-rejected).
+		{"load_dotenv(", "env_file", "medium", "loads a dotenv file"},
+		{"dotenv.config(", "env_file", "medium", "loads a dotenv file"},
+		{"cat .env", "env_file", "medium", "reads a dotenv file"},
+		{"source .env", "env_file", "medium", "reads a dotenv file"},
+		{"grep .env", "env_file", "medium", "reads a dotenv file"},
 	}
 }

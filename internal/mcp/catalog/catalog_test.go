@@ -30,6 +30,7 @@ func testManifest(kind Kind, serial int64) Manifest {
 			ID: "entry", Commit: "0123456789abcdef0123456789abcdef01234567",
 			SHA256:  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			Archive: "https://example.test/entry.tar.gz",
+			ToSRisk: "none", ToSNote: "test entry",
 		}},
 	}
 }
