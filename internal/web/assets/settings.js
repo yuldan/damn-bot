@@ -1,5 +1,5 @@
 // Settings: preview a `[ui]` change, show the diff, then apply the exact
-// previewed patch with its one-time token. No framework, no innerHTML.
+// previewed patch with its one-time token. No framework; textContent only.
 const csrf = document.querySelector('meta[name="damnbot-csrf"]')?.content;
 const form = document.querySelector("#settings-form");
 const select = document.querySelector("#language-select");

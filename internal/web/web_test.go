@@ -757,3 +757,32 @@ func settingsPreview(t *testing.T, ts *httptest.Server, session, csrf *http.Cook
 	}
 	return body.Token, body.Diff
 }
+
+// TestWebCSPHeaders is the GAP-SEC-06 hook: every response family carries the
+// exact CSP and companion headers, with a fresh nonce.
+func TestWebCSPHeaders(t *testing.T) {
+	t.Parallel()
+	srv, ts := newTestServer(t, nil)
+	session, _ := signIn(t, srv, ts)
+	pages := []struct {
+		path    string
+		cookies []*http.Cookie
+	}{
+		{"/", []*http.Cookie{session}},
+		{"/settings", []*http.Cookie{session}},
+		{"/auth", nil},
+		{"/healthz", nil},
+		{"/assets/app.js", nil},
+		{"/missing", nil},
+	}
+	seen := map[string]bool{}
+	for _, page := range pages {
+		resp := get(t, ts, page.path, page.cookies...)
+		checkHeaders(t, resp.header)
+		nonce := cspNonce(t, resp.header)
+		if seen[nonce] {
+			t.Fatalf("nonce reused on %s", page.path)
+		}
+		seen[nonce] = true
+	}
+}
