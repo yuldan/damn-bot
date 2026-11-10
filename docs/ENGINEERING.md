@@ -680,7 +680,8 @@ scripts/agent-guard.sh cleanup                # bersihkan cache build sementara 
 scripts/agent-guard.sh watch [--once]         # loop 120 dtk; --once = satu iterasi
 scripts/agent-heavy.sh <perintah…>            # WAJIB untuk build/test/benchmark berat
 scripts/agent-heavy.sh --force <perintah…>    # override cek ambang (flock + limit tetap)
-make agent-guard-test                         # 18 skenario self-test, tanpa data nyata
+scripts/agent-heavy.sh --wait 600 <perintah…> # batas antre lock (default HEAVY_WAIT=1800 dtk)
+make agent-guard-test                         # 19 skenario self-test, tanpa data nyata
 ```
 
 `cleanup` hanya menyentuh tiga hal: `go clean -cache` (hanya bila disk > 57%), direktori
@@ -690,8 +691,8 @@ make agent-guard-test                         # 18 skenario self-test, tanpa dat
 
 `watch` menulis flag `~/.cache/damnbot/PAUSE_HEAVY` bila disk > 60% dan menghapusnya bila disk < 55%.
 `agent-heavy.sh` menolak berjalan selama flag ada atau `check` gagal, mengambil flock global
-`~/.cache/damnbot/heavy.lock` (hanya **satu** perintah berat pada satu waktu; proses kedua ditolak,
-tidak mengantre), lalu menjalankan perintah dengan:
+`~/.cache/damnbot/heavy.lock` (hanya **satu** perintah berat pada satu waktu; proses lain
+**mengantre** dengan `flock -w`, bukan langsung ditolak), lalu menjalankan perintah dengan:
 
 | Batas | Nilai | Alasan |
 |---|---|---|
@@ -700,6 +701,7 @@ tidak mengantre), lalu menjalankan perintah dengan:
 | `GOMAXPROCS` / `GOFLAGS` | `2` / `-p=1` | konkurensi compile/test dibatasi |
 | `GOMEMLIMIT` | `1500MiB` | plafon memori per proses |
 | `ulimit -v` | `4194304` KiB (4 GiB); `8388608` (8 GiB) untuk `-race` | mencegah runaway alokasi |
+| antrean lock | `flock -w ${HEAVY_WAIT:-1800}` (atau `--wait N`) | satu perintah berat; timeout = exit 1, pemegang lock tidak diketahui |
 
 **Bukti pengukuran (2026-11-10, host 10 vCPU).**
 
@@ -721,11 +723,11 @@ Banner `agent-heavy.sh` juga mencetak `GOMAXPROCS=2 GOFLAGS=-p=1 GOMEMLIMIT=1500
 dibuktikan oleh banner dan `procs=6`. Ambang RAM memakai **persentase** `MemTotal` (bukan angka GiB
 tetap) supaya used benar-benar ≤ 60%; `check`/`report` menampilkan `used%`, dan `report --json`
 menyertakan `mem_total_kib`, `mem_used_percent`, `mem_min_kib`, serta `mem_min_basis`.
-`scripts/agent-guard-test.sh` lulus 18/18 skenario: check 36% lulus, 58% gagal, avail 40,5% total
+`scripts/agent-guard-test.sh` lulus 19/19 skenario: check 36% lulus, 58% gagal, avail 40,5% total
 ditolak / 41,5% lolos, fallback 9 GiB, MemAvailable/load gagal, report tabel+JSON, cleanup dipanggil
 di 57,5%, flag dibuat di 60,1% dan dicabut di 54%, cleanup fixture hanya menghapus stale tanpa fd,
-`agent-heavy` menolak saat guard gagal, limit terpasang (`2|-p=1|1500MiB|4194304|6`), dan flock
-menolak proses kedua.
+`agent-heavy` menolak saat guard gagal, limit terpasang (`2|-p=1|1500MiB|4194304|6`), proses kedua
+**mengantre** dengan `HEAVY_WAIT=5` lalu berhasil, dan `--wait 1` timeout → exit 1 dengan pesan jelas.
 
 ## 6. Disiplin test
 

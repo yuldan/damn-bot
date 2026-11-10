@@ -185,8 +185,32 @@ else
 	no "limit agent-heavy tidak sesuai"
 fi
 
-scenario "flock menolak proses berat kedua"
+scenario "flock mengantre: proses kedua menunggu lalu berhasil"
 state=$work/state-lock; tmp=$work/tmp-lock; mkdir -p "$state" "$tmp"
+fake_env "$state" "$tmp" "$HEAVY" --force -- sleep 1 >"$work/first-out" 2>&1 &
+bg_pid=$!
+locked=0
+for _ in $(seq 100); do
+	if ! flock -n "$state/heavy.lock" -c true 2>/dev/null; then
+		locked=1
+		break
+	fi
+	sleep 0.05
+done
+if ((locked)) && kill -0 "$bg_pid" 2>/dev/null &&
+	fake_env "$state" "$tmp" HEAVY_WAIT=5 "$HEAVY" --force -- bash -c 'echo SECOND-RAN' \
+		>"$last_out" 2>"$work/second-err" &&
+	contains "$last_out" 'SECOND-RAN' && contains "$work/second-err" 'menunggu hingga 5s'; then
+	ok "proses kedua mengantre dengan HEAVY_WAIT lalu berhasil"
+else
+	no "proses kedua tidak mengantre/berhasil"
+fi
+kill "$bg_pid" 2>/dev/null || true
+wait "$bg_pid" 2>/dev/null || true
+bg_pid=
+
+scenario "flock timeout saat pemegang menahan"
+state=$work/state-lock-timeout; tmp=$work/tmp-lock-timeout; mkdir -p "$state" "$tmp"
 fake_env "$state" "$tmp" "$HEAVY" --force -- sleep 5 >"$work/first-out" 2>&1 &
 bg_pid=$!
 locked=0
@@ -198,11 +222,12 @@ for _ in $(seq 100); do
 	sleep 0.05
 done
 if ((locked)) &&
-	! fake_env "$state" "$tmp" "$HEAVY" --force -- true >"$last_out" 2>&1 &&
-	contains "$last_out" 'perintah berat lain sedang berjalan'; then
-	ok "flock global menolak proses kedua"
+	! fake_env "$state" "$tmp" "$HEAVY" --force --wait 1 -- true >"$last_out" 2>"$work/timeout-err" &&
+	contains "$work/timeout-err" 'timeout 1s menunggu lock' &&
+	contains "$work/timeout-err" 'pemegang lock tidak diketahui'; then
+	ok "HEAVY_WAIT/--wait timeout -> exit 1 dengan pesan jelas"
 else
-	no "flock tidak menolak proses kedua"
+	no "timeout lock tidak sesuai"
 fi
 kill "$bg_pid" 2>/dev/null || true
 wait "$bg_pid" 2>/dev/null || true

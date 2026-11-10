@@ -273,7 +273,7 @@ ci-required:
 ci-required-test:
 	scripts/ci-required.sh --self-test
 
-# Resource guard 60% (ENGINEERING §5.5, ADR-341): self-test 18 skenario: ambang, cleanup, flag, limit, dan flock
+# Resource guard 60% (ENGINEERING §5.5, ADR-341): self-test 19 skenario: ambang, cleanup, flag, limit, dan flock
 # tanpa menyentuh cache/state nyata (fixture GUARD_FAKE_*).
 agent-guard-test:
 	scripts/agent-guard-test.sh
