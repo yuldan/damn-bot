@@ -60,8 +60,8 @@ func TestParseGlobalArgs(t *testing.T) {
 func TestSurfaceRegistry(t *testing.T) {
 	t.Parallel()
 	entries := surface()
-	if len(entries) != 45 {
-		t.Fatalf("registry has %d entries, want 45 (35 + dump + debug + insights + journey + pets + project + curator + proxy + memory + connectors)", len(entries))
+	if len(entries) != 46 {
+		t.Fatalf("registry has %d entries, want 46 (35 + dump + debug + insights + journey + pets + project + curator + proxy + memory + connectors + monitoring)", len(entries))
 	}
 	seen := map[string]bool{}
 	for _, e := range entries {

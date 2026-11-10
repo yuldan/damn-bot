@@ -40,7 +40,7 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | CLI-052 | `damnbot memory` | empat sub setup/status/off/reset; provider tunggal aktif; config hanya referensi secret | `TestF8CLI052Memory` | BELUM | MEM-005/008 |
 | CLI-056 | `damnbot connectors` | lima sub list/accounts/connect/rename/disconnect; akun hosted; 0 token di output | `TestF8CLI056Connectors` | BELUM | PLUG-035 |
 | CLI-058 | `damnbot insights` | analitik pemakaian dari ledger; filter periode; 0 secret | `TestF8CLI058Insights` | LULUS | OPS-016 |
-| CLI-060 | `damnbot monitoring` | satu sub `status`; health gateway + ekspor diagnostik ter-redaksi | `TestF8CLI060Monitoring` | BELUM | OPS-018 |
+| CLI-060 | `damnbot monitoring` | satu sub `status`; health gateway + ekspor diagnostik ter-redaksi | `TestF8CLI060Monitoring` | LULUS | OPS-018 |
 | CLI-068 | `damnbot dashboard` | satu sub `register`; menyajikan aset embedded; 0 URL eksternal | `TestF8CLI068Dashboard` | LULUS | UI-014/GAP-UX-08 |
 | CLI-069 | `damnbot serve` | backend headless untuk desktop/remote; bind loopback default; auth wajib | `TestF8CLI069Serve` | LULUS | UI-016 |
 | CLI-070 | `damnbot desktop` | alias `gui`; membuka web UI; 0 dependency Node/Electron saat runtime | `TestF8CLI070Desktop` | LULUS | UI-017 diganti web UI |
@@ -206,7 +206,7 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | PLUG-035 | Connectors (hosted) | connector app hosted + akun via `manage_connections`; OAuth referensi saja | `TestF8PLUG035Connectors` | BELUM | CLI-056 |
 | OPS-010 | Debug upload / dump | laporan debug ter-redaksi; tautan sekali pakai; 0 host pastebin | `TestF8OPS010DebugUpload` | BELUM | GAP-SEC-17 |
 | OPS-016 | Insights | analitik pemakaian; agregat dari ledger; 0 secret | `TestF8OPS016Insights` | BELUM | CLI-058 |
-| OPS-018 | Monitoring & OTLP export | health gateway + export OTLP; endpoint opt-in; 0 konten pesan | `TestF8OPS018OTLP`, `TestOPS018DisabledNoConnect` | LULUS | CLI-060 belum (surface monitoring) |
+| OPS-018 | Monitoring & OTLP export | health gateway + export OTLP; endpoint opt-in; 0 konten pesan | `TestF8OPS018OTLP`, `TestOPS018DisabledNoConnect` | LULUS | CLI-060 LULUS |
 | OPS-020 | Batch runner | prompt massal paralel → trajectory; batas paralel + biaya | `TestF8OPS020BatchRunner`, `TestF8OPS020BatchRun` | LULUS | e2e `TestF8OPS020EvalBatch` |
 | OPS-021 | Trajectory save & compressor | simpan & kompres trajectory; format OpenAI/ShareGPT valid | `TestF8OPS021Trajectory`, `TestF8OPS021BatchCompress` | LULUS | `TestF8OPS022Trajectory` |
 | OPS-022 | Trace upload (HF) | upload trace ke Hugging Face; opt-in; 0 transcript user | `TestF8OPS022TraceUpload` | BELUM | — |

@@ -83,6 +83,7 @@ func surface() []surfaceEntry {
 		{Name: "kanban", Summary: "Collaboration board", Phase: phaseF7, Run: runKanban, Usage: kanbanUsage},
 		{Name: "usage", Summary: "Ledger, budget guard, insights", Phase: phaseF3, Run: runUsageCommand, Usage: usageUsage},
 		evalSurface(),
+		monitoringSurface(),
 		{Name: "doctor", Summary: "Checks, repair, diagnostics, maintenance", Phase: phaseF3, Run: runDoctor, Usage: doctorUsage},
 		{Name: "update", Summary: "Atomic self-update with rollback and channels", Phase: phaseF3, Run: runUpdate, Usage: updateUsage},
 		{Name: "version", Summary: "Version, commit, DB schema, compiled-in modules", Phase: phaseF1, Run: runVersion, Builtin: true},
