@@ -130,6 +130,7 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 		"webtools": 3000, "browser": 5500, "media": 9500, "voice": 4500, "computeruse": 2000, // SPEC §3.2.4, ADR-309; `web` dibangun sebagai internal/webtools.
 		"gwplat": 13000, "gwapi": 3000, "gwpeer": 4000, "gwwa": 600, "gwmatrix": 1500, "kanban": 3000, // SPEC §3.2.4 F7, ADR-326.
 		"web": 5000, "connectors": 6000, "skillhub": 2500, "memprovider": 1000, "auto": 4000, "batch": 2500, "i18n": 800, // SPEC §3.2.4 F8, ADR-330.
+		"desktopui": 800, // F8 desktop/web GUI surface, ADR-346.
 	}
 	backupCap, hasBackup := 0, false
 	opsSum := 0
@@ -268,7 +269,7 @@ func f7ModuleFamily(name string) bool {
 // dibukukan oleh PR paketnya, jadi family boleh kosong selama F8 berjalan.
 func f8ModuleFamily(name string) bool {
 	switch name {
-	case "web", "connectors", "skillhub", "memprovider", "auto", "batch", "i18n":
+	case "web", "connectors", "skillhub", "memprovider", "auto", "batch", "i18n", "desktopui":
 		return true
 	}
 	return false

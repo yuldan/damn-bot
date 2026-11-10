@@ -85,6 +85,7 @@ func registerModules() error {
 			},
 		},
 		connectorsDescriptor(),
+		desktopUIDescriptor(),
 		{
 			ID:        f6ComputerUseID,
 			Group:     "computer_use",
@@ -231,6 +232,11 @@ func moduleEnabled(cfg *config.Config) func(string) bool {
 			return connectorsEnabled(cfg)
 		}
 		switch id {
+		case f8DesktopUIModuleID:
+			// Registered in the full build; only a desktop/web session can
+			// invoke a tool (the surface gate lives in internal/desktopui),
+			// and the toolsets that select them are default off.
+			return true
 		case f6WebModuleID:
 			return web.Enabled
 		case f6BrowserModuleID:

@@ -64,6 +64,10 @@ func f8ModuleImports(m map[string][]string) {
 	m["internal/batch"] = nil                                              // F8 batch runner (OPS-020/021/022): stdlib only
 	m["internal/evals"] = []string{"internal/batch", "internal/scorecard"} // OPS-023/024
 	m["internal/obs"] = []string{"internal/netx"}                          // OPS-018: loopback client only
+	// F8 desktop/web GUI (ADR-346): the module validates workspace targets
+	// through the sandbox leaf and reports through the host seam; the GUI
+	// itself is a caller-supplied Surface, never an OS or shell call.
+	m["internal/desktopui"] = []string{"internal/modules/host", "internal/sandbox"}
 }
 
 func allowedImports() map[string][]string {
