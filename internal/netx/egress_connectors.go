@@ -12,4 +12,5 @@ func addConnectorEgress(reg map[string]Egress) {
 	reg["xsearch"] = Egress{Purpose: Tool, Host: "api.x.ai", Trigger: "an approved x_search call"}
 	reg["discord"] = Egress{Purpose: Tool, Host: "discord.com/api", Trigger: "an approved discord or discord_admin call"}
 	reg["osv"] = Egress{Purpose: Tool, Host: "api.osv.dev", Trigger: "an approved osv_check call"}
+	reg["memory-honcho"] = Egress{Purpose: Tool, Host: "Honcho base_url from [modules.memory.honcho].base_url", Trigger: "memory recall/store when memory.provider=honcho and honcho.enabled"} // ADR-340
 }

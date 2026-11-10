@@ -25,6 +25,7 @@ type Modules struct {
 	ComputerUse ModulesComputerUse `toml:"computer_use"`
 	Connectors  ModulesConnectors  `toml:"connectors"`
 	Auto        ModulesAuto        `toml:"auto"`
+	Memory      ModulesMemory      `toml:"memory"`
 }
 
 // ModulesMCP is [modules.mcp]: the client-wide opt-in and one section per
