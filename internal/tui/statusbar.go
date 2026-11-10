@@ -20,6 +20,7 @@ func (m *Model) statusBar() string {
 	if m.plan {
 		parts = append(parts, "PLAN")
 	}
+	parts = append(parts, m.decorParts()...)
 	line := m.styles.status.Render(strings.Join(parts, " · "))
 	return m.limitWidth(line)
 }

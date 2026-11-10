@@ -62,7 +62,7 @@ func TestF8SLASH072Pet(t *testing.T) {
 	if got := cmds.Dispatch(ctx, user, "/pet toggle byte"); !strings.Contains(got.Reply, "owner-only") {
 		t.Fatalf("user toggle = %q", got.Reply)
 	}
-	if got := cmds.Dispatch(ctx, owner, "/pet toggle byte"); !strings.Contains(got.Reply, "pet byte") {
+	if got := cmds.Dispatch(ctx, owner, "/pet toggle byte"); !strings.Contains(got.Reply, "selected byte") {
 		t.Fatalf("toggle = %q", got.Reply)
 	}
 	if got := cmds.Dispatch(ctx, owner, "/pet scale byte large"); !strings.Contains(got.Reply, "large") {

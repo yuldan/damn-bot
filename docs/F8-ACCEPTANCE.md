@@ -47,9 +47,9 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | SLASH-031 | `/heartbeat` | alias `/hb`; sub status/pause/resume/clear; interval minimum dihormati | `TestF8SLASH031Heartbeat` | BELUM | AUTO-016 |
 | SLASH-034 | `/loop` | alias `/proactive`; interval + prompt, `--times`, `--until`; batas jumlah | `TestF8SLASH034Loop` | BELUM | AUTO-015 |
 | SLASH-037 | `/subgoal` | tambah/kelola kriteria goal aktif; hanya saat goal ada | `TestF8SLASH037Subgoal` | BELUM | — |
-| SLASH-049 | `/personality` | nama persona divalidasi; preset dibaca dari katalog | `TestF8SLASH049Personality` | BELUM | UI-011 |
-| SLASH-072 | `/pet` | sub toggle/list/scale/off; adopsi maskot opt-in | `TestF8SLASH072Pet` | BELUM | UI-010 |
-| SLASH-073 | `/hatch` | alias `/generate-pet`; deskripsi → pet baru; network opt-in | `TestF8SLASH073Hatch` | BELUM | CLI-050 |
+| SLASH-049 | `/personality` | nama persona divalidasi; preset dibaca dari katalog | `TestF8SLASH049Personality` | LULUS | UI-011; katalog tertutup 4 preset |
+| SLASH-072 | `/pet` | sub toggle/list/scale/off; adopsi maskot opt-in | `TestF8SLASH072Pet` | LULUS | UI-010 |
+| SLASH-073 | `/hatch` | alias `/generate-pet`; deskripsi → pet baru; network opt-in | `TestF8SLASH073Hatch` | LULUS | jaringan `--remote` fail-closed |
 | SLASH-077 | `/suggestions` | alias `/suggest`; sub accept/dismiss/catalog/clear; saran default off | `TestF8SLASH077Suggestions` | LULUS | AUTO-013 |
 | SLASH-078 | `/blueprint` | alias `/bp`; nama template + `slot=value` tervalidasi; slot asing ditolak | `TestF8SLASH078Blueprint` | LULUS | AUTO-012 |
 | SLASH-079 | `/curator` | sub status/run/pause/resume/pin/unpin/restore/list-archived; sama dengan CLI-049 | `TestF8SLASH079Curator` | LULUS | — |
@@ -179,8 +179,8 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | AUTO-030 | Disk cleanup plugin | lacak & bersihkan file sementara sesi; dry-run default | `TestF8AUTO030DiskCleanup` | LULUS | PLUG-017 tetap BELUM; bukti `internal/auto/features_test.go:125` (#820 @ 665b3aeba) |
 | AUTO-031 | Auto maintenance CLI | pemeliharaan otomatis saat start CLI; 0 mutasi tanpa config | `TestF8AUTO031AutoMaintenance` | BELUM | — |
 | AUTO-032 | Outbound webhooks | kirim event ke webhook keluar; signature + retry berbatas | `TestF8AUTO032OutboundWebhooks` | LULUS | GW-011; bukti `internal/auto/features_medium_test.go:253` (#821 @ 8e99ed7cf) |
-| UI-010 | Pets (petdex) | maskot animasi terminal; generate pet; default off | `TestF8UI010Pets` | BELUM | CLI-050 |
-| UI-011 | Personalities | persona preset; opt-in; katalog tervalidasi | `TestF8UI011Personalities` | BELUM | SLASH-049 |
+| UI-010 | Pets (petdex) | maskot animasi terminal; generate pet; default off | `TestF8UI010Pets` | LULUS | status bar TUI `PetFrame`; default off |
+| UI-011 | Personalities | persona preset; opt-in; katalog tervalidasi | `TestF8UI011Personalities` | LULUS | badge TUI opt-in; katalog tertutup |
 | UI-014 | Web dashboard | dashboard web dilayani binary; aset embedded; auth wajib | `TestF8UI014WebDashboard` | LULUS | GAP-SEC-06/07 |
 | UI-015 | Dashboard auth providers | basic, drain, Nous OAuth, OIDC self-hosted; 0 token di HTML | `TestF8UI015AuthProviders`, `TestWebSessionRevoke` | BELUM | PLUG-016 |
 | UI-016 | Headless backend | `damnbot serve` tanpa UI untuk desktop/remote; bind loopback default | `TestF8UI016Headless` | LULUS | CLI-069 |
