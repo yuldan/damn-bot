@@ -151,9 +151,12 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	stopPerf := registerServePerf(ctx, dataDir, stderr)
 	defer stopPerf()
 
-	metrics := obs.NewMetrics()
-	metrics.SetLeaseHeld(true)
-	metrics.SetQueue(0)
+	metrics := newServeMetrics()
+	stopOTLP, oerr := startServeOTLP(ctx, &cfg, metrics, stderr)
+	if oerr != nil {
+		return serveExitFatal, oerr
+	}
+	defer stopOTLP()
 	daemon := newServeDaemon()
 	defer daemon.Close()
 	gw, gwErr := newServeGateway(ctx, &cfg, o, db, daemon, metrics, stderr)
@@ -170,8 +173,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	}
 	hs := &http.Server{Handler: eps, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: time.Minute}
 	errs := obs.Serve(hs, ln)
-	sessionsPrintf(stderr, "serve: data dir %s\n", dataDir)
-	sessionsPrintf(stdout, "serve: observability listening on %s\n", ln.Addr())
+	announceServe(stdout, stderr, dataDir, ln)
 	var webStop func(context.Context) error
 	if o.web {
 		started, werr := startServeWeb(ctx, &cfg, o, dataDir, db, stdout, stderr)
@@ -184,6 +186,20 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 }
 
 // stopWeb stops the optional `--web` listener; nil is a no-op.
+// announceServe prints the startup lines the e2e harness waits on.
+func announceServe(stdout, stderr io.Writer, dataDir string, ln net.Listener) {
+	sessionsPrintf(stderr, "serve: data dir %s\n", dataDir)
+	sessionsPrintf(stdout, "serve: observability listening on %s\n", ln.Addr())
+}
+
+// newServeMetrics initializes the pull metrics of one serve process.
+func newServeMetrics() *obs.Metrics {
+	m := obs.NewMetrics()
+	m.SetLeaseHeld(true)
+	m.SetQueue(0)
+	return m
+}
+
 func stopWeb(ctx context.Context, stop func(context.Context) error) error {
 	if stop == nil {
 		return nil

@@ -26,6 +26,7 @@ func completionSubcommands() map[string][]string {
 		"mcp auth":        {"login", "logout", "status"},
 	}
 	addAuthCompletion(m)
+	addEvalCompletion(m)
 	return m
 }
 

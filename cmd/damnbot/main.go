@@ -67,9 +67,6 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool
 	if e, found := lookupSurface(args[0]); found && e.Run != nil {
 		return e.Run(args[1:], stdout, stderr), true
 	}
-	if len(args) > 1 && args[0] == "eval" && args[1] == "recall" {
-		return runEvalRecall(args[2:], stdout, stderr), true
-	}
 	return 0, false
 }
 
