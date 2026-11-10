@@ -582,14 +582,41 @@ func TestWebDashboardRender(t *testing.T) {
 	}
 }
 
+// mintTicket posts /api/ticket with the CSRF double-submit token.
+func mintTicket(t *testing.T, ts *httptest.Server, session, csrf *http.Cookie) string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/api/ticket", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(session)
+	req.AddCookie(csrf)
+	req.Header.Set(csrfHeader, csrf.Value)
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			t.Errorf("close ticket: %v", cerr)
+		}
+	}()
+	var body struct{ Ticket string }
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("ticket = %d %v", resp.StatusCode, err)
+	}
+	return body.Ticket
+}
+
 // TestWebSSE: the stream opens for a session and sends the hello event.
 func TestWebSSE(t *testing.T) {
 	t.Parallel()
 	srv, ts := newTestServer(t, nil)
-	session, _ := signIn(t, srv, ts)
+	session, csrf := signIn(t, srv, ts)
+	ticket := mintTicket(t, ts, session, csrf)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events?ticket="+ticket, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

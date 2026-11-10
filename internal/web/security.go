@@ -118,6 +118,10 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request, p string) bool
 			return true
 		}
 		s.withSession(w, r, s.events)
+	case "/api/ticket":
+		if s.mutation(w, r) {
+			s.withSession(w, r, s.issueTicket)
+		}
 	default:
 		return false
 	}
