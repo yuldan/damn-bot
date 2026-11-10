@@ -53,6 +53,15 @@ type Config struct {
 	Kanban Kanban `toml:"kanban"`
 	// Web is the F8 [web] section of `damnbot serve --web` (SPEC §13.2).
 	Web Web `toml:"web"`
+	// Telemetry is the opt-in OTLP export section (OPS-018).
+	Telemetry Telemetry `toml:"telemetry"`
+}
+
+// Telemetry is CROSS-CUTTING §5 [telemetry]: off unless both the switch and
+// a loopback endpoint are set.
+type Telemetry struct {
+	OTLPEnabled  bool   `toml:"otlp_enabled"`
+	OTLPEndpoint string `toml:"otlp_endpoint"`
 }
 
 // Kanban is SPEC §12 [kanban]: the gateway automation switches of the F7
