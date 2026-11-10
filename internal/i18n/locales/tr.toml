@@ -49,3 +49,4 @@
 "critical.destructive.confirm" = "Bu işlem geri alınamaz. Devam edilsin mi?"
 "critical.budget.title" = "Bütçe"
 "critical.safe_mode.title" = "GÜVENLİ MOD"
+"web.waiting_provider" = "Sağlayıcı bekleniyor %d sn"

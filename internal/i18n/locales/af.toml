@@ -49,3 +49,4 @@
 "critical.destructive.confirm" = "Hierdie aksie kan nie ongedaan gemaak word nie. Gaan voort?"
 "critical.budget.title" = "Begroting"
 "critical.safe_mode.title" = "VEILIGE MODUS"
+"web.waiting_provider" = "Wag op die verskaffer %d s"

@@ -49,3 +49,4 @@
 "critical.destructive.confirm" = "이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?"
 "critical.budget.title" = "예산"
 "critical.safe_mode.title" = "안전 모드"
+"web.waiting_provider" = "공급자 대기 중 %d초"

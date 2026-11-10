@@ -49,3 +49,4 @@
 "critical.destructive.confirm" = "Ní féidir an gníomh seo a chealú. Lean ar aghaidh?"
 "critical.budget.title" = "Buiséad"
 "critical.safe_mode.title" = "MÓD SÁBHÁILTE"
+"web.waiting_provider" = "Ag fanacht leis an soláthraí %d s"

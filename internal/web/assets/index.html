@@ -7,7 +7,7 @@
 <meta name="damnbot-csrf" content="{{.CSRF}}">
 <link rel="stylesheet" href="/assets/app.css">
 </head>
-<body data-msg-signed-in="{{.T "web.signed_in"}}" data-msg-expired="{{.T "web.expired"}}" data-msg-stream-open="{{.T "web.stream_open"}}" data-msg-reconnecting="{{.T "web.reconnecting"}}">
+<body data-msg-signed-in="{{.T "web.signed_in"}}" data-msg-waiting-provider="{{.T "web.waiting_provider"}}" data-msg-expired="{{.T "web.expired"}}" data-msg-stream-open="{{.T "web.stream_open"}}" data-msg-reconnecting="{{.T "web.reconnecting"}}">
 <header class="bar">
   <h1>{{.T "web.title"}}</h1>
   <p id="principal" class="muted"></p>
@@ -18,6 +18,7 @@
   <section class="card" id="session">
     <h2>{{.T "web.session"}}</h2>
     <p id="session-state" class="muted" role="status" aria-live="polite">{{.T "web.connecting"}}</p>
+    <p id="provider-state" class="muted" role="status" aria-live="polite"></p>
   </section>
   <section class="card" id="events" role="log" aria-live="polite">
     <h2>{{.T "web.events"}}</h2>

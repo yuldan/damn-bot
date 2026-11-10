@@ -49,3 +49,4 @@
 "critical.destructive.confirm" = "Esta acción no se puede deshacer. ¿Continuar?"
 "critical.budget.title" = "Presupuesto"
 "critical.safe_mode.title" = "MODO SEGURO"
+"web.waiting_provider" = "Esperando al proveedor %d s"

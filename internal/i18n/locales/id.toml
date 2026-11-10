@@ -49,3 +49,4 @@
 "critical.destructive.confirm" = "Tindakan ini tidak dapat dibatalkan. Lanjutkan?"
 "critical.budget.title" = "Anggaran"
 "critical.safe_mode.title" = "MODE AMAN"
+"web.waiting_provider" = "Menunggu provider %d dtk"

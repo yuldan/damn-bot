@@ -3,6 +3,7 @@
 // so this file carries no UI literal (GAP-INF-08).
 const principal = document.querySelector("#principal");
 const sessionState = document.querySelector("#session-state");
+const providerState = document.querySelector("#provider-state");
 const eventsState = document.querySelector("#events-state");
 const logout = document.querySelector("#logout");
 const csrf = document.querySelector('meta[name="damnbot-csrf"]')?.content;
@@ -15,6 +16,9 @@ fetch("/api/session", { headers: { Accept: "application/json" } })
   .then((data) => {
     principal.textContent = data.principal;
     sessionState.textContent = fill(msg.msgSignedIn, data.principal);
+    if (data.waiting_provider_s) {
+      providerState.textContent = fill(msg.msgWaitingProvider, data.waiting_provider_s);
+    }
   })
   .catch(() => {
     sessionState.textContent = msg.msgExpired ?? "";

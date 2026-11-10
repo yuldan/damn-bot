@@ -49,3 +49,4 @@
 "critical.destructive.confirm" = "Diese Aktion kann nicht rückgängig gemacht werden. Fortfahren?"
 "critical.budget.title" = "Budget"
 "critical.safe_mode.title" = "SICHERER MODUS"
+"web.waiting_provider" = "Warte auf den Anbieter %d s"

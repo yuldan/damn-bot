@@ -80,6 +80,9 @@ type Config struct {
 	Settings SettingsWriter
 	// DataDir expands the <state_dir> placeholder of a unix listen.
 	DataDir string
+	// ProviderWait reports how long the oldest running turn has waited for
+	// first provider output (GAP-REL-07); nil hides the status.
+	ProviderWait func() time.Duration
 	// Now is the clock seam; the default is time.Now.
 	Now func() time.Time
 	// Log receives operational warnings; nil is silent.

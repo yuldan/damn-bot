@@ -49,3 +49,4 @@
 "critical.destructive.confirm" = "Цю дію неможливо скасувати. Продовжити?"
 "critical.budget.title" = "Бюджет"
 "critical.safe_mode.title" = "БЕЗПЕЧНИЙ РЕЖИМ"
+"web.waiting_provider" = "Очікування постачальника %d с"
