@@ -17,9 +17,9 @@ import (
 func (c *Config) validateWeb() error {
 	w := &c.Web
 	switch w.Auth {
-	case WebAuthToken, WebAuthOnce, WebAuthBasic, WebAuthOIDC:
+	case WebAuthToken, WebAuthOnce, WebAuthBasic, WebAuthOIDC, WebAuthDrain, WebAuthNous:
 	default:
-		return invalid("web.auth", "must be token, once, basic or oidc")
+		return invalid("web.auth", "must be token, once, basic, oidc, drain or nous")
 	}
 	local, err := parseWebListen(w.Listen)
 	if err != nil {

@@ -1,7 +1,7 @@
 # Budget LOC Go non-test per paket (ENGINEERING §2.4 E-19, tabel core; scc --no-gen, kolom Code).
 # Format: <grup> <LOC maks> <direktori...>. Sebuah file dihitung ke grup dengan prefix direktori terpanjang.
-# Σ core resmi (budgetCoreSum, jumlah cap baris core non-MODULE/non-infra) = 57.373;
-# plafon maxCoreLOC (repometa_test) = 57.400, headroom 27. Angka ini harus sama dengan
+# Σ core resmi (budgetCoreSum, jumlah cap baris core non-MODULE/non-infra) = 57.375;
+# plafon maxCoreLOC (repometa_test) = 57.400, headroom 25. Angka ini harus sama dengan
 # docs/ENGINEERING.md (baris Total core + prosa), regex budget_doc_test, dan marker arch-budgetsum.
 # ADR-110 (amandemen REVIEW-F1-SEC8 LP8-16..20): loop 1500 -> 1800 (pairing setiap hasil tool +
 # redaksi lintas-delta; terukur 1.757; Σ core 35.200 -> 35.500 <= 47.000).
@@ -389,7 +389,8 @@ heal              1500 internal/heal
 # oleh paketnya; Sigma MODULE tidak berubah.
 # ADR-343 (F8 GAP-INF-09): [ui] reply_language +20 (config 2959; +12 dari
 # file full/minimal) dan map bahasa stable +19 (assemble 1339). Sigma core 57.334 -> 57.373 <= 57.400.
-config            2959 internal/config
+# ADR-344 (F8 UI-015): mode drain/nous +2 (config 2961); Sigma core 57.373 -> 57.375.
+config            2961 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

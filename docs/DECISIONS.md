@@ -6789,6 +6789,20 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 **Konsekuensi.** (+) Bahasa balasan dapat dipisah dari bahasa UI tanpa menumbuhkan tier stable. (−) Headroom core 58 baris; kunci config berikutnya kembali membutuhkan ADR terukur.
 
+- Amandemen (ADR-330/ADR-344, PR F8-UI-015): `[web].auth` menerima `drain` (bearer bersama non-interaktif dari keychain) dan `nous` (authorization code + PKCE ke portal Nous). `wireWebOAuth` dipakai untuk `drain`/`nous`/`oidc`; token hanya ada di keychain atau sesi server-side, 0 token di HTML, dan nilai auth asing tetap ditolak fail-closed. Tes `TestF8UI015AuthProviders`, `TestWebAuthModes`. `config` naik 2.939 → 2.941 sesuai ADR-344.
+
+## ADR-344 — Budget F8 UI auth + journey: config 2.959 → 2.961 dan ctxdb 6.008 → 6.022
+
+**Status:** Accepted 2026-11-10 (F8 UI-015 + CLI-051). Melanjutkan ADR-340/ADR-341.
+
+**Konteks.** UI-015 menambah dua nilai `[web].auth` (`drain`, `nous`) yang harus diterima validator config, dan CLI-051 membutuhkan pembacaan read-only tabel `memory` lintas paket tanpa membuka jalur tulis baru. `config` berada di cap 2.959 (ADR-343) dan `ctxdb` 6.008.
+
+**Keputusan.** (1) `internal/config/web.go`/`web_validate.go` menerima `drain` dan `nous` sebagai mode fail-closed; kredensial tetap di luar config (keychain/env), sehingga hanya +2 baris terukur. (2) `ctxdb.Store.Rows` adalah seam inspeksi read-only (`SELECT`/`WITH` saja, mode `ReadOnly`) untuk timeline journey; +14 baris terukur. (3) `loc.budget` menyetel `config` **2.961** di PR UI-015 (Σ core **57.373 → 57.375**) dan `ctxdb` **6.022** di slice journey (Σ core **57.375 → 57.389**) = angka scc pada pohon masing-masing; keduanya ≤ `maxCoreLOC` **57.400** (headroom 11), jadi plafon core tidak berubah.
+
+**Konsekuensi.** (+) Dua surface F8 selesai tanpa menaikkan plafon core. (−) Headroom core tinggal 11; kunci config/ctxdb berikutnya butuh ADR terukur.
+
+**Amandemen (CLI-051, slice journey).** Kenaikan `ctxdb` 6.008 → 6.022 dan Σ core **57.375 → 57.389** dibukukan bersama `ctxdb.Store.Rows` pada PR journey; konfigurasi `[web].auth` sudah dibukukan lebih dulu di PR UI-015. Kedua slice tetap di bawah `maxCoreLOC` 57.400 dengan headroom 45 setelah keduanya mendarat.
+
 ## ADR-345 — Plugin catalog Q18: katalog embedded 645 entri, resolusi target, dan permukaan `damnbot plugins`
 
 **Status:** Accepted 2026-11-09 (F8 Q18/PLUG-009; melanjutkan ADR-330).

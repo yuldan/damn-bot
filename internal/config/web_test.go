@@ -161,6 +161,9 @@ func TestWebAuthModes(t *testing.T) {
 		{"oidc ok", "[web]\nauth = \"oidc\"\noidc_issuer = \"https://idp.example/realms/bot\"\noidc_client_id = \"damnbot\"\noidc_client_secret_secret = \"web_oidc\"\n", ""},
 		{"basic refs under token", "[web]\nbasic_user = \"owner\"\n", "web.basic_user"},
 		{"oidc refs under once", "[web]\nauth = \"once\"\noidc_issuer = \"https://idp.example\"\n", "web.oidc_issuer"},
+		{"drain", "[web]\nauth = \"drain\"\n", ""},
+		{"nous", "[web]\nauth = \"nous\"\n", ""},
+		{"oidc refs under nous", "[web]\nauth = \"nous\"\noidc_issuer = \"https://idp.example\"\n", "web.oidc_issuer"},
 	}
 	for _, tc := range cases {
 		_, err := parse(t, tc.toml)
