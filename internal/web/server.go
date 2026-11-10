@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/i18n"
@@ -75,6 +76,8 @@ type Config struct {
 	Language string
 	// Locales is the settings-page language list; nil uses the i18n catalog.
 	Locales []string
+	// Settings previews/applies a `[ui]` patch; nil keeps settings read-only.
+	Settings SettingsWriter
 	// DataDir expands the <state_dir> placeholder of a unix listen.
 	DataDir string
 	// Now is the clock seam; the default is time.Now.
@@ -85,13 +88,15 @@ type Config struct {
 
 // Server is one web listener. It is safe for concurrent use.
 type Server struct {
-	cfg    Config
-	now    func() time.Time
-	srv    *http.Server
-	ln     net.Listener
-	assets fs.FS
-	tmpl   *templateSet
-	nonces nonceSet
+	cfg     Config
+	now     func() time.Time
+	srv     *http.Server
+	ln      net.Listener
+	assets  fs.FS
+	tmpl    *templateSet
+	nonces  nonceSet
+	mu      sync.Mutex
+	pending map[string]pendingPatch
 }
 
 // New validates cfg and builds the handler. Nothing listens until [Server.Serve].
@@ -124,7 +129,7 @@ func New(cfg *Config) (*Server, error) {
 	if c.Sessions == nil {
 		return nil, errors.New("web: no session store wired")
 	}
-	s := &Server{cfg: c, now: c.Now, assets: c.Assets}
+	s := &Server{cfg: c, now: c.Now, assets: c.Assets, pending: map[string]pendingPatch{}}
 	if aerr := s.initAssets(); aerr != nil {
 		return nil, aerr
 	}

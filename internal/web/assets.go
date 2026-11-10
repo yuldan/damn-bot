@@ -62,6 +62,7 @@ type pageData struct {
 	CSRF     string
 	Language string
 	Locales  []string
+	Writable bool
 }
 
 // render writes one HTML page; a template failure is a plain 500.

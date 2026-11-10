@@ -59,6 +59,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.asset(w, r)
 	case s.authRoute(w, r, p):
 	case s.apiRoute(w, r, p):
+	case s.settingsRoute(w, r, p):
 	case s.pageRoute(w, r, p):
 	default:
 		http.NotFound(w, r)
@@ -161,10 +162,14 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request, _ *Session) {
 
 // settings renders the current UI language and the catalog locales read-only.
 func (s *Server) settings(w http.ResponseWriter, r *http.Request, _ *Session) {
+	s.mu.Lock()
+	language := s.cfg.Language
+	s.mu.Unlock()
 	s.render(w, s.tmpl.settings, pageData{
 		CSRF:     csrfOf(r),
-		Language: s.cfg.Language,
+		Language: language,
 		Locales:  s.cfg.Locales,
+		Writable: s.cfg.Settings != nil,
 	})
 }
 
@@ -197,6 +202,24 @@ func (s *Server) controlLink(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(map[string]string{"url": s.OpenURL(r.URL.Query().Get("remote") == "1")}); err != nil {
 		s.logWarn("encode link", err)
 	}
+}
+
+// settingsRoute serves the preview/apply pair; both are mutating and require
+// a session plus the CSRF double-submit token.
+func (s *Server) settingsRoute(w http.ResponseWriter, r *http.Request, p string) bool {
+	switch p {
+	case "/api/settings/preview":
+		if s.mutation(w, r) {
+			s.withSession(w, r, s.previewSettings)
+		}
+	case "/api/settings/apply":
+		if s.mutation(w, r) {
+			s.withSession(w, r, s.applySettings)
+		}
+	default:
+		return false
+	}
+	return true
 }
 
 // mutation guards a state-changing request: same-origin fetch metadata plus the

@@ -15,11 +15,24 @@
 <main>
   <section class="card">
     <h2>Language</h2>
-    <p class="muted">Current: <strong id="language">{{.Language}}</strong> (set <code>ui.language</code> in config.toml; edits are applied by the CLI).</p>
-    <ul id="locales">
-      {{range .Locales}}<li>{{.}}</li>{{end}}
-    </ul>
+    <p class="muted">Current: <strong id="language">{{.Language}}</strong> (config key <code>ui.language</code>).</p>
+    {{if .Writable}}
+    <form id="settings-form">
+      <label for="language-select">Language</label>
+      <select id="language-select">
+        <option value="auto">auto</option>
+        {{range .Locales}}<option value="{{.}}">{{.}}</option>{{end}}
+      </select>
+      <button type="submit">Preview change</button>
+    </form>
+    <pre id="diff" class="diff" hidden></pre>
+    <button id="apply" type="button" hidden>Apply change</button>
+    <p id="settings-status" class="muted"></p>
+    {{else}}
+    <p class="muted">This build keeps settings read-only.</p>
+    {{end}}
   </section>
+  <script type="module" src="/assets/settings.js"></script>
   <section class="card">
     <h2>Theme</h2>
     <p class="muted">The dashboard follows the terminal theme family (`tern-dark` by default).</p>
