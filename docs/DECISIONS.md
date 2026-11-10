@@ -6607,6 +6607,8 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 - Amandemen (ADR-330, PR F8-CLI-5a): `project` (11 sub; store 0600; folder di luar workspace ditolak exit 2). Tes `TestF8CLI030Project`, `TestF8CLI030ProjectSubcommands`; parity+ledger `CLI-030` menjadi `LULUS`.
 - Amandemen (ADR-330, PR F8-CLI-5b): `curator` 17 sub + `/curator` (planner deterministik, ledger, mutasi idempoten) serta `proxy`/`memory`/`connectors` (start/setup/connect typed `module_unavailable` exit 3; status/providers/list/accounts read-only tanpa token). Tes `TestF8CLI049Curator`, `TestF8CLI052Memory`, `TestF8CLI056Connectors`, `TestF8CLI012Proxy`, `TestF8CLI012ProxySubcommands`, `TestF8SLASH079Curator`; parity+ledger `CLI-049` dan `SLASH-079` menjadi `LULUS`; `CLI-012/052/056` tetap `BELUM`.
+- Amandemen (ADR-330, CLI-060): `damnbot monitoring status [--json] [--health-url URL]` menjadi `LULUS` (parity + ledger). Surface membaca `[telemetry]`, memvalidasi endpoint loopback, memprobe `/healthz` lewat `netx.LoopbackClient`, dan mencetak laporan diagnostik ter-redaksi (versi, runtime, path config ter-redaksi, state OTLP, health) tanpa mengekspor metrik atau menghubungi collector saat status; `internal/obs` OTLP tetap default-off. Tes `TestF8CLI060Monitoring` (unit + e2e biner). Wiring `!minimal` dengan stub minimal; tidak ada dependency, lane egress, atau baris budget baru.
+
 ## ADR-331 — Section `[web]` fail-closed untuk `damnbot serve --web` (F8)
 
 **Status:** Accepted 2026-11-08 (F8, GAP-SEC-07/GAP-SEC-08). Menambah section config `[web]` dan menaikkan plafon core 56.900 → 57.200.

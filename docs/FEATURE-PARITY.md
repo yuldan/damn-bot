@@ -141,7 +141,7 @@ Deskripsi = teks `help` hermes (verbatim, dipotong 15 kata) agar dapat dicocokka
 | CLI-057 | `hermes sessions` | Manage session history (list, rename, export, prune, delete) | `hermes_cli/subcommands/sessions.py:33` | tersedia | — | 23 sub: list, export, delete, prune, archive, optimize, clean-markers, optimize-storage, repair, set-journal-mode, repair-routing, repair-profiles, repair-prompts, recover, stats, rename, discard, pin, unpin, pinned, retitle-skills, browse, import | F2 | planned |
 | CLI-058 | `hermes insights` | Show usage insights and analytics | `hermes_cli/subcommands/insights.py:10` | tersedia | — |  | F8 | LULUS |
 | CLI-059 | `hermes usage` | Show account rate-limit windows (the /usage block) without starting a session | `hermes_cli/subcommands/usage.py:63` | tersedia | — |  | F3 | planned |
-| CLI-060 | `hermes monitoring` | Inspect gateway monitoring (health & diagnostics export) | `hermes_cli/subcommands/monitoring.py:10` | tersedia | — | 1 sub: status | F8 | planned |
+| CLI-060 | `hermes monitoring` | Inspect gateway monitoring (health & diagnostics export) | `hermes_cli/subcommands/monitoring.py:10` | tersedia | — | 1 sub: status | F8 | LULUS |
 | CLI-061 | `hermes claw` | OpenClaw migration tools | `hermes_cli/subcommands/claw.py:12` | tersedia | instalasi OpenClaw | 2 sub: migrate, cleanup | F3 | planned |
 | CLI-062 | `hermes vault` | Manage the local encrypted autofill vault (add/list/rm credentials) | `hermes_cli/subcommands/vault.py:8` | tersedia | cryptography; op/bw opsional | 4 sub: add, list, rm, sources | F5 | planned |
 | CLI-063 | `hermes update` | Update Hermes Agent to the latest version | `hermes_cli/subcommands/update.py:11` | tersedia | git/uv |  | F3 | planned |
