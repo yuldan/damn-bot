@@ -60,6 +60,7 @@ func TestParseGlobalArgs(t *testing.T) {
 func TestSurfaceRegistry(t *testing.T) {
 	t.Parallel()
 	entries := surface()
+	// monitoring is the 46th callable surface (CLI-060).
 	if len(entries) != 46 {
 		t.Fatalf("registry has %d entries, want 46 (35 + dump + debug + insights + journey + pets + project + curator + proxy + memory + connectors + monitoring)", len(entries))
 	}
