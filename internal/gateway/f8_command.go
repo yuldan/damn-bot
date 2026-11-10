@@ -43,4 +43,5 @@ func addF8Specs(m map[string]commandSpec) {
 	m["hatch"] = commandSpec{run: (*Commands).f8Command}
 	m["generate-pet"] = commandSpec{run: (*Commands).f8Command}
 	m["debug"] = commandSpec{run: (*Commands).f8Command}
+	m["curator"] = commandSpec{run: (*Commands).f8Command}
 }
