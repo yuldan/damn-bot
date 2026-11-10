@@ -12,7 +12,7 @@ Prinsip urutan: ukur dulu (F0) → core yang benar (F1–F2) → permukaan (F3) 
 | F1 | Core loop, provider openai-chat, schema gate, code tools, exec runner, spill, retry, keamanan dasar | 29.500 | — | F0 |
 | F2 | Context DB, memori, skill, compaction, fork/rewind, modul lazy, journal/undo, budget guard | 12.000 | — | F1 |
 | F3 | TUI, ACP, config, setup wizard, plan mode, preview, import hermes (config/skill/memory/MCP), rilis & update | 21.500 | — | F2 |
-| F4 | Gateway core + **Telegram**, `serve`, service install, self-healing, cron, scorecard mingguan | 20.000 | — | F3 |
+| F4 | Gateway core + **Telegram**, `serve`, service install, self-healing, cron, scorecard mingguan | 20.012 | — | F3 |
 | F5 | Registry provider (88 + lokal + custom), MCP, delegate, exec backends, execute_code, codeintel, verifikasi coding | 30.500 | — | F4 |
 | F6 | Web, browser, media, voice, computer use | 24.500 | — | F5 |
 | F7 | 29 surface platform lain, api-server, webhook, kanban, fitur gateway lanjutan | 25.100 | — | F4, F5 |

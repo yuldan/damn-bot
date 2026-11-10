@@ -114,6 +114,11 @@ func withDefaults(c *Config) {
 	if c.Now == nil {
 		c.Now = time.Now // the one wall-clock seam; tests inject a fixed clock
 	}
+	if c.Since == nil {
+		// Deadlines read elapsed time from the monotonic component, so a
+		// wall-clock step never kills a live turn (GAP-REL-07).
+		c.Since = time.Since
+	}
 	if c.NewTurnID == nil {
 		c.NewTurnID = newTurnID
 	}
@@ -152,7 +157,7 @@ func (l *Loop) Prompt(ctx context.Context, sessionID string, in Input) (<-chan e
 	out := make(chan event.Update, l.cfg.StreamBuffer) //damnbot:buffered stream, caller drains until close
 	t := &turn{
 		cfg: l.cfg, deps: l.deps, sessionID: sessionID, turnID: turnID,
-		input: in, out: out, start: l.cfg.Now(), allowed: map[string]bool{},
+		input: in, out: out, start: l.cfg.Now(), monoStart: time.Now(), allowed: map[string]bool{},
 		seen: map[[32]byte]int{},
 	}
 	// E-26: the turn goroutine starts only through boundary, which also

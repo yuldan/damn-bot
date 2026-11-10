@@ -661,7 +661,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | AUTO-002 | Title generation | Judul sesi otomatis | `agent/title_generator.py` | on (`auxiliary.title_generation.enabled`) | LLM auxiliary |  | F8 | LULUS |
 | AUTO-003 | Curator scheduler | Jalankan curator saat idle (min 2 jam) | `agent/curator.py` | on | LLM auxiliary | lihat SKILL | F8 | planned |
 | AUTO-004 | Idle/hygiene compaction | Compaction hygiene sesi gateway saat idle/terlalu panjang | `gateway/run_turn_hygiene.py`, `agent/compression_automation.py` | on | LLM auxiliary | `compression.hygiene_*` | F8 | LULUS |
-| AUTO-005 | Cron scheduler | Penjadwal job cron (tick, delivery, catch-up) | `cron/scheduler.py`, `cron/jobs.py`, `cron/scheduler_tick.py` | on di gateway; job dibuat user | croniter | `hermes cron`, `/cron` | F4 | planned |
+| AUTO-005 | Cron scheduler | Penjadwal job cron (tick, delivery, catch-up) | `cron/scheduler.py`, `cron/jobs.py`, `cron/scheduler_tick.py` | on di gateway; job dibuat user | croniter | `hermes cron`, `/cron` | F4 | LULUS |
 | AUTO-006 | Cron delivery ke platform | Kirim hasil job ke platform/home channel | `cron/scheduler_delivery.py`, `cron/delivery_queue.py` | on (`cron.delivery.notify`) | Platform terkait |  | F4 | planned |
 | AUTO-007 | Cron script jobs | Job berbasis skrip (bukan prompt) | `cron/scheduler_script.py` | opt-in | — | timeout 3600 s | F4 | planned |
 | AUTO-008 | Cron preflight & incidents | Cek pra-jalan, catat insiden, alert gagal berulang | `cron/scheduler_preflight.py`, `cron/incidents.py` | on (`cron.preflight`) | — |  | F4 | planned |

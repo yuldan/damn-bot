@@ -53,6 +53,11 @@ type Job struct {
 	Overlap                string
 	Cwd                    string
 	Gate                   string
+	// After is the REL-16 DAG: job IDs (or names) that must finish at the
+	// same slot, or whose timeout makes this run continue with
+	// upstream_missing.
+	After        []string
+	AfterTimeout time.Duration
 	// GateContext is runtime-only gate context, never stored on the row.
 	GateContext string
 	CreatedAt   time.Time
@@ -167,6 +172,10 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("cron: list jobs: %w", err)
 	}
+	resolveAfter(jobs)
+	if err := ValidateDAG(jobs); err != nil {
+		return err
+	}
 	now := s.clock().Now()
 	var errs []error
 	for i := range jobs {
@@ -190,6 +199,7 @@ func (s *Scheduler) RunOnce(ctx context.Context, jobID string) error {
 	if err != nil {
 		return fmt.Errorf("cron: list jobs: %w", err)
 	}
+	resolveAfter(jobs)
 	for i := range jobs {
 		if jobs[i].ID != jobID {
 			continue
@@ -295,6 +305,21 @@ func admit(policy string, a Active) admission {
 
 // slot admits, claims and (when admitted) executes one due slot.
 func (s *Scheduler) slot(ctx context.Context, j *Job, at time.Time) error {
+	upText, ready, missing, uerr := s.upstream(ctx, j, at)
+	if uerr != nil {
+		return fmt.Errorf("after: %w", uerr)
+	}
+	if !ready {
+		return nil // wait for the upstream slot; the next tick retries
+	}
+	if len(j.After) > 0 {
+		jc := *j
+		jc.Prompt = strings.TrimSuffix(jc.Prompt, "\n") + "\n\n" + upText
+		if missing {
+			jc.Prompt += "\nupstream_missing"
+		}
+		j = &jc
+	}
 	a, err := s.Store.Active(ctx, j.ID)
 	if err != nil {
 		return fmt.Errorf("active: %w", err)

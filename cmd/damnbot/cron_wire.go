@@ -59,9 +59,26 @@ func (s *cronAdapter) Jobs(ctx context.Context) ([]cron.Job, error) {
 			ID: r.ID, Name: r.Name, Schedule: r.Schedule, TZ: r.TZ, Prompt: r.Prompt,
 			Enabled: r.Enabled, CatchUp: r.CatchUp, ApprovalMode: r.ApprovalMode, MaxCatchUp: r.MaxCatchUp,
 			Overlap: r.Overlap, Cwd: r.Cwd, CreatedAt: r.CreatedAt,
+			After: r.After, AfterTimeout: r.AfterTimeout,
 		}
 	}
 	return out, nil
+}
+
+// UpstreamRun implements the REL-16 dependency lookup.
+func (s *cronAdapter) UpstreamRun(ctx context.Context, id string, at time.Time) (cron.Upstream, bool, error) {
+	rowID, session, finished, ok, err := s.RunAt(ctx, id, at)
+	if err != nil {
+		return cron.Upstream{}, false, fmt.Errorf("cron upstream %s: %w", id, err)
+	}
+	if !ok {
+		return cron.Upstream{}, false, nil
+	}
+	exec := session
+	if exec == "" {
+		exec = fmt.Sprintf("%d", rowID)
+	}
+	return cron.Upstream{ExecutionID: exec, FinishedAt: finished}, true, nil
 }
 
 func (s *cronAdapter) State(ctx context.Context, id string) (cron.State, error) {
