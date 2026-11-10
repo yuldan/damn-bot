@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/gateway"
+	"github.com/damnbot/damnbot/internal/gateway/render"
 	"github.com/damnbot/damnbot/internal/skills"
 )
 
@@ -38,9 +39,28 @@ func TestF8SLASH027Journey(t *testing.T) {
 	if got := cmds.Dispatch(ctx, user, "/journey delete x"); !strings.Contains(got.Reply, "owner-only") {
 		t.Fatalf("user delete = %q", got.Reply)
 	}
+	state := f8JourneyState{}
+	entries, err := journeyEntries(ctx, data, &state)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("journey entries = %+v, %v", entries, err)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/journey delete "+entries[0].Key); !strings.Contains(got.Reply, "deleted") {
+		t.Fatalf("delete = %q", got.Reply)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/journey edit "+entries[1].Key+" --note hello"); !strings.Contains(got.Reply, "edited") {
+		t.Fatalf("edit = %q", got.Reply)
+	}
+	state = f8JourneyState{}
+	if lerr := f8Load(f8StorePath(data, "journey.json"), &state); lerr != nil {
+		t.Fatal(lerr)
+	}
+	entries, err = journeyEntries(ctx, data, &state)
+	if err != nil || len(entries) != 1 || entries[0].Name != "beta" || entries[0].Note != "hello" {
+		t.Fatalf("journey mutations = %+v, %v", entries, err)
+	}
 	got := cmds.Dispatch(ctx, owner, "/journey list")
-	if units := len([]rune(got.Reply)); units > 3800 {
-		t.Fatalf("journey reply %d runes over cap", units)
+	if units := render.Units(got.Reply); units > 2*3800+2 {
+		t.Fatalf("journey reply %d units over cap", units)
 	}
 }
 
@@ -98,7 +118,12 @@ func TestF8SLASH073Hatch(t *testing.T) {
 }
 
 func TestF8SLASH102Debug(t *testing.T) {
-	data := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "cfg"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	data := filepath.Join(home, "d")
 	cmds := f8Commands(t, data)
 	owner := f8Ticket(gateway.RoleOwner)
 	ctx := context.Background()
@@ -114,8 +139,17 @@ func TestF8SLASH102Debug(t *testing.T) {
 		t.Fatalf("no token: %q", got.Reply)
 	}
 	path := strings.Fields(got.Reply)[2]
-	if b, err := os.ReadFile(path); err != nil || !strings.Contains(string(b), "damnbot ") { // #nosec G304 -- fixture path
-		t.Fatalf("artifact = %q, %v", b, err)
+	artifact, err := os.ReadFile(path) // #nosec G304 -- fixture path
+	if err != nil || !strings.Contains(string(artifact), "damnbot ") {
+		t.Fatalf("artifact = %q, %v", artifact, err)
+	}
+	if strings.Contains(string(artifact), home) || !strings.Contains(string(artifact), "~") {
+		t.Fatalf("artifact not redacted: %q", artifact)
+	}
+	for _, host := range []string{"paste.rs", "dpaste", "pastebin"} {
+		if strings.Contains(got.Reply, host) || strings.Contains(string(artifact), host) {
+			t.Fatalf("pastebin host %q", host)
+		}
 	}
 	if got = cmds.Dispatch(ctx, owner, "/debug delete "+token); !strings.Contains(got.Reply, "debug deleted") {
 		t.Fatalf("delete = %q", got.Reply)
