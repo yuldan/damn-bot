@@ -33,6 +33,16 @@ func runTools(reg *tools.Registry, allowed map[string]bool) ([]assemble.Tool, er
 	return out, nil
 }
 
+func availableNames(reg *tools.Registry, mods runModules) map[string]bool {
+	out := registryNames(reg)
+	if mods.deferred != nil {
+		for _, name := range mods.deferred.Catalog.Names() {
+			out[name] = true
+		}
+	}
+	return out
+}
+
 // registryNames is the availability set handed to toolset.Resolve.
 func registryNames(reg *tools.Registry) map[string]bool {
 	names := reg.Names()

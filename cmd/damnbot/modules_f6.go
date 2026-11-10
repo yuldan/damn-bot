@@ -85,6 +85,7 @@ func registerModules() error {
 			},
 		},
 		connectorsDescriptor(),
+		desktopUIDescriptor(),
 		{
 			ID:        f6ComputerUseID,
 			Group:     "computer_use",
@@ -231,6 +232,9 @@ func moduleEnabled(cfg *config.Config) func(string) bool {
 			return connectorsEnabled(cfg)
 		}
 		switch id {
+		case f8DesktopUIModuleID:
+			// Default off: only a selected GUI toolset enables the catalog.
+			return desktopUIEnabled(cfg)
 		case f6WebModuleID:
 			return web.Enabled
 		case f6BrowserModuleID:
@@ -290,6 +294,9 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 		MaxScreenshotBytes: cu.MaxScreenshotBytes,
 	})
 	return func(id string) host.Config {
+		if c, ok := desktopModuleConfig(id, cfg); ok {
+			return c
+		}
 		switch {
 		case id == f6WebModuleID && webErr == nil:
 			return host.Config{Key: "modules.web", Raw: webRaw}
@@ -306,4 +313,17 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 		}
 		return host.Config{Key: "modules." + id}
 	}
+}
+
+func desktopModuleConfig(id string, cfg *config.Config) (host.Config, bool) {
+	if id != f8DesktopUIModuleID {
+		return host.Config{}, false
+	}
+	raw, err := json.Marshal(struct {
+		Notices bool `json:"notices"`
+	}{Notices: cfg.UI.Notices})
+	if err != nil {
+		return host.Config{}, false
+	}
+	return host.Config{Key: "modules.desktop_ui", Raw: raw}, true
 }

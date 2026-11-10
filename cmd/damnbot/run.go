@@ -404,7 +404,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, w.fail(fmt.Errorf("model window: %w", err))
 	}
-	sel, err := toolset.Resolve(cfg.Toolsets, runtime.GOOS, registryNames(w.registry))
+	sel, err := toolset.Resolve(cfg.Toolsets, runtime.GOOS, availableNames(w.registry, w.modules))
 	if err != nil {
 		return nil, w.fail(fmt.Errorf("toolsets: %w", err))
 	}
