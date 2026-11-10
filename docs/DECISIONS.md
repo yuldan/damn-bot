@@ -6600,6 +6600,7 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 - Amandemen (ADR-330, F8 memory providers/ADR-340): paket `internal/memoryproviders` dibukukan sebagai `MODULE memprovider 1000` (terukur 881), section `[modules.memory]` menaikkan `config` ke angka terukur di ADR-340 dan Σ core mengikuti plafon 57.400, dan baris parity + ledger MEM-005/008/009/023 menjadi `LULUS`; MEM-010/035 tetap `BELUM` sampai surface CLI-052 dan CLI-051/SLASH-027 mendarat.
 
+- Amandemen (ADR-330, PR F8-CLI-1): `cmd/damnbot` menambah `dump` (redaksi §14.3+PII), `debug share|delete` (XChaCha20-Poly1305 lokal; 0 host pastebin), dan `insights` (agregat `usage_ledger` dengan filter `--days/--since`) di balik `!minimal`. Tes `TestF8CLI036Dump`, `TestF8CLI037Debug`, `TestF8CLI058Insights`; parity+ledger `CLI-036/037/058` menjadi `LULUS`. Tanpa dependency, migrasi, `//nolint`, atau perubahan pagu.
 ## ADR-331 — Section `[web]` fail-closed untuk `damnbot serve --web` (F8)
 
 **Status:** Accepted 2026-11-08 (F8, GAP-SEC-07/GAP-SEC-08). Menambah section config `[web]` dan menaikkan plafon core 56.900 → 57.200.

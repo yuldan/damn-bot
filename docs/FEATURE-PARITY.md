@@ -117,8 +117,8 @@ Deskripsi = teks `help` hermes (verbatim, dipotong 15 kata) agar dapat dicocokka
 | CLI-033 | `hermes verify` | Detect a project's run recipe and smoke-test it | `hermes_cli/subcommands/verify.py:21` | tersedia | — |  | F3 | planned |
 | CLI-034 | `hermes security` | Supply-chain audit (OSV.dev) for venv, plugins, and MCP servers | `hermes_cli/subcommands/security.py:12` | tersedia | OSV.dev | 1 sub: audit | F5 | planned |
 | CLI-035 | `hermes approvals` | Approval-prompt tools (mine history into allowlist proposals) | `hermes_cli/subcommands/approvals.py:13` | tersedia | — | 2 sub: suggest, test | F3 | planned |
-| CLI-036 | `hermes dump` | Dump setup summary for support/debugging | `hermes_cli/subcommands/dump.py:10` | tersedia | — |  | F8 | planned |
-| CLI-037 | `hermes debug` | Debug tools — upload logs and system info for support | `hermes_cli/subcommands/debug.py:11` | tersedia | Network (upload) | 2 sub: share, delete | F8 | planned |
+| CLI-036 | `hermes dump` | Dump setup summary for support/debugging | `hermes_cli/subcommands/dump.py:10` | tersedia | — |  | F8 | LULUS |
+| CLI-037 | `hermes debug` | Debug tools — upload logs and system info for support | `hermes_cli/subcommands/debug.py:11` | tersedia | Network (upload) | 2 sub: share, delete | F8 | LULUS |
 | CLI-038 | `hermes backup` | Back up Hermes home directory to a zip file | `hermes_cli/subcommands/backup.py:18` | tersedia | — |  | F2 | planned |
 | CLI-039 | `hermes checkpoints` | Inspect / prune / clear ~/.hermes/checkpoints/ | `hermes_cli/subcommands/checkpoints.py:8` | tersedia | — | 5 sub: status, list, prune, clear, clear-legacy | F2 | planned |
 | CLI-040 | `hermes import` | Restore a Hermes backup from a zip file | `hermes_cli/subcommands/import_cmd.py:10` | tersedia | — |  | F2 | planned |
@@ -139,7 +139,7 @@ Deskripsi = teks `help` hermes (verbatim, dipotong 15 kata) agar dapat dicocokka
 | CLI-055 | `hermes mcp` | Manage MCP servers and run Hermes as an MCP server | `hermes_cli/subcommands/mcp.py:13` | tersedia | extra `mcp` | 11 sub: serve, add, remove, list, test, configure, login, reauth, picker, catalog, install | F5 | planned |
 | CLI-056 | `hermes connectors` | Manage hosted app connectors and their accounts | `hermes_cli/subcommands/connectors.py:10` | tersedia | Nous Portal | 5 sub: list, accounts, connect, rename, disconnect | F8 | planned |
 | CLI-057 | `hermes sessions` | Manage session history (list, rename, export, prune, delete) | `hermes_cli/subcommands/sessions.py:33` | tersedia | — | 23 sub: list, export, delete, prune, archive, optimize, clean-markers, optimize-storage, repair, set-journal-mode, repair-routing, repair-profiles, repair-prompts, recover, stats, rename, discard, pin, unpin, pinned, retitle-skills, browse, import | F2 | planned |
-| CLI-058 | `hermes insights` | Show usage insights and analytics | `hermes_cli/subcommands/insights.py:10` | tersedia | — |  | F8 | planned |
+| CLI-058 | `hermes insights` | Show usage insights and analytics | `hermes_cli/subcommands/insights.py:10` | tersedia | — |  | F8 | LULUS |
 | CLI-059 | `hermes usage` | Show account rate-limit windows (the /usage block) without starting a session | `hermes_cli/subcommands/usage.py:63` | tersedia | — |  | F3 | planned |
 | CLI-060 | `hermes monitoring` | Inspect gateway monitoring (health & diagnostics export) | `hermes_cli/subcommands/monitoring.py:10` | tersedia | — | 1 sub: status | F8 | planned |
 | CLI-061 | `hermes claw` | OpenClaw migration tools | `hermes_cli/subcommands/claw.py:12` | tersedia | instalasi OpenClaw | 2 sub: migrate, cleanup | F3 | planned |

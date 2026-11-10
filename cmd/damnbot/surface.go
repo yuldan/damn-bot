@@ -90,6 +90,7 @@ func surface() []surfaceEntry {
 	entries = append(entries, mcpSurface()...)
 	entries = append(entries, peerSurface()...)
 	entries = append(entries, cuaSurface()...)
+	entries = append(entries, f8Surfaces()...)
 	return append(entries, browserSurface()...)
 }
 
