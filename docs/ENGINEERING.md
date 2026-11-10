@@ -659,6 +659,74 @@ JSON
 
 ---
 
+### 5.5 Resource guard 60% (ADR-341)
+
+Host agent dipakai bersama (10 vCPU, RAM 23,5 GiB, `/` 147 GB). Aturan owner: pekerjaan agent
+maksimal **60%** dari tiap resource. Angka 60% menjadi **plafon**, dan gerbang di bawah ini memakai
+margin supaya gelombang build paralel tidak melewatinya:
+
+| Metrik | Ambang `check` | Padanan 60% |
+|---|---|---|
+| disk `/` terpakai | gagal bila **> 57%** | 60% ≈ 88 GB; margin 3 pp untuk file sementara selama build |
+| `MemAvailable` | gagal bila **< 41% `MemTotal`** (fallback 9 GiB bila tak terbaca) | avail 40% total = 9,4 GiB; used ≤ 59%; margin 1 pp |
+| load1 | gagal bila **> 5.5** | 10 vCPU × 60% = 6 CPU (0,5 headroom untuk beban sistem) |
+
+**Pemakaian.**
+
+```bash
+scripts/agent-guard.sh check                  # exit 1 bila ambang dilanggar; cetak used% RAM
+scripts/agent-guard.sh report [--json]        # tabel metrik + status; --json untuk mesin
+scripts/agent-guard.sh cleanup                # bersihkan cache build sementara yang aman
+scripts/agent-guard.sh watch [--once]         # loop 120 dtk; --once = satu iterasi
+scripts/agent-heavy.sh <perintah…>            # WAJIB untuk build/test/benchmark berat
+scripts/agent-heavy.sh --force <perintah…>    # override cek ambang (flock + limit tetap)
+make agent-guard-test                         # 18 skenario self-test, tanpa data nyata
+```
+
+`cleanup` hanya menyentuh tiga hal: `go clean -cache` (hanya bila disk > 57%), direktori
+`/tmp/go-build*` dan `/tmp/gocache-*` yang berumur > 1 jam **dan** tidak sedang dibuka proses
+(dipindai lewat `/proc/*/fd`), serta `git worktree prune`. `~/.cache/damnbot`, worktree dirty,
+`~/go/pkg/mod`, dan source tidak pernah menjadi kandidat; byte yang dibebaskan dicetak.
+
+`watch` menulis flag `~/.cache/damnbot/PAUSE_HEAVY` bila disk > 60% dan menghapusnya bila disk < 55%.
+`agent-heavy.sh` menolak berjalan selama flag ada atau `check` gagal, mengambil flock global
+`~/.cache/damnbot/heavy.lock` (hanya **satu** perintah berat pada satu waktu; proses kedua ditolak,
+tidak mengantre), lalu menjalankan perintah dengan:
+
+| Batas | Nilai | Alasan |
+|---|---|---|
+| CPU affinity | `taskset -c 0-5` | 6 dari 10 vCPU = 60% |
+| prioritas | `nice -n 19` | beban agent tidak mengalahkan layanan host |
+| `GOMAXPROCS` / `GOFLAGS` | `2` / `-p=1` | konkurensi compile/test dibatasi |
+| `GOMEMLIMIT` | `1500MiB` | plafon memori per proses |
+| `ulimit -v` | `4194304` KiB (4 GiB); `8388608` (8 GiB) untuk `-race` | mencegah runaway alokasi |
+
+**Bukti pengukuran (2026-11-10, host 10 vCPU).**
+
+```
+$ scripts/agent-guard.sh check
+disk /        : 35% (gagal bila > 57%)
+MemAvailable  : 20.07 GiB = 21043340 KiB (used 14.5%; gagal bila < 41% total = 9.62 GiB)
+load1         : 2.15 (gagal bila > 5.5)
+GUARD OK: resource di bawah ambang 60%
+
+$ scripts/agent-heavy.sh go env GOFLAGS
+-p=1
+$ scripts/agent-heavy.sh bash -c 'echo procs=$(nproc) GOMAXPROCS=$GOMAXPROCS nice=$(nice) ulimit_v=$(ulimit -v)'
+procs=6 GOMAXPROCS=2 nice=19 ulimit_v=4194304
+```
+
+Banner `agent-heavy.sh` juga mencetak `GOMAXPROCS=2 GOFLAGS=-p=1 GOMEMLIMIT=1500MiB`.
+`go env` tidak melaporkan `GOMAXPROCS` (variabel runtime, bukan variabel `go env`), sehingga nilai itu
+dibuktikan oleh banner dan `procs=6`. Ambang RAM memakai **persentase** `MemTotal` (bukan angka GiB
+tetap) supaya used benar-benar ≤ 60%; `check`/`report` menampilkan `used%`, dan `report --json`
+menyertakan `mem_total_kib`, `mem_used_percent`, `mem_min_kib`, serta `mem_min_basis`.
+`scripts/agent-guard-test.sh` lulus 18/18 skenario: check 36% lulus, 58% gagal, avail 40,5% total
+ditolak / 41,5% lolos, fallback 9 GiB, MemAvailable/load gagal, report tabel+JSON, cleanup dipanggil
+di 57,5%, flag dibuat di 60,1% dan dicabut di 54%, cleanup fixture hanya menghapus stale tanpa fd,
+`agent-heavy` menolak saat guard gagal, limit terpasang (`2|-p=1|1500MiB|4194304|6`), dan flock
+menolak proses kedua.
+
 ## 6. Disiplin test
 
 | ID | Aturan | Angka | Verifikasi | Hermes |

@@ -36,7 +36,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 .PHONY: all build build-minimal-all build-matrix lint vet-custom test test-windows-evidence test-timing archtest vet-cross size-check loc loc-ratio chaos \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
-	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker release ci-required ci-required-test deadcode-linux
+	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker release ci-required ci-required-test deadcode-linux agent-guard-test
 
 all: check
 
@@ -272,6 +272,11 @@ ci-required:
 
 ci-required-test:
 	scripts/ci-required.sh --self-test
+
+# Resource guard 60% (ENGINEERING §5.5, ADR-341): self-test 18 skenario: ambang, cleanup, flag, limit, dan flock
+# tanpa menyentuh cache/state nyata (fixture GUARD_FAKE_*).
+agent-guard-test:
+	scripts/agent-guard-test.sh
 
 size-check:
 	TAGS="$(TAGSCSV)" scripts/size-check.sh
