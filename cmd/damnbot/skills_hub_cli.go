@@ -30,7 +30,7 @@ func skillsHubCommand(args []string, stdout, stderr io.Writer) int {
 		skillsHubUsage(stderr)
 		return 2
 	}
-	rest, owner, optional, err := splitHubFlags(args)
+	rest, owner, optional, accept, err := splitHubFlags(args)
 	if err != nil {
 		say(stderr, "skills hub: %v\n", err)
 		return 2
@@ -40,7 +40,7 @@ func skillsHubCommand(args []string, stdout, stderr io.Writer) int {
 		say(stderr, "skills hub: %v\n", err)
 		return 2
 	}
-	o := &hubOptions{skillArgs: a, owner: owner, optional: optional}
+	o := &hubOptions{skillArgs: a, owner: owner, optional: optional, acceptTOS: accept}
 	if len(o.pos) == 0 {
 		skillsHubUsage(stderr)
 		return 2
@@ -71,7 +71,7 @@ func skillsHubCommand(args []string, stdout, stderr io.Writer) int {
 func skillsHubUsage(w io.Writer) {
 	say(w, "pemakaian: damnbot skills hub search <source> [query] [--limit N]\n")
 	say(w, "           damnbot skills hub list <source>\n")
-	say(w, "           damnbot skills hub install <source> <name>\n")
+	say(w, "           damnbot skills hub install <source> <name> [--accept-tos <name>]\n")
 	say(w, "           damnbot skills hub approve <memory-id> [--owner <name>]\n")
 	say(w, "           damnbot skills hub sync <source> [--optional]\n")
 	say(w, "source: official|github|clawhub|skills.sh; owner juga dari DAMNBOT_SKILLS_OWNER\n")
@@ -81,33 +81,42 @@ func skillsHubUsage(w io.Writer) {
 // the !minimal file so the shared parser stays at its budgeted shape.
 type hubOptions struct {
 	skillArgs
-	owner    string
-	optional bool
+	owner     string
+	optional  bool
+	acceptTOS string
 }
 
 // splitHubFlags removes --owner/--optional from args before the shared parser
 // runs; the rest is parsed exactly like every other skills subcommand.
-func splitHubFlags(args []string) (rest []string, owner string, optional bool, err error) {
+func splitHubFlags(args []string) (rest []string, owner string, optional bool, accept string, err error) {
 	for i := 0; i < len(args); i++ {
 		switch {
 		case args[i] == "--optional":
 			optional = true
 		case args[i] == "--owner":
 			if i+1 >= len(args) {
-				return nil, "", false, fmt.Errorf("--owner needs a value")
+				return nil, "", false, "", fmt.Errorf("--owner needs a value")
 			}
 			i++
 			owner = args[i]
 		case strings.HasPrefix(args[i], "--owner="):
 			owner = strings.TrimPrefix(args[i], "--owner=")
 			if owner == "" {
-				return nil, "", false, fmt.Errorf("--owner needs a value")
+				return nil, "", false, "", fmt.Errorf("--owner needs a value")
 			}
+		case args[i] == "--accept-tos":
+			if i+1 >= len(args) {
+				return nil, "", false, "", fmt.Errorf("--accept-tos needs the typed entry name")
+			}
+			i++
+			accept = args[i]
+		case strings.HasPrefix(args[i], "--accept-tos="):
+			accept = strings.TrimPrefix(args[i], "--accept-tos=")
 		default:
 			rest = append(rest, args[i])
 		}
 	}
-	return rest, owner, optional, nil
+	return rest, owner, optional, accept, nil
 }
 
 // hubEnv is one command's composition: the store-backed service, the hub, and
@@ -238,7 +247,7 @@ func (e *hubEnv) install(ctx context.Context, o *hubOptions, stdout, stderr io.W
 	}
 	name := o.pos[next]
 	target := filepath.Join(e.configDir, "skills")
-	path, err := e.h.Install(ctx, src, name, target)
+	path, err := e.h.InstallAccepted(ctx, src, name, target, o.acceptTOS)
 	if err == nil {
 		say(stdout, "installed %s (%s)\n", name, path)
 		return 0
@@ -257,7 +266,7 @@ func (e *hubEnv) install(ctx context.Context, o *hubOptions, stdout, stderr io.W
 		say(stderr, "skills hub install: %v\n", ferr)
 		return 1
 	}
-	inst, derr := e.h.Download(ctx, src, &entry)
+	inst, derr := e.h.DownloadAccepted(ctx, src, &entry, o.acceptTOS)
 	if derr != nil {
 		say(stderr, "skills hub install: %v\n", derr)
 		return 1

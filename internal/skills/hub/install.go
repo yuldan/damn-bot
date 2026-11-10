@@ -35,6 +35,12 @@ func (h *Hub) Approve(ctx context.Context, caller string, memoryID int64) error 
 // whose pinned hash does not match the downloaded bytes, and a name outside
 // the closed skill shape all write nothing.
 func (h *Hub) Install(ctx context.Context, src Source, name, targetDir string) (string, error) {
+	return h.InstallAccepted(ctx, src, name, targetDir, "")
+}
+
+// InstallAccepted is [Hub.Install] with the typed acknowledgement of a
+// high-risk ToS entry (GAP-GW-07): the user must retype the exact entry name.
+func (h *Hub) InstallAccepted(ctx context.Context, src Source, name, targetDir, typed string) (string, error) {
 	if !entryNameRe.MatchString(name) {
 		return "", fmt.Errorf("%w: name %q", ErrIndex, name)
 	}
@@ -51,6 +57,9 @@ func (h *Hub) Install(ctx context.Context, src Source, name, targetDir string) (
 	e, err := idx.Find(name)
 	if err != nil {
 		return "", err
+	}
+	if terr := skills.RequireToSAck(e.ToS, e.Name, typed); terr != nil {
+		return "", fmt.Errorf("skills hub: %s: %w", e.Name, terr)
 	}
 	raw, err := h.fetchEntry(ctx, src, &e)
 	if err != nil {

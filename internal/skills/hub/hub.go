@@ -149,6 +149,14 @@ func (h *Hub) Search(ctx context.Context, src Source, query string, limit int) (
 // user/builtin is quarantined, so the result is not retrievable until an
 // explicit approval. A hash mismatch writes nothing.
 func (h *Hub) Download(ctx context.Context, src Source, e *Entry) (skills.Install, error) {
+	return h.DownloadAccepted(ctx, src, e, "")
+}
+
+// DownloadAccepted is [Hub.Download] with the typed ToS acknowledgement.
+func (h *Hub) DownloadAccepted(ctx context.Context, src Source, e *Entry, typed string) (skills.Install, error) {
+	if err := skills.RequireToSAck(e.ToS, e.Name, typed); err != nil {
+		return skills.Install{}, fmt.Errorf("skills hub: %s: %w", e.Name, err)
+	}
 	sk, err := h.parseEntry(ctx, src, e)
 	if err != nil {
 		return skills.Install{}, err
