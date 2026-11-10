@@ -128,4 +128,14 @@ func TestF8WebA11y(t *testing.T) {
 			t.Errorf("%s lacks lang/dir", path)
 		}
 	}
+
+	// Automated axe-like audit over all 18 locales; only serious/critical
+	// findings fail (GAP-UX-07).
+	violations, err := auditEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := severe(violations); len(got) != 0 {
+		t.Fatalf("a11y serious/critical findings: %+v", got)
+	}
 }

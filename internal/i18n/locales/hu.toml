@@ -50,3 +50,5 @@
 "critical.budget.title" = "Költségkeret"
 "critical.safe_mode.title" = "BIZTONSÁGOS MÓD"
 "web.waiting_provider" = "Várakozás a szolgáltatóra %d s"
+"web.approve" = "Jóváhagyás"
+"web.deny" = "Elutasítás"

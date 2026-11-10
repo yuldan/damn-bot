@@ -50,3 +50,5 @@
 "critical.budget.title" = "Orçamento"
 "critical.safe_mode.title" = "MODO SEGURO"
 "web.waiting_provider" = "Aguardando o provedor %d s"
+"web.approve" = "Aprovar"
+"web.deny" = "Recusar"

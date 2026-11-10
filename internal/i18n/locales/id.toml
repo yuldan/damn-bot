@@ -50,3 +50,5 @@
 "critical.budget.title" = "Anggaran"
 "critical.safe_mode.title" = "MODE AMAN"
 "web.waiting_provider" = "Menunggu provider %d dtk"
+"web.approve" = "Setujui"
+"web.deny" = "Tolak"

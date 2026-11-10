@@ -2,6 +2,8 @@
 PHASE text eol=lf
 # Referensi config dibandingkan byte-persis dengan hasil generator; pin LF di Windows.
 docs/CONFIG-REFERENCE.md text eol=lf
+# Dokumen surface parity juga dibandingkan byte-persis oleh TestSurfaceDocSync; pin LF.
+docs/SURFACE-PARITY.md text eol=lf
 # File turunan pihak ketiga diverifikasi SHA-256 byte-persis oleh TestAttributionHeaders (ADR-099):
 # tanpa konversi EOL saat checkout (Windows).
 bench/budget/testdata/hermes-868b9f244f/** -text

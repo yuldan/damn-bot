@@ -20,11 +20,18 @@
     <p id="session-state" class="muted" role="status" aria-live="polite">{{.T "web.connecting"}}</p>
     <p id="provider-state" class="muted" role="status" aria-live="polite"></p>
   </section>
-  <section class="card" id="events" role="log" aria-live="polite">
+  <section class="card" id="events" role="log" aria-live="polite" aria-relevant="additions">
     <h2>{{.T "web.events"}}</h2>
     <p id="events-state" class="muted">{{.T "web.waiting"}}</p>
+    <div id="transcript"></div>
   </section>
 </main>
+<dialog id="approval" role="dialog" aria-modal="true" aria-labelledby="approval-title">
+  <h2 id="approval-title">{{.T "critical.approval.title"}}</h2>
+  <p id="approval-body" class="muted"></p>
+  <button id="approval-deny" type="button">{{.T "web.deny"}}</button>
+  <button id="approval-ok" type="button">{{.T "web.approve"}}</button>
+</dialog>
 <script type="module" src="/assets/app.js"></script>
 </body>
 </html>

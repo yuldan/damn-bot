@@ -50,3 +50,5 @@
 "critical.budget.title" = "予算"
 "critical.safe_mode.title" = "セーフモード"
 "web.waiting_provider" = "プロバイダーを待機中 %d 秒"
+"web.approve" = "承認"
+"web.deny" = "拒否"
