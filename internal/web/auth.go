@@ -24,6 +24,9 @@ const (
 	sessionCookie   = "__Host-damnbot"
 	csrfCookie      = "damnbot_csrf"
 	csrfHeader      = "X-CSRF-Token"
+	// endSessionHeader carries the OIDC provider's end_session URL on logout
+	// (GAP-SEC-09); the browser navigates there after clearing local state.
+	endSessionHeader = "X-End-Session"
 )
 
 // Session is one server-side web session. Only the sha256 of the cookie value
@@ -52,10 +55,12 @@ type BasicVerifier interface {
 }
 
 // OIDCProvider is the authorization-code seam (remote mode): it builds the
-// redirect URL and exchanges a code for a principal.
+// redirect URL, exchanges a code for a principal, and returns the provider's
+// end_session URL so logout also ends the upstream SSO session (GAP-SEC-09).
 type OIDCProvider interface {
 	AuthorizeURL(state, nonce string) string
 	Exchange(ctx context.Context, code string) (principal string, err error)
+	EndSessionURL(principal string) string
 }
 
 // nonceSet holds the one-use exchange nonces (GAP-SEC-07).
@@ -187,11 +192,18 @@ func (s *Server) callback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// logout revokes the current session and clears both cookies.
-func (s *Server) logout(w http.ResponseWriter, r *http.Request, _ *Session) {
+// logout revokes the current session, clears both cookies and, in OIDC mode,
+// hands the browser the provider's end_session URL (GAP-SEC-09). Revocation is
+// server-side, so the old cookie is dead on the very next request.
+func (s *Server) logout(w http.ResponseWriter, r *http.Request, row *Session) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
 		if rerr := s.cfg.Sessions.Revoke(r.Context(), sessionHash(c.Value)); rerr != nil {
 			s.logWarn("revoke session", rerr)
+		}
+	}
+	if s.cfg.Auth == ModeOIDC && s.cfg.OIDC != nil {
+		if end := s.cfg.OIDC.EndSessionURL(row.Principal); end != "" {
+			w.Header().Set(endSessionHeader, end)
 		}
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})

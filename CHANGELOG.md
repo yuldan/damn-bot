@@ -3,6 +3,8 @@
 Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unreleased` wajib berubah bila PR menyentuh `.go` non-test di `cmd/` atau `internal/` (ENGINEERING E-81, job `pr-meta`). Setiap entri versi `## [x.y.z] - YYYY-MM-DD` wajib memuat `### Breaking`, `### Migrations` (nomor migrasi DB §11.1, atau `none`), dan `### Security` (atau `none`); `TestChangelogPerTag` dan job rilis gagal bila bagian itu hilang atau migrasi baru tidak disebut (GAP-INF-04).
 
 ## Unreleased
+- `internal/web` (F8 GAP-SEC-09, ADR-326/ADR-330): **logout OIDC mengakhiri sesi upstream**. `OIDCProvider` mendapat `EndSessionURL`; logout tetap me-revoke sesi server-side lebih dulu lalu mengembalikan `X-End-Session`, dan aset menavigasi ke URL itu. Tes `TestWebSessionRevoke` (revoke-all ≤1 request, idle 12 jam+1 s, absolut 7 hari+1 s) dan `TestWebSessionRevokeOIDC`; baris ledger `GAP-SEC-09` menjadi `LULUS`. CSS web juga mendapat token kontras AA, `:focus-visible`, target 44 px, `prefers-reduced-motion`, dan landmark/live region dengan tes `TestContrastTokens`/`TestF8WebA11y` (GAP-UX-07 tetap `BELUM`).
+
 - `cmd/damnbot` (F8 CLI-012/049/052/056, SLASH-079, ADR-330): `curator` 17 sub + `/curator`, dan `proxy`/`memory`/`connectors` sebagai permukaan aman (mutasi typed `module_unavailable` exit 3, 0 token). Tes `TestF8CLI049Curator`, `TestF8CLI052Memory`, `TestF8CLI056Connectors`, `TestF8CLI012Proxy`, `TestF8CLI012ProxySubcommands`, `TestF8SLASH079Curator`; `CLI-049`+`SLASH-079` `LULUS`; `CLI-012/052/056` tetap `BELUM`.
 - `cmd/damnbot` (F8 CLI-030, ADR-330): `project` 11 sub (store 0600, workspace multi-folder, path di luar workspace exit 2) di balik `!minimal`; tes `TestF8CLI030Project`, `TestF8CLI030ProjectSubcommands`; `CLI-030` menjadi `LULUS`.
 
