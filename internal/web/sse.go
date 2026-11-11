@@ -3,12 +3,26 @@ package web
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
 
 // ssePing is the heartbeat interval of /api/events.
 const ssePing = 15 * time.Second
+
+// writeFrame writes one SSE event frame and flushes it immediately. Every
+// first-token frame of the web UI goes through this function — the stream
+// hello today and a chat delta when the dashboard streams one — so
+// BenchmarkWebFirstToken measures the production write path rather than a
+// copy of it.
+func writeFrame(w io.Writer, f http.Flusher, event string, data []byte) error {
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data); err != nil {
+		return fmt.Errorf("web: write SSE frame: %w", err)
+	}
+	f.Flush()
+	return nil
+}
 
 // events streams the dashboard event channel (SPEC §13.2). The session cookie
 // authenticates the request and the 30 s one-use ticket in ?ticket= authorises
@@ -34,10 +48,9 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, row *Session) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if _, err := fmt.Fprintf(w, "event: hello\ndata: %s\n\n", hello); err != nil {
+	if err := writeFrame(w, flusher, "hello", hello); err != nil {
 		return
 	}
-	flusher.Flush()
 	tick := time.NewTicker(ssePing)
 	defer tick.Stop()
 	for {

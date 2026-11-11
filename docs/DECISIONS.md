@@ -5578,6 +5578,8 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 4. **Statistik yang di-gate terlihat.** `BenchmarkShellSpawn*` melaporkan `p95-overhead-ms` dan `BenchmarkShellSessionExec` melaporkan `p95-ms`, seperti benchmark ber-budget lain; hanya pelaporan, bukan perubahan nilai/ambang.
 5. **Tanpa pelonggaran.** `timing.Limit` tetap ×1,5 hanya di build `perf`; CT-04 15 ms (22,5 ms), CT-09 20 ms (30 ms), shell session 5 ms (7,5 ms), spawn 15 ms, `-benchtime=100x`, jeda/warmup CT-09 dan warmup `op(0)` tidak berubah. Tidak ada retry baru; retry CT-09 yang ada tetap milik ADR-127.
 
+**Amandemen (F8 "Web UI perf & aset").** `PERF_PKGS` bertambah `./internal/web` dan `PERF_BENCH` bertambah `BenchmarkWebFirstToken` (P17 web UI, SPEC §17): benchmark menyuntik token fake provider ke jalur SSE produksi (`writeFrame` + `net/http` loopback) lalu membandingkannya dengan baseline terminal/chat yang menerima token yang sama dari channel loop; median overhead wajib ≤50 ms dan melampaui batas berarti gagal (tidak ada pelonggaran ambang, `-benchtime`, atau warmup). Tiga run lokal: overhead 0,132 / 0,164 / 0,235 ms.
+
 **Dampak terukur (host lokal: Intel Xeon Gold 6152 2,10 GHz, 10 vCPU, load 0,4–2,5; runner CI tidak dapat dikendalikan).** Perintah lama (`go test ./...`, `-p` default) vs `make perf` baru, masing-masing 3 run:
 
 | Metrik (limit) | Lama: 3 run | p50 / max | Baru: 3 run | p50 / max |

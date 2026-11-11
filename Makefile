@@ -21,10 +21,10 @@ LICENSES_ALLOWED := MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,MPL-2.0
 # E-39: 8 target rilis kanonik.
 TARGETS := linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 android/arm64
 # Job perf (ADR-073, ADR-077, NEW-38): benchmark dengan budget waktu absolut.
-PERF_BENCH ?= ^(BenchmarkShellSpawn|BenchmarkShellSessionExec|BenchmarkClassify|BenchmarkIterationOverhead|BenchmarkCodetools|BenchmarkAppend|BenchmarkDLPScan|BenchmarkSummarize)
+PERF_BENCH ?= ^(BenchmarkShellSpawn|BenchmarkShellSessionExec|BenchmarkClassify|BenchmarkIterationOverhead|BenchmarkCodetools|BenchmarkAppend|BenchmarkDLPScan|BenchmarkSummarize|BenchmarkWebFirstToken)
 # Paket pemilik benchmark PERF_BENCH (ADR-270). Paket lain tidak memberi benchmark ke gate ini, tetapi
 # TestMain-nya bisa berat (internal/e2e 33–43 s di runner) dan dulu berjalan di antara benchmark.
-PERF_PKGS ?= ./internal/codetools ./internal/exec ./internal/exec/classify ./internal/ctxdb ./internal/netx
+PERF_PKGS ?= ./internal/codetools ./internal/exec ./internal/exec/classify ./internal/ctxdb ./internal/netx ./internal/web
 FUZZTIME ?= 60s
 SHARD ?= 1/1
 # Korpus code tools + oracle rg (CODE-TOOLS §10.1, bench/corpora.lock), dibangun `make corpora`.
