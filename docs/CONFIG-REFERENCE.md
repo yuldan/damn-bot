@@ -132,6 +132,7 @@ config_version = 1
   language = "auto"
   theme = "tern-dark"
   notices = true
+  reply_language = "auto"
 
 [gateway]
   max_parallel_turns = 4
@@ -421,6 +422,7 @@ config_version = 1
 | `ui.language` | string | `auto` | `DAMNBOT_UI_LANGUAGE` |
 | `ui.theme` | string | `tern-dark` | `DAMNBOT_UI_THEME` |
 | `ui.notices` | bool | `true` | `DAMNBOT_UI_NOTICES` |
+| `ui.reply_language` | string | `auto` | `DAMNBOT_UI_REPLY_LANGUAGE` |
 | `gateway.max_parallel_turns` | int | `4` | `DAMNBOT_GATEWAY_MAX_PARALLEL_TURNS` |
 | `gateway.busy_policy` | string | `queue` | `DAMNBOT_GATEWAY_BUSY_POLICY` |
 | `log.level` | string | `info` | `DAMNBOT_LOG_LEVEL` |

@@ -14,6 +14,9 @@ type StableOptions struct {
 	// Codeintel adds repo_map to the locate-code rule when codeintel is
 	// active. The F1 variant keeps grep/glob guidance without repo_map.
 	Codeintel bool
+	// ReplyLanguage is the resolved `[ui] reply_language` code; empty means
+	// auto, which adds no line (GAP-INF-09).
+	ReplyLanguage string
 }
 
 // stableIdentity is the first line of every stable tier.
@@ -62,6 +65,10 @@ func rules() []rule {
 func Stable(opts StableOptions) string {
 	var b strings.Builder
 	b.WriteString(stableIdentity)
+	if line := replyLine(opts.ReplyLanguage); line != "" {
+		b.WriteString("\n\n")
+		b.WriteString(line)
+	}
 	b.WriteString("\n\nRules:\n")
 	n := 0
 	coding := false

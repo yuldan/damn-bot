@@ -6772,6 +6772,19 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 - Amandemen (ADR-330, PR F8-GAP-SISA-2): **GAP-GW-07** dan **GAP-PROV-05** menjadi `LULUS` (ledger). Setiap entri hub wajib `tos_risk`/`tos_note`; entri `high` menuntut ack nama persis, entri jailbreak tetap `pending`, pola dotenv menjadi temuan `env_file` medium, dan manifest MCP wajib ToS. Importer ByteRover/RetainDB memetakan ke memori native + satu warning dan upload provider eksternal ≤1 MiB/item. Tes: `TestF8HubTOSRisk`, `TestMCPCatalogToS`, `TestExternalMemoryUploadCap`. Tanpa dependency, migrasi, atau perubahan pagu.
 
 - Amandemen (ADR-330, PR F8-GAP-SISA-3): **GAP-UX-07**, **GAP-UX-08**, dan **GAP-UX-09** menjadi `LULUS` (ledger); parity `MEM-014` menjadi `LULUS`. Audit aksesibilitas deterministik (subset aturan axe: landmark, label, tipe tombol, alt, lang/dir, focus trap, reduced motion, target 44 px) berjalan untuk 18 locale dan gagal pada temuan serious/critical; dashboard memakai transkrip `article`/`role=log` dan modal approval dengan focus trap + Escape. Aset/template/ekspor HTML dipindai 0 URL eksternal, font tetap system stack, `sessions export --format html` self-contained, dan `damnbot help docs [query]` menyajikan dokumentasi tersusun dari skema config + registry surface (≤ 250 KiB, batas yang juga berlaku untuk brotli). Kontrak surface tunggal `cmd/damnbot/surface_parity.go` mencakup 6 server-request × 5 frontend dengan fallback bernama, dan `docs/SURFACE-PARITY.md` digenerate dari tabel itu. Tes: `TestF8WebA11y`, `TestContrastTokens`, `TestWebAssetsNoExternalURL`, `TestHelpOffline`, `TestSurfaceParity`, `TestSurfaceDocSync`. Tanpa dependency atau perubahan pagu.
+- Amandemen (ADR-330, PR F8-GAP-SISA-4): **GAP-UX-10** dan **GAP-INF-09** menjadi `LULUS` (ledger). Web responsif ≥360 px, target 44 px, manifest PWA + ikon 192/512, service worker cache-only aset (0 cache `/api`/sesi/auth); tautan `--remote` sekali pakai. `[ui] reply_language = auto|follow_ui|<kode>` menambah satu baris stable ≤12 token. ADR-343 menaikkan `config` 2.939 → 2.947 dan `assemble` 1.320 → 1.339, Σ core 57.334 → 57.361 ≤ 57.400. Tes: `TestF8WebResponsive`, `TestRemoteLinkOneTime`, `TestReplyLanguageLine`, `TestLocaleNotEnglishCopy`. Tanpa dependency atau `//nolint`.
+
+## ADR-343 — GAP-INF-09: `[ui] reply_language` dan plafon config 2.947
+
+**Status:** Accepted 2026-11-10 (F8; melanjutkan ADR-340).
+
+**Konteks.** SPEC §22.1 GAP-INF-09 menetapkan `[ui] reply_language = auto|follow_ui|<kode>` dengan satu baris stable tier ≤ 12 token. Config berada tepat di plafon 2.939/2.939 dan Σ core 57.334/57.400, sehingga kunci baru memerlukan pengukuran dan plafon resmi.
+
+**Keputusan.** Tambah `UI.ReplyLanguage` (default `auto`; validasi `auto`, `follow_ui`, atau kode §9.12) dan `assemble.StableOptions.ReplyLanguage`. `auto` tidak menambah baris; `follow_ui` memakai locale UI yang sudah di-resolve; kode menghasilkan `Reply in <English> (<code>).` (≤ 12 token) tepat setelah identitas sehingga sisa stable tier byte-identik. `config` **2.939 → 2.947** dan `assemble` **1.320 → 1.339** (terukur scc), Σ core **57.334 → 57.361** ≤ plafon **57.400** (headroom 39; `maxCoreLOC` tidak berubah). `loc.budget`, `docs/ENGINEERING.md`, dan `docs/CONFIG-REFERENCE.md` disinkronkan.
+
+**Bukti.** `TestReplyLanguageLine`, `TestLocaleNotEnglishCopy`, `TestF8WebResponsive`.
+
+**Konsekuensi.** (+) Bahasa balasan dapat dipisah dari bahasa UI tanpa menumbuhkan tier stable. (−) Headroom core 58 baris; kunci config berikutnya kembali membutuhkan ADR terukur.
 
 ## ADR-345 — Plugin catalog Q18: katalog embedded 645 entri, resolusi target, dan permukaan `damnbot plugins`
 

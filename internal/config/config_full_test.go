@@ -105,7 +105,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 		},
 		Memory:   Memory{EntryMaxChars: 500, TotalMaxChars: 4000, Embeddings: ""},
 		Recovery: Recovery{Continue: "safe_auto"},
-		UI:       UI{Language: "auto", Theme: "tern-dark", Notices: true},
+		UI:       UI{Language: "auto", Theme: "tern-dark", Notices: true, ReplyLanguage: "auto"},
 		Gateway:  Gateway{MaxParallelTurns: 4, BusyPolicy: "queue", Users: map[string]GatewayUser{}},
 		Modules: Modules{
 			Gateway:     ModulesGateway{Telegram: ModulesTelegram{ThreadFallback: "fail"}},

@@ -212,6 +212,9 @@ type UI struct {
 	// Notices enables non-critical notices (tips); critical notices are not
 	// affected (GAP-OPS-09).
 	Notices bool `toml:"notices" json:"notices"`
+	// ReplyLanguage is `auto` (no line), `follow_ui` (the resolved UI
+	// language) or a §9.12 code (GAP-INF-09).
+	ReplyLanguage string `toml:"reply_language" json:"reply_language"`
 }
 
 // Gateway is SPEC §12 gateway data (P25, GAP-GW-02). It is accepted and
@@ -379,7 +382,7 @@ func Default() Config {
 			Embeddings:    "",
 		},
 		Recovery:  Recovery{Continue: "safe_auto"},
-		UI:        UI{Language: "auto", Theme: "tern-dark", Notices: true},
+		UI:        UI{Language: "auto", Theme: "tern-dark", Notices: true, ReplyLanguage: "auto"},
 		Gateway:   gateway,
 		Modules:   modules,
 		Providers: Providers{Custom: []CustomProvider{}},

@@ -273,6 +273,13 @@ func (c *Config) validateUI() error {
 	if !validLanguage(c.UI.Language) {
 		return invalid("ui.language", "%q is not auto or a §9.12 language code", c.UI.Language)
 	}
+	switch c.UI.ReplyLanguage {
+	case "auto", "follow_ui":
+	default:
+		if !validLanguage(c.UI.ReplyLanguage) {
+			return invalid("ui.reply_language", "%q is not auto, follow_ui or a §9.12 language code", c.UI.ReplyLanguage)
+		}
+	}
 	if !validTheme(c.UI.Theme) {
 		return invalid("ui.theme", "must be tern-dark, tern-light, mono or high-contrast")
 	}

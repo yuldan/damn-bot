@@ -87,6 +87,11 @@ function appendBlock(role, text) {
 
 trap();
 
+// PWA: cache-only service worker for static assets (GAP-UX-10).
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
 logout.addEventListener("click", () => {
   fetch("/api/logout", {
     method: "POST",
