@@ -1,8 +1,8 @@
 # F8-ACCEPTANCE — Ledger acceptance F8 (web UI, ekosistem, otomatisasi)
 
-Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `7f8fbeaac`. Dari 167 baris data, **151 `LULUS`** (134 parity + 17 GAP), **14 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
+Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `7f8fbeaac`. Dari 167 baris data, **153 `LULUS`** (136 parity + 17 GAP), **12 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
 
-Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 134 `LULUS`, 14 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
+Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 136 `LULUS`, 12 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
 Aturan gate:
 - **Penutupan (ADR-330, melanjutkan ADR-326/ADR-323).** Baris hanya `LULUS` bila PR yang sama menambah tes bernama, mengubah baris parity F8 menjadi `LULUS`, dan mengubah baris ledger `BELUM`→`LULUS`. Baris yang tidak dapat dibuktikan ditulis `N/A — <alasan teknis> (carryover F9)`, bukan `BELUM`. Baris agregat hanya `LULUS` setelah semua anggota tertutup.
 - **Gate mesin.** Selama `PHASE=F8` gate tidak aktif (ledger hidup). Begitu `PHASE` > F8, `TestF8LedgerClosed` menolak `BELUM`, `N/A` telanjang (< 8 karakter alasan), dan baris parity F8 yang bukan `LULUS`/`N/A — …`; `TestParityPhaseColumn` memeriksa hal yang sama dari sisi parity. `TestF8LedgerGateRules` adalah kontrol negatifnya.
@@ -43,7 +43,7 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | CLI-069 | `damnbot serve` | backend headless untuk desktop/remote; bind loopback default; auth wajib | `TestF8CLI069Serve` | LULUS | UI-016 |
 | CLI-070 | `damnbot desktop` | alias `gui`; membuka web UI; 0 dependency Node/Electron saat runtime | `TestF8CLI070Desktop` | LULUS | UI-017 diganti web UI |
 | SLASH-027 | `/journey` | alias `/learning`, `/memory-graph`; sub list/delete/edit; output ≤ batas renderer | `TestF8SLASH027Journey` | BELUM | CLI-051 |
-| SLASH-030 | `/goal` | teks wajib; goal aktif lintas turn; dinilai judge (AUTO-014) | `TestF8SLASH030Goal` | BELUM | — |
+| SLASH-030 | `/goal` | teks wajib; goal aktif lintas turn; dinilai judge (AUTO-014) | `TestF8SLASH030Goal` | LULUS | — |
 | SLASH-031 | `/heartbeat` | alias `/hb`; sub status/pause/resume/clear; interval minimum dihormati | `TestF8SLASH031Heartbeat` | BELUM | AUTO-016 |
 | SLASH-034 | `/loop` | alias `/proactive`; interval + prompt, `--times`, `--until`; batas jumlah | `TestF8SLASH034Loop` | BELUM | AUTO-015 |
 | SLASH-037 | `/subgoal` | tambah/kelola kriteria goal aktif; hanya saat goal ada | `TestF8SLASH037Subgoal` | BELUM | — |
@@ -207,7 +207,7 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | OPS-018 | Monitoring & OTLP export | health gateway + export OTLP; endpoint opt-in; 0 konten pesan | `TestF8OPS018OTLP`, `TestOPS018DisabledNoConnect` | LULUS | CLI-060 LULUS |
 | OPS-020 | Batch runner | prompt massal paralel → trajectory; batas paralel + biaya | `TestF8OPS020BatchRunner`, `TestF8OPS020BatchRun` | LULUS | e2e `TestF8OPS020EvalBatch` |
 | OPS-021 | Trajectory save & compressor | simpan & kompres trajectory; format OpenAI/ShareGPT valid | `TestF8OPS021Trajectory`, `TestF8OPS021BatchCompress` | LULUS | `TestF8OPS022Trajectory` |
-| OPS-022 | Trace upload (HF) | upload trace ke Hugging Face; opt-in; 0 transcript user | `TestF8OPS022TraceUpload` | BELUM | `debug trace --upload` menolak bertipe `module_unavailable`; lane upload HF belum ada |
+| OPS-022 | Trace upload (HF) | upload trace ke Hugging Face; opt-in; 0 transcript user | `TestF8OPS022TraceUpload` | LULUS | lane `trace-upload` (Tool) opt-in; metadata-only |
 | OPS-023 | Mini SWE runner | runner tugas SWE format trajectory Hermes; sandbox | `TestF8OPS023MiniSWE` | LULUS | subset in-memory (tanpa Docker) |
 | OPS-024 | Evals | suite evaluasi/probe perilaku deterministik; baseline ter-commit | `TestF8OPS024Evals`, `TestF8EvalDeterministic` | LULUS | GAP-INF-06 |
 | OPS-038 | Projects | workspace multi-folder bernama; path divalidasi | `TestF8OPS038Projects` | LULUS | CLI-030 |
@@ -282,4 +282,4 @@ Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 
 - Baris agregat §1: **7**. Jumlah baris data ledger: **167** (148 parity + 17 GAP + 0 EC + 2 carryover); total baris ledger termasuk agregat: **174**.
 - Katalog SKCAT: **58 bundled + 153 optional = 211** skill; PLUG-009 = **645** entri.
 - Budget F8: **22.800 Go** (`maxF8ModuleLOC`, ADR-345) + **≈9.900 JS/CSS** (≤ 10.000, SPEC §3.2.4); `maxModuleLOC` **132.000**.
-- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada head PR: 167 baris data dengan **151 `LULUS`** (134 parity + 17 GAP), **14 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.
+- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada head PR: 167 baris data dengan **153 `LULUS`** (136 parity + 17 GAP), **12 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.

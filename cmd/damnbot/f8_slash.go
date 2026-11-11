@@ -278,10 +278,13 @@ func f8BlueprintReady(name string, slots map[string]string) string {
 
 // f8Goal is one standing goal plus its subgoals (SLASH-030/037).
 type f8Goal struct {
-	Text     string   `json:"text"`
-	MaxTurns int      `json:"max_turns"`
-	Turns    int      `json:"turns"`
-	Subgoals []string `json:"subgoals"`
+	Text         string   `json:"text"`
+	MaxTurns     int      `json:"max_turns"`
+	Turns        int      `json:"turns"`
+	Subgoals     []string `json:"subgoals"`
+	Achieved     bool     `json:"achieved,omitempty"`
+	LastReason   string   `json:"last_reason,omitempty"`
+	LastJudgedAt int64    `json:"last_judged_at,omitempty"`
 }
 
 func (a *f8SlashAdapter) goal(dir string, owner bool, sessionID string, args []string) string {
@@ -327,7 +330,14 @@ func f8GoalStatus(dir, sessionID string) string {
 	if !ok || g.Text == "" {
 		return "goal: none"
 	}
-	return fmt.Sprintf("goal turns=%d/%d subgoals=%d: %s", g.Turns, g.MaxTurns, len(g.Subgoals), f8Redact(g.Text))
+	state := ""
+	if g.Achieved {
+		state = " achieved=true"
+	}
+	if g.LastReason != "" {
+		state += " judge=" + f8Redact(g.LastReason)
+	}
+	return fmt.Sprintf("goal turns=%d/%d subgoals=%d%s: %s", g.Turns, g.MaxTurns, len(g.Subgoals), state, f8Redact(g.Text))
 }
 
 func f8GoalClear(dir, sessionID string) string {
