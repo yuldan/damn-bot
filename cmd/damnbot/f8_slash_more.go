@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -10,7 +11,7 @@ import (
 )
 
 // journeySlash implements /journey, /learning, /memory-graph (SLASH-027).
-func (a *f8SlashAdapter) journeySlash(dir string, owner bool, args []string) string {
+func (a *f8SlashAdapter) journeySlash(ctx context.Context, dir string, owner bool, args []string) string {
 	st := f8JourneyState{Notes: map[string]string{}}
 	if err := f8Load(f8StorePath(dir, "journey.json"), &st); err != nil {
 		return "journey: " + cleanLine(err.Error())
@@ -25,13 +26,13 @@ func (a *f8SlashAdapter) journeySlash(dir string, owner bool, args []string) str
 	var b strings.Builder
 	switch sub {
 	case "list":
-		entries, err := journeyEntries(dir, &st)
+		entries, err := journeyEntries(ctx, dir, &st)
 		if err != nil {
 			return "journey: " + cleanLine(err.Error())
 		}
 		start := max(0, len(entries)-10)
 		for _, e := range entries[start:] {
-			fmt.Fprintf(&b, "%s %s %s\n", time.Unix(e.At, 0).UTC().Format("2006-01-02"), e.Action, e.Name)
+			fmt.Fprintf(&b, "%s %s %s\n", time.Unix(e.At, 0).UTC().Format("2006-01-02"), cleanLine(e.Action), cleanLine(e.Name))
 		}
 		if len(entries) == 0 {
 			return "journey: no entries"
@@ -46,12 +47,21 @@ func (a *f8SlashAdapter) journeySlash(dir string, owner bool, args []string) str
 		if msg := f8OwnerOnly(owner, "journey"); msg != "" {
 			return msg
 		}
-		changed, err := journeyEdit(args[1:], dir, &st, &b, io.Discard)
+		edit := args[1:]
+		if len(args) >= 3 && !strings.HasPrefix(args[2], "--note") {
+			edit = []string{args[1], "--note", strings.Join(args[2:], " ")}
+		}
+		changed, err := journeyEdit(ctx, edit, dir, &st, &b, io.Discard)
 		return a.finishJourney(dir, &st, changed, err, &b)
 	default:
 		return "usage: /journey [list|delete <key>|edit <key> <note>]"
 	}
-	return strings.TrimSuffix(b.String(), "\n")
+	return f8ClipSlashReply(strings.TrimSuffix(b.String(), "\n"))
+}
+
+// f8ClipSlashReply keeps a slash reply inside the renderer's 3800-rune chunk.
+func f8ClipSlashReply(s string) string {
+	return clipRunes(s, 3799) // 3799 + the ellipsis clipRunes appends
 }
 
 func (a *f8SlashAdapter) finishJourney(dir string, st *f8JourneyState, changed bool, err error, b *strings.Builder) string {
@@ -63,7 +73,7 @@ func (a *f8SlashAdapter) finishJourney(dir string, st *f8JourneyState, changed b
 			return "journey: " + cleanLine(serr.Error())
 		}
 	}
-	return strings.TrimSuffix(b.String(), "\n")
+	return f8ClipSlashReply(strings.TrimSuffix(b.String(), "\n"))
 }
 
 // petSlash implements /pet toggle|list|scale|off|show (SLASH-072).

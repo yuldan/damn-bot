@@ -361,3 +361,23 @@ func (s *Store) Count(ctx context.Context, q string, args ...any) (int64, error)
 	err := s.get(ctx, q, args, &n)
 	return n, err
 }
+
+// Rows runs one read-only query and calls scan for every row. dest holds the
+// column targets (pointers) reused across rows; scan copies or projects the
+// current values. It is the inspection seam for read-only surfaces such as the
+// learning journey, which cannot use the store's typed reads. Only SELECT/WITH
+// is accepted, like [Store.Count].
+func (s *Store) Rows(ctx context.Context, q string, args []any, dest []any, scan func() error) error {
+	if len(dest) == 0 || scan == nil {
+		return fmt.Errorf("ctxdb: rows needs destinations and a scan function")
+	}
+	if !readOnlyQuery(q) {
+		return fmt.Errorf("%w: rows accepts read queries only", ErrReadOnly)
+	}
+	return s.each(ctx, q, args, func(r *sql.Rows) error {
+		if err := r.Scan(dest...); err != nil {
+			return wrap(err)
+		}
+		return scan()
+	})
+}

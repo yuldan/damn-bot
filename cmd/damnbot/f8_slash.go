@@ -77,7 +77,7 @@ func (a *f8SlashAdapter) handle(ctx context.Context, owner bool, sessionID, name
 	case "insights":
 		return f8SlashInsights(ctx, dir, args)
 	case "journey":
-		return a.journeySlash(dir, owner, args)
+		return a.journeySlash(ctx, dir, owner, args)
 	case "pet":
 		return a.petSlash(dir, owner, args)
 	case "curator":

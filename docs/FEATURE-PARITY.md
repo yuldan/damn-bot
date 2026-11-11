@@ -188,7 +188,7 @@ Sumber: `hermes_cli/commands.py` (103 `CommandDef`). Deskripsi verbatim hermes, 
 | SLASH-024 | `/bg` | Run a prompt in a separate background session | `hermes_cli/commands.py:132` | tersedia (CLI + gateway); kategori Session | — | args `<prompt>` | F3 | planned |
 | SLASH-025 | `/btw` | Ask a side question about the current conversation without interrupting it | `hermes_cli/commands.py:134` | tersedia (CLI + gateway); kategori Session | — | args `<question>` | F3 | planned |
 | SLASH-026 | `/agents` | Show active agents and running tasks | `hermes_cli/commands.py:136` | tersedia (CLI + gateway); kategori Session | — | alias: /tasks | F5 | planned |
-| SLASH-027 | `/journey` | Open the learning journey timeline | `hermes_cli/commands.py:138` | tersedia (CLI-only); kategori Session | — | alias: /learning, /memory-graph; sub: list, delete, edit; args `[list\\|delete <id>\\|edit <id>]` | F8 | planned |
+| SLASH-027 | `/journey` | Open the learning journey timeline | `hermes_cli/commands.py:138` | tersedia (CLI-only); kategori Session | — | alias: /learning, /memory-graph; sub: list, delete, edit; args `[list\\|delete <id>\\|edit <id>]` | F8 | LULUS |
 | SLASH-028 | `/queue` | Queue a prompt for the next turn, or list/edit/rm/move/clear queued prompts | `hermes_cli/commands.py:141` | tersedia (CLI + gateway); kategori Session | — | alias: /q; sub: list, edit, rm, move, clear, add; args `[<prompt>\\|list\\|edit N <prompt>\\|rm N\\|move A B\\|clear]` | F3 | planned |
 | SLASH-029 | `/steer` | Inject a message after the next tool call without interrupting | `hermes_cli/commands.py:145` | tersedia (CLI + gateway); kategori Session | — | alias: /s; args `<prompt>` | F3 | planned |
 | SLASH-030 | `/goal` | Set a standing goal Hermes works on across turns until achieved | `hermes_cli/commands.py:147` | tersedia (CLI + gateway); kategori Session | — | args `[text \\| -- <text> \\| draft <text> \\| show \\| gate add <cmd> \\| pause \\| resume \\| clear \\| status \\| wait <pid> \\| unwait]` | F8 | LULUS |
@@ -583,7 +583,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | MEM-032 | State snapshot `/snapshot` | Snapshot/restore config & state Hermes | `hermes_cli/commands.py:117` | opt-in | — | alias `/snap` | F2 | planned |
 | MEM-033 | Memory trim proses | Trim memori proses (RSS) berkala | `hermes_cli/mem_trim.py` | on (`context.memory_trim.enabled`) | — |  | F2 | planned |
 | MEM-034 | Prompt caching | Breakpoint cache prompt (Anthropic dll.) | `agent/prompt_caching.py`, `agent/prompt_cache_boundary.py` | on (auto per provider) | — |  | F2 | planned |
-| MEM-035 | Learning journey / graph | Timeline skill & memori yang dipelajari | `agent/learning_graph.py`, `hermes_cli/journey.py` | opt-in (`hermes journey`, `/journey`) | — |  | F8 | planned |
+| MEM-035 | Learning journey / graph | Timeline skill & memori yang dipelajari | `agent/learning_graph.py`, `hermes_cli/journey.py` | opt-in (`hermes journey`, `/journey`) | — |  | F8 | LULUS |
 | MEM-036 | Side question `/btw` | Pertanyaan sampingan tanpa mengganggu konteks utama | `agent/side_question.py` | opt-in | LLM |  | F3 | planned |
 | MEM-037 | Image eviction/replay | Batasi gambar lama di konteks; replay N terakhir | `agent/image_eviction_policy.py`, `agent/image_replay.py` | on (`vision.replay_recent_images: 3`) | — |  | F6 | LULUS |
 

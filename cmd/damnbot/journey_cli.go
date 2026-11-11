@@ -3,17 +3,20 @@
 package main
 
 import (
-	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/memoryproviders"
 	"github.com/damnbot/damnbot/internal/skills"
 )
 
@@ -86,7 +89,7 @@ func journeyCommand(rest []string, dir string, st *f8JourneyState, stdout, stder
 	case "delete":
 		return journeyDelete(rest[1:], st, stdout, stderr)
 	case "edit":
-		return journeyEdit(rest[1:], dir, st, stdout, stderr)
+		return journeyEdit(context.Background(), rest[1:], dir, st, stdout, stderr)
 	default:
 		say(stderr, "journey: unknown subcommand %q\n", cleanArg(rest[0]))
 		journeyUsage(stderr)
@@ -94,35 +97,114 @@ func journeyCommand(rest []string, dir string, st *f8JourneyState, stdout, stder
 	}
 }
 
-// journeyEntries reads the skills ledger and folds duplicates away.
-func journeyEntries(dir string, st *f8JourneyState) ([]f8JourneyEntry, error) {
+// journeyEntries reads the skills ledger and the local memory table, folds
+// both through the shared builder (dedupe, chronology, redaction), then applies
+// the operator overlay (tombstones and notes).
+func journeyEntries(ctx context.Context, dir string, st *f8JourneyState) ([]f8JourneyEntry, error) {
+	events, err := journeyEvents(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	built, err := memoryproviders.BuildJourney(events, memoryproviders.MaxJourneyEntries)
+	if err != nil {
+		return nil, fmt.Errorf("journey builder: %w", err)
+	}
+	out := make([]f8JourneyEntry, 0, len(built))
+	for _, e := range built {
+		key := journeyEntryKey(&e)
+		if slices.Contains(st.Deleted, key) {
+			continue
+		}
+		src := e.Source
+		if strings.TrimSpace(src) == "" {
+			src = f8JourneyRedactedSource
+		} else {
+			src = f8Redact(src)
+		}
+		out = append(out, f8JourneyEntry{
+			Key: key, At: e.At.Unix(), Action: journeyAction(&e), Name: e.Title,
+			Source: src, Note: st.Notes[key],
+		})
+	}
+	return out, nil
+}
+
+// f8JourneyRedactedSource marks a ledger row without a recorded source.
+const f8JourneyRedactedSource = "[REDACTED:source]"
+
+// journeyEntryKey keeps the historical skill key (so existing tombstones and
+// notes survive) and namespaces memory rows by their local id.
+func journeyEntryKey(e *memoryproviders.JourneyEntry) string {
+	if e.Kind == memoryproviders.JourneyMemory {
+		return "memory:" + e.ID
+	}
+	return e.ID
+}
+
+func journeyEvents(ctx context.Context, dir string) ([]memoryproviders.JourneyEvent, error) {
 	ledger, err := skills.ReadLedger(dir)
 	if err != nil {
 		return nil, fmt.Errorf("journey ledger: %w", err)
 	}
-	seen := map[string]bool{}
-	out := []f8JourneyEntry{}
+	events := make([]memoryproviders.JourneyEvent, 0, len(ledger))
 	for _, e := range ledger {
-		key := journeyKey(e.At, e.Name, e.Action)
-		if seen[key] || slices.Contains(st.Deleted, key) {
-			continue
-		}
-		seen[key] = true
 		src := e.Source
 		if strings.TrimSpace(src) == "" {
-			src = "[REDACTED:source]"
-		} else {
-			src = f8Redact(src)
+			// Keep the historical CLI marker while still letting the builder
+			// dedupe and order the row.
+			src = f8JourneyRedactedSource
 		}
-		out = append(out, f8JourneyEntry{Key: key, At: e.At, Action: e.Action, Name: e.Name, Source: src, Note: st.Notes[key]})
+		events = append(events, memoryproviders.JourneyEvent{
+			At: time.Unix(e.At, 0), Kind: memoryproviders.JourneySkill,
+			ID: journeyKey(e.At, e.Name, e.Action), Title: e.Name, Source: src,
+		})
 	}
-	slices.SortFunc(out, func(a, b f8JourneyEntry) int {
-		if a.At != b.At {
-			return cmp.Compare(a.At, b.At)
+	return append(events, journeyMemoryEvents(ctx, dir)...), nil
+}
+
+// journeyMemoryEvents merges locally stored memories (kind='memory'). The DB
+// is best-effort: a missing or unreadable store leaves skills-only output.
+func journeyMemoryEvents(ctx context.Context, dir string) []memoryproviders.JourneyEvent {
+	if _, err := os.Stat(ctxdb.DBPath(dir)); err != nil {
+		return nil
+	}
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "cli"})
+	if err != nil {
+		return nil
+	}
+	var (
+		id, at          int64
+		content, origin string
+		events          []memoryproviders.JourneyEvent
+	)
+	query := `SELECT id, content, origin, created_at FROM memory WHERE kind = 'memory' ORDER BY created_at, id`
+	err = db.Rows(ctx, query, nil, []any{&id, &content, &origin, &at}, func() error {
+		if strings.TrimSpace(content) == "" {
+			return nil
 		}
-		return strings.Compare(a.Key, b.Key)
+		events = append(events, memoryproviders.JourneyEvent{
+			At: time.Unix(at, 0), Kind: memoryproviders.JourneyMemory,
+			ID: strconv.FormatInt(id, 10), Title: content, Source: origin,
+		})
+		return nil
 	})
-	return out, nil
+	if cerr := db.CloseContext(ctx); cerr != nil {
+		return nil
+	}
+	if err != nil {
+		return nil
+	}
+	return events
+}
+
+func journeyAction(e *memoryproviders.JourneyEntry) string {
+	if e.Kind == memoryproviders.JourneyMemory {
+		return "remembered"
+	}
+	if parts := strings.SplitN(e.ID, ":", 3); len(parts) == 3 {
+		return parts[1]
+	}
+	return "skill"
 }
 
 func journeyKey(at int64, name, action string) string {
@@ -142,7 +224,7 @@ func journeyList(args []string, dir string, st *f8JourneyState, stdout, stderr i
 		journeyUsage(stderr)
 		return errF8Usage
 	}
-	entries, err := journeyEntries(dir, st)
+	entries, err := journeyEntries(context.Background(), dir, st)
 	if err != nil {
 		return fmt.Errorf("journey ledger: %w", err)
 	}
@@ -158,7 +240,8 @@ func journeyList(args []string, dir string, st *f8JourneyState, stdout, stderr i
 		return nil
 	}
 	for _, e := range entries {
-		line := fmt.Sprintf("%s %s %s source=%s", time.Unix(e.At, 0).UTC().Format(time.RFC3339), e.Action, e.Name, e.Source)
+		line := fmt.Sprintf("%s %s %s source=%s", time.Unix(e.At, 0).UTC().Format(time.RFC3339),
+			cleanLine(e.Action), cleanLine(e.Name), cleanLine(e.Source))
 		if e.Note != "" {
 			line += " note=" + f8Redact(e.Note)
 		}
@@ -181,7 +264,7 @@ func journeyDelete(args []string, st *f8JourneyState, stdout, stderr io.Writer) 
 	return true, nil
 }
 
-func journeyEdit(args []string, dir string, st *f8JourneyState, stdout, stderr io.Writer) (bool, error) {
+func journeyEdit(ctx context.Context, args []string, dir string, st *f8JourneyState, stdout, stderr io.Writer) (bool, error) {
 	fs := flag.NewFlagSet("journey edit", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	note := fs.String("note", "", "operator note shown on the timeline row")
@@ -193,7 +276,7 @@ func journeyEdit(args []string, dir string, st *f8JourneyState, stdout, stderr i
 		say(stderr, "usage: damnbot journey edit <key> --note TEXT\n")
 		return false, errF8Usage
 	}
-	entries, err := journeyEntries(dir, st)
+	entries, err := journeyEntries(ctx, dir, st)
 	if err != nil {
 		return false, fmt.Errorf("journey ledger: %w", err)
 	}
