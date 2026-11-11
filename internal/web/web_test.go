@@ -302,6 +302,13 @@ func TestWebAuthModeNeedsSeam(t *testing.T) {
 	if _, err := New(&c); err == nil {
 		t.Fatal("oidc without a provider accepted")
 	}
+	for _, mode := range []string{ModeNous, ModeDrain} {
+		c = base
+		c.Auth = mode
+		if _, err := New(&c); !errors.Is(err, ErrAuthSeam) {
+			t.Fatalf("%s: err = %v, want ErrAuthSeam", mode, err)
+		}
+	}
 	c = base
 	c.Auth = "magic"
 	if _, err := New(&c); err == nil {

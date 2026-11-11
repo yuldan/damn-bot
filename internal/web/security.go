@@ -64,6 +64,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.pwaFile(w, r, strings.TrimPrefix(p, "/"))
 	case s.authRoute(w, r, p):
 	case s.apiRoute(w, r, p):
+	case s.paneRoute(w, r, p):
 	case s.settingsRoute(w, r, p):
 	case s.pageRoute(w, r, p):
 	default:
@@ -125,6 +126,16 @@ func (s *Server) apiRoute(w http.ResponseWriter, r *http.Request, p string) bool
 		if s.mutation(w, r) {
 			s.withSession(w, r, s.issueTicket)
 		}
+	case "/api/gateway/drain":
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w)
+			return true
+		}
+		if s.cfg.Auth != ModeDrain {
+			http.NotFound(w, r)
+			return true
+		}
+		s.withSession(w, r, s.drainControl)
 	default:
 		return false
 	}
@@ -139,9 +150,9 @@ func (s *Server) pageRoute(w http.ResponseWriter, r *http.Request, p string) boo
 			methodNotAllowed(w)
 			return true
 		}
-		if s.cfg.Auth == ModeOIDC {
+		if provider := s.oauthProvider(); provider != nil {
 			state := s.nonces.mint(s.now(), s.cfg.NonceTTL)
-			http.Redirect(w, r, s.cfg.OIDC.AuthorizeURL(state, newNonce()), http.StatusSeeOther)
+			http.Redirect(w, r, provider.AuthorizeURL(state, newNonce()), http.StatusSeeOther)
 			return true
 		}
 		s.render(w, s.tmpl.auth, s.page(r))

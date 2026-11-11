@@ -103,3 +103,20 @@ dialog button { margin-left: 8px; }
 article { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
 
 article h3 { font-size: 13px; margin: 0 0 4px; color: var(--muted); }
+
+/* Panes and projects (UI-017): the web replacement for the desktop shell. */
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+
+.list li { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+
+.output {
+  max-height: 18rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}

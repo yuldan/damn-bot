@@ -184,7 +184,7 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | UI-014 | Web dashboard | dashboard web dilayani binary; aset embedded; auth wajib | `TestF8UI014WebDashboard` | LULUS | GAP-SEC-06/07 |
 | UI-015 | Dashboard auth providers | basic, drain, Nous OAuth, OIDC self-hosted; 0 token di HTML | `TestF8UI015AuthProviders`, `TestWebSessionRevoke` | BELUM | PLUG-016 |
 | UI-016 | Headless backend | `damnbot serve` tanpa UI untuk desktop/remote; bind loopback default | `TestF8UI016Headless` | LULUS | CLI-069 |
-| UI-017 | Desktop app (Electron) | diganti web UI: pane terminal/preview + projects tanpa runtime Node | `TestF8UI017DesktopWeb` | BELUM | ADR-330; 0 Electron |
+| UI-017 | Desktop app (Electron) | diganti web UI: pane terminal/preview + projects tanpa runtime Node | `TestF8UI017DesktopWeb` | LULUS | `/api/panes` + `/api/projects`; 0 Node/Electron |
 | UI-022 | Local OAuth proxy | proxy OpenAI-compatible lokal ke provider OAuth; 0 token bocor | `TestF8UI022LocalProxy` | BELUM | CLI-012 |
 | UI-023 | i18n (18 bahasa) | 18 locale identik; 0 key hilang/kosong; `lang`/`dir=rtl` benar | `TestF8UI023I18n`, `TestI18nNoEmpty`, `TestLocaleSetIdentical` | LULUS | GAP-INF-08/09; katalog `internal/i18n/locales/*.toml` (30 key web), render `lang`/`dir` per locale + form settings ter-lokalisasi di `internal/web/i18n_assets_test.go:153` |
 

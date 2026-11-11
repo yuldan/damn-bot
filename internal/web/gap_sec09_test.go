@@ -13,7 +13,7 @@ import (
 type fakeOIDC struct{ end string }
 
 func (f fakeOIDC) AuthorizeURL(state, _ string) string { return "/idp?state=" + state }
-func (f fakeOIDC) Exchange(context.Context, string) (string, error) {
+func (f fakeOIDC) Exchange(context.Context, string, string) (string, error) {
 	return "alice", nil
 }
 func (f fakeOIDC) EndSessionURL(principal string) string { return f.end + principal }

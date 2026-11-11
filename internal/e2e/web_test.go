@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -413,4 +414,123 @@ func startServeHeadless(t *testing.T, e *Env) (string, string) {
 			return stdout.String(), rest
 		}
 	}
+}
+
+// TestF8UI017DesktopWeb proves the web dashboard replaces the Electron shell
+// (UI-017): terminal/preview panes and named projects are served by the real
+// binary with no Node runtime, and a preview cannot escape the workspace.
+func TestF8UI017DesktopWeb(t *testing.T) {
+	client, base, session, csrf := setupPaneWeb(t)
+	checkPaneDashboard(t, client, base, session)
+	paneID := openPreviewPane(t, client, base, session, csrf)
+	checkPreviewOutput(t, client, base, paneID, session)
+	checkPaneEscapeAndClose(t, client, base, session, csrf, paneID)
+}
+
+// setupPaneWeb prepares a web serve instance with one project and one preview
+// file, returning a signed-in client.
+func setupPaneWeb(t *testing.T) (*netx.Client, string, *http.Cookie, *http.Cookie) {
+	t.Helper()
+	e := newEnv(t)
+	port := freePort(t)
+	if err := os.WriteFile(e.cfg, []byte(fmt.Sprintf("[network]\noffline = true\n\n[web]\nlisten = \"127.0.0.1:%d\"\n", port)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	projects := fmt.Sprintf(`{"current":"demo","items":[{"name":"demo","root":%q,"folders":[%q],"primary":%q}]}`, e.Workdir, e.Workdir, e.Workdir)
+	if err := os.WriteFile(filepath.Join(e.DataDir, "projects.json"), []byte(projects), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.Workdir, "hello.txt"), []byte("hello pane\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base, nonce := startWebServe(t, e)
+	client := netx.New(netx.Config{}).Client("e2e-panes", netx.Background)
+	session, csrf := exchangeNonce(t, client, base, nonce)
+	return client, base, session, csrf
+}
+
+// checkPaneDashboard proves the dashboard and its assets are served with the
+// panes/projects hooks and without a Node/Electron runtime.
+func checkPaneDashboard(t *testing.T, client *netx.Client, base string, session *http.Cookie) {
+	t.Helper()
+	page := webGet(t, client, base+"/", "", session)
+	if page.status != http.StatusOK || !strings.Contains(page.body, `id="panes"`) ||
+		!strings.Contains(page.body, `id="projects"`) || !strings.Contains(page.body, "/assets/panes.js") {
+		t.Fatalf("dashboard = %d", page.status)
+	}
+	asset := webGet(t, client, base+"/assets/panes.js", "", session)
+	if asset.status != http.StatusOK || strings.Contains(strings.ToLower(asset.body), "electron") ||
+		strings.Contains(strings.ToLower(asset.body), "node_modules") {
+		t.Fatalf("pane asset = %d (Node/Electron reference?)", asset.status)
+	}
+	projectsBody := webGet(t, client, base+"/api/projects", "", session)
+	if projectsBody.status != http.StatusOK || !strings.Contains(projectsBody.body, `"name":"demo"`) {
+		t.Fatalf("projects = %d %q", projectsBody.status, projectsBody.body)
+	}
+}
+
+// openPreviewPane opens the hello.txt preview and returns the pane id.
+func openPreviewPane(t *testing.T, client *netx.Client, base string, session, csrf *http.Cookie) string {
+	t.Helper()
+	opened := webPost(t, client, base+"/api/panes/open", `{"kind":"preview","target":"hello.txt","project":"demo"}`, session, csrf)
+	var pane struct{ ID, Kind, Title string }
+	if opened.status != http.StatusOK || json.Unmarshal([]byte(opened.body), &pane) != nil || pane.ID == "" || pane.Kind != "preview" {
+		t.Fatalf("open pane = %d %q", opened.status, opened.body)
+	}
+	return pane.ID
+}
+
+// checkPreviewOutput proves the pane buffer carries the preview bytes.
+func checkPreviewOutput(t *testing.T, client *netx.Client, base, paneID string, session *http.Cookie) {
+	t.Helper()
+	out := webGet(t, client, base+"/api/panes/output?id="+paneID+"&offset=0", "", session)
+	var chunk struct {
+		Data []byte
+		Next int
+		Open bool
+	}
+	if out.status != http.StatusOK || json.Unmarshal([]byte(out.body), &chunk) != nil || !strings.Contains(string(chunk.Data), "hello pane") {
+		t.Fatalf("pane output = %d %q", out.status, out.body)
+	}
+}
+
+// checkPaneEscapeAndClose proves a preview cannot leave the workspace and a
+// closed pane is gone.
+func checkPaneEscapeAndClose(t *testing.T, client *netx.Client, base string, session, csrf *http.Cookie, paneID string) {
+	t.Helper()
+	escape := webPost(t, client, base+"/api/panes/open", `{"kind":"preview","target":"../../etc/passwd","project":"demo"}`, session, csrf)
+	if escape.status != http.StatusBadRequest {
+		t.Fatalf("path escape = %d, want 400", escape.status)
+	}
+	closed := webPost(t, client, base+"/api/panes/close", `{"id":"`+paneID+`"}`, session, csrf)
+	if closed.status != http.StatusNoContent {
+		t.Fatalf("close pane = %d", closed.status)
+	}
+}
+
+// webPost performs one CSRF-signed POST in the e2e client.
+func webPost(t *testing.T, client *netx.Client, url, payload string, session, csrf *http.Cookie) webResult {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.AddCookie(session)
+	if csrf != nil {
+		req.AddCookie(csrf)
+		req.Header.Set("X-CSRF-Token", csrf.Value)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	raw, rerr := io.ReadAll(resp.Body)
+	if cerr := resp.Body.Close(); cerr != nil {
+		t.Errorf("close: %v", cerr)
+	}
+	if rerr != nil {
+		t.Fatalf("read %s: %v", url, rerr)
+	}
+	return webResult{status: resp.StatusCode, header: resp.Header, body: string(raw)}
 }
