@@ -43,7 +43,11 @@ func (h *memoryHook) externalRecall(ctx context.Context, query string, history *
 }
 
 func attachMemoryHook(ctx context.Context, cfg *config.Config, prov loop.Provider, modelRef string, target *assemblerAdapter) error {
-	ext, err := newExternalMemory(ctx, cfg, prov, modelRef)
+	dataDir := ""
+	if target != nil && target.db != nil {
+		dataDir = target.db.Dir()
+	}
+	ext, err := newExternalMemory(ctx, cfg, prov, modelRef, dataDir)
 	if err != nil {
 		return err
 	}

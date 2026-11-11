@@ -156,6 +156,12 @@ func memorySetup(args []string, cfgPath string, sec memoryproviders.SecretStore,
 	if err != nil {
 		return f8CmdFail(stderr, "memory setup", err)
 	}
+	if serr := saveMemoryState(cfgPath, &f8MemoryState{
+		Provider: *provider, TokenSecret: name, BaseURL: *baseURL,
+		Workspace: *workspace, SessionID: *sessionID, PeerID: *peerID, Active: true,
+	}); serr != nil {
+		return f8CmdFail(stderr, "memory setup", serr)
+	}
 	say(stdout, "memory setup %s: %s written (token in keychain entry %s)\n", cleanLine(*provider), path, cleanLine(name))
 	return f8ExitOK
 }
@@ -234,6 +240,9 @@ func memoryOff(args []string, cfgPath string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return f8CmdFail(stderr, "memory off", err)
 	}
+	if serr := saveMemoryState(cfgPath, &f8MemoryState{Provider: "off"}); serr != nil {
+		return f8CmdFail(stderr, "memory off", serr)
+	}
 	say(stdout, "memory off: %s written; the credential stays in the keychain\n", path)
 	return f8ExitOK
 }
@@ -265,6 +274,9 @@ func memoryReset(args []string, cfgPath string, sec memoryproviders.SecretStore,
 		[][2]string{{"enabled", "false"}, {"token_secret", `""`}, {"base_url", `""`}})
 	if err != nil {
 		return f8CmdFail(stderr, "memory reset", err)
+	}
+	if rerr := removeMemoryState(cfgPath); rerr != nil {
+		return f8CmdFail(stderr, "memory reset", rerr)
 	}
 	say(stdout, "memory reset: %s written; %s\n", path, state)
 	return f8ExitOK

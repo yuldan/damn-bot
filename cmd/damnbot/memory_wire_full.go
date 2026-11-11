@@ -37,20 +37,38 @@ func (m *memoryAdapter) Recall(ctx context.Context, query string) ([]assemble.Sn
 	return out, nil
 }
 
-// newExternalMemory builds the optional provider from [modules.memory]. The
-// default-off path reads no credential and creates no transport.
-func newExternalMemory(ctx context.Context, cfg *config.Config, prov loop.Provider, modelRef string) (externalMemory, error) {
+// newExternalMemory builds the optional provider from [modules.memory]. When
+// that section is empty/off, an active <data_dir>/memory.json state (written by
+// `damnbot memory setup`) may select the provider instead. The default-off
+// path reads no credential and creates no transport.
+func newExternalMemory(ctx context.Context, cfg *config.Config, prov loop.Provider, modelRef, dataDir string) (externalMemory, error) {
 	section := cfg.Modules.Memory
-	if section.Provider == "" || section.Provider == "off" {
+	honcho := section.Honcho
+	provider := section.Provider
+	if provider == "" || provider == "off" {
+		st, ok, err := loadMemoryState(dataDir)
+		if err != nil {
+			return nil, fmt.Errorf("memory state: %w", err)
+		}
+		if !ok || !st.Active || st.Provider == "" {
+			return nil, nil
+		}
+		provider = st.Provider
+		honcho = config.ModulesMemoryHoncho{
+			Enabled: true, BaseURL: st.BaseURL, TokenSecret: st.TokenSecret,
+			Workspace: st.Workspace, SessionID: st.SessionID, PeerID: st.PeerID,
+		}
+	}
+	if provider != memoryproviders.SourceHoncho {
+		return nil, fmt.Errorf("%w: %q", memoryproviders.ErrUnknownProvider, provider)
+	}
+	if !honcho.Enabled {
 		return nil, nil
 	}
-	if section.Provider != memoryproviders.SourceHoncho {
-		return nil, fmt.Errorf("%w: %q", memoryproviders.ErrUnknownProvider, section.Provider)
+	if honcho.TokenSecret == "" {
+		return nil, fmt.Errorf("%w: memory provider has no token_secret", memoryproviders.ErrInvalid)
 	}
-	if !section.Honcho.Enabled {
-		return nil, nil
-	}
-	token, err := memoryToken(ctx, section.Honcho.TokenSecret)
+	token, err := memoryToken(ctx, honcho.TokenSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -59,14 +77,14 @@ func newExternalMemory(ctx context.Context, cfg *config.Config, prov loop.Provid
 			Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
 			Secrets: []string{token},
 		}).Client("memory-honcho", netx.Tool),
-		BaseURL: section.Honcho.BaseURL, Token: token,
-		Workspace: section.Honcho.Workspace, SessionID: section.Honcho.SessionID,
-		PeerID: section.Honcho.PeerID, KnownSecrets: []string{token},
+		BaseURL: honcho.BaseURL, Token: token,
+		Workspace: honcho.Workspace, SessionID: honcho.SessionID,
+		PeerID: honcho.PeerID, KnownSecrets: []string{token},
 	}
 	if section.QueryRewrite {
 		settings.Rewriter = memoryproviders.NewLLMRewriter(providerCompleter{prov: prov, model: modelRef})
 	}
-	client, err := memoryproviders.Open(section.Provider, &settings)
+	client, err := memoryproviders.Open(provider, &settings)
 	if err != nil {
 		return nil, fmt.Errorf("memory provider: %w", err)
 	}
