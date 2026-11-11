@@ -1,8 +1,9 @@
 // Package builtin is the closed registry and seams of the bundled plugins
-// that SPEC §9.10 maps to built-in modules: the context_engine slot, the four
-// dashboard auth providers and the disk-cleanup plugin. Every row is opt-in
-// (default off); a target that is not wired reports module_unavailable instead
-// of starting, installing or executing anything.
+// that SPEC §9.10 maps to built-in modules: the context_engine and memory
+// provider slots, the four dashboard auth providers, the disk-cleanup plugin,
+// the local achievements/security-guidance seams and the hosted connectors.
+// Every row is opt-in (default off); a target that is not wired reports
+// module_unavailable instead of starting, installing or executing anything.
 package builtin
 
 import (
@@ -19,6 +20,7 @@ const (
 	AchievementsID    = "hermes-achievements"
 	SecurityGuideID   = "security-guidance"
 	HostedConnectorID = "connectors"
+	MemoryID          = "memory"
 )
 
 // Target is the compiled-in module a bundled plugin delegates to.
@@ -32,6 +34,9 @@ const (
 	TargetAchievements    Target = "web.achievements"
 	TargetSecurityGuide   Target = "codetools"
 	TargetHostedConnector Target = "connectors"
+	// TargetMemoryProvider is the same compiled-in module as the context-engine
+	// slot: PLUG-022 surfaces the provider half, PLUG-014 the engine half.
+	TargetMemoryProvider Target = "memoryproviders"
 )
 
 // ErrUnavailable reports a plugin whose target was not wired into this build
@@ -59,6 +64,7 @@ func Plugins() []Plugin {
 		{ID: AchievementsID, Target: TargetAchievements, DefaultOff: true},
 		{ID: SecurityGuideID, Target: TargetSecurityGuide, DefaultOff: true},
 		{ID: HostedConnectorID, Target: TargetHostedConnector, DefaultOff: false},
+		{ID: MemoryID, Target: TargetMemoryProvider, DefaultOff: true, Providers: MemoryProviders()},
 	}
 }
 
@@ -81,22 +87,31 @@ type Targets struct {
 	Achievements  bool
 	SecurityGuide bool
 	Connectors    bool
+	// Memory wires the memory-provider slot (PLUG-022). It is independent of
+	// ContextEngine even though both delegate to internal/memoryproviders: the
+	// two plugin surfaces are wired and configured separately.
+	Memory bool
 }
 
-func (t Targets) has(target Target) bool {
-	switch target {
-	case TargetContextEngine:
+// wired reports whether the target of p is compiled into this process. The
+// switch is keyed by plugin id because two slots (context_engine and memory)
+// share the memoryproviders target.
+func (t Targets) wired(p Plugin) bool {
+	switch p.ID {
+	case ContextEngineID:
 		return t.ContextEngine
-	case TargetDashboardAuth:
+	case DashboardAuthID:
 		return t.DashboardAuth
-	case TargetAchievements:
+	case AchievementsID:
 		return t.Achievements
-	case TargetDiskCleanup:
+	case DiskCleanupID:
 		return t.DiskCleanup
-	case TargetSecurityGuide:
+	case SecurityGuideID:
 		return t.SecurityGuide
-	case TargetHostedConnector:
+	case HostedConnectorID:
 		return t.Connectors
+	case MemoryID:
+		return t.Memory
 	}
 	return false
 }
@@ -108,7 +123,7 @@ func Resolve(t Targets, id string) (Plugin, error) {
 	if !ok {
 		return Plugin{}, fmt.Errorf("%w: %q", ErrUnknown, id)
 	}
-	if !t.has(p.Target) {
+	if !t.wired(p) {
 		return Plugin{}, fmt.Errorf("%w: %s needs %s", ErrUnavailable, p.ID, p.Target)
 	}
 	return p, nil
