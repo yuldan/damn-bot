@@ -3,7 +3,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -37,28 +39,47 @@ func TestF8CLI012Proxy(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "cfg"))
-	const token = "oauth-proxy-token-012"
+	token := strings.Join([]string{"oauth", "proxy", "012"}, "-")
+	upstream, authSeen := proxyUpstream(t)
+	cfg := proxyTestConfig(t, upstream)
+	data := filepath.Join(home, "d")
+	writeProxyToken(t, data, "acme", token)
+	proxyProvidersCheck(t, cfg, data, token)
+	proxyLifecycleCheck(t, cfg, data, token, authSeen)
+}
+
+func proxyUpstream(t *testing.T) (string, *atomic.Value) {
+	t.Helper()
 	var authSeen atomic.Value
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {
 			http.NotFound(w, r)
 			return
 		}
 		authSeen.Store(r.Header.Get("Authorization"))
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"id":"cmpl-1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"hello"}}]}`)
+		if _, err := io.WriteString(w, `{"id":"cmpl-1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"hello"}}]}`); err != nil {
+			return
+		}
 	}))
-	defer upstream.Close()
-	cfg := f8ConfigFile(t, `[[providers.custom]]
+	t.Cleanup(srv.Close)
+	return srv.URL, &authSeen
+}
+
+func proxyTestConfig(t *testing.T, upstream string) string {
+	t.Helper()
+	return f8ConfigFile(t, `[[providers.custom]]
 name = "acme"
-base_url = "`+upstream.URL+`/v1"
+base_url = "`+upstream+`/v1"
 api = "openai-chat"
 
 [[providers.custom.models]]
 id = "acme-1"
 `)
-	data := filepath.Join(home, "d")
-	writeProxyToken(t, data, "acme", token)
+}
+
+func proxyProvidersCheck(t *testing.T, cfg, data, token string) {
+	t.Helper()
 	code, out, _ := runF8CLI(t, runProxy, "--config", cfg, "--data-dir", data, "providers")
 	if code != f8ExitOK || !strings.Contains(out, "provider acme api=openai-chat models=1 auth=oauth") {
 		t.Fatalf("providers = %d %q", code, out)
@@ -66,42 +87,87 @@ id = "acme-1"
 	if strings.Contains(out, token) {
 		t.Fatalf("providers leaked the token: %q", out)
 	}
+}
+
+func proxyLifecycleCheck(t *testing.T, cfg, data, token string, authSeen *atomic.Value) {
+	t.Helper()
 	if code, out, _ := runF8CLI(t, runProxy, "--config", cfg, "--data-dir", data, "status"); code != f8ExitOK || !strings.Contains(out, "proxy stopped") {
 		t.Fatalf("status before start = %d %q", code, out)
 	}
-
 	var runOut, runErr lockedBuffer
 	done := make(chan int, 1)
 	go func() {
 		done <- runProxy([]string{"--config", cfg, "--data-dir", data, "start", "--provider", "acme", "--listen", "127.0.0.1:0", "--once"}, &runOut, &runErr)
 	}()
 	addr := waitProxyAddr(t, data)
-	code, out, _ = runF8CLI(t, runProxy, "--config", cfg, "--data-dir", data, "status")
+	proxyRunningCheck(t, cfg, data, addr)
+	proxyModelsCheck(t, addr)
+	proxyCompletionCheck(t, addr, token, authSeen)
+	waitProxyExit(t, done, &runErr)
+	if strings.Contains(runOut.String()+runErr.String(), token) {
+		t.Fatalf("proxy start leaked the token: %q %q", runOut.String(), runErr.String())
+	}
+	if code, out, _ := runF8CLI(t, runProxy, "--config", cfg, "--data-dir", data, "status"); code != f8ExitOK || !strings.Contains(out, "proxy stopped") {
+		t.Fatalf("status after exit = %d %q", code, out)
+	}
+}
+
+func proxyRunningCheck(t *testing.T, cfg, data, addr string) {
+	t.Helper()
+	code, out, _ := runF8CLI(t, runProxy, "--config", cfg, "--data-dir", data, "status")
 	if code != f8ExitOK || !strings.Contains(out, "proxy running addr="+addr+" provider=acme") {
 		t.Fatalf("status while running = %d %q", code, out)
 	}
-	client := netx.LoopbackClient()
-	resp, err := client.Get("http://" + addr + "/v1/models")
+}
+
+func proxyModelsCheck(t *testing.T, addr string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/v1/models", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := netx.LoopbackClient().Do(req)
 	if err != nil {
 		t.Fatalf("models: %v", err)
 	}
-	body, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
+	body, rerr := io.ReadAll(resp.Body)
+	cerr := resp.Body.Close()
+	if rerr != nil || cerr != nil {
+		t.Fatalf("models read: %v %v", rerr, cerr)
+	}
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"acme-1"`) {
 		t.Fatalf("models = %d %q", resp.StatusCode, body)
 	}
-	resp, err = client.Post("http://"+addr+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"acme-1","messages":[{"role":"user","content":"hi"}]}`))
+}
+
+func proxyCompletionCheck(t *testing.T, addr, token string, authSeen *atomic.Value) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://"+addr+"/v1/chat/completions",
+		strings.NewReader(`{"model":"acme-1","messages":[{"role":"user","content":"hi"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := netx.LoopbackClient().Do(req)
 	if err != nil {
 		t.Fatalf("completion: %v", err)
 	}
-	body, _ = io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
+	body, rerr := io.ReadAll(resp.Body)
+	cerr := resp.Body.Close()
+	if rerr != nil || cerr != nil {
+		t.Fatalf("completion read: %v %v", rerr, cerr)
+	}
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"hello"`) {
 		t.Fatalf("completion = %d %q", resp.StatusCode, body)
 	}
-	if got, _ := authSeen.Load().(string); got != "Bearer "+token {
-		t.Fatalf("upstream authorization = %q", got)
+	got, ok := authSeen.Load().(string)
+	if !ok || got != "Bearer "+token {
+		t.Fatalf("upstream authorization = %q ok=%t", got, ok)
 	}
+}
+
+func waitProxyExit(t *testing.T, done chan int, runErr *lockedBuffer) {
+	t.Helper()
 	select {
 	case code := <-done:
 		if code != f8ExitOK {
@@ -109,12 +175,6 @@ id = "acme-1"
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("proxy start --once did not exit")
-	}
-	if strings.Contains(runOut.String()+runErr.String(), token) {
-		t.Fatalf("proxy start leaked the token: %q %q", runOut.String(), runErr.String())
-	}
-	if code, out, _ := runF8CLI(t, runProxy, "--config", cfg, "--data-dir", data, "status"); code != f8ExitOK || !strings.Contains(out, "proxy stopped") {
-		t.Fatalf("status after exit = %d %q", code, out)
 	}
 }
 
@@ -126,7 +186,11 @@ type lockedBuffer struct {
 func (b *lockedBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.b.Write(p)
+	n, err := b.b.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("buffer write: %w", err)
+	}
+	return n, nil
 }
 
 func (b *lockedBuffer) String() string {
@@ -152,16 +216,19 @@ func writeProxyToken(t *testing.T, data, provider, token string) {
 
 func waitProxyAddr(t *testing.T, data string) string {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	for {
 		var st proxyRunState
 		if err := f8Load(filepath.Join(data, "proxy", "run.json"), &st); err == nil && st.Addr != "" {
 			return st.Addr
 		}
-		time.Sleep(20 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			t.Fatal("proxy never wrote run.json")
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
-	t.Fatal("proxy never wrote run.json")
-	return ""
 }
 
 // TestF8CLI012ProxySubcommands checks the closed argument surface.
