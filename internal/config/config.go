@@ -382,7 +382,7 @@ func Default() Config {
 			Embeddings:    "",
 		},
 		Recovery:  Recovery{Continue: "safe_auto"},
-		UI:        UI{Language: "auto", Theme: "tern-dark", Notices: true, ReplyLanguage: "auto"},
+		UI:        UI{Language: "auto", Theme: "tern-dark", Notices: true, ReplyLanguage: defaultReplyLanguage},
 		Gateway:   gateway,
 		Modules:   modules,
 		Providers: Providers{Custom: []CustomProvider{}},

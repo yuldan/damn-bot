@@ -81,7 +81,7 @@ func newTurnEngine(ctx context.Context, cfg *config.Config, o *runOptions, model
 	if degraded {
 		compactAt, maxInline = 60, 2000 // PROV-02 degraded profile (SPEC §22.1)
 	}
-	adapter := &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, compactor: comp, window: win, store: model.store, markTainted: disp.MarkTainted, db: model.db, catalog: catalogGroups(modules.Default()), stable: assemble.StableOptions{ReplyLanguage: replyLanguage(cfg)}}
+	adapter := &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, compactor: comp, window: win, store: model.store, markTainted: disp.MarkTainted, db: model.db, catalog: catalogGroups(modules.Default()), stable: stableReply(cfg)}
 	if externalMemoryEnabled {
 		if aerr := attachMemoryHook(ctx, cfg, model.provider, modelRef, adapter); aerr != nil {
 			return nil, aerr
