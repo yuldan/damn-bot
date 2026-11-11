@@ -45,6 +45,8 @@ var (
 	ErrAuthSeam = errors.New("web: auth mode has no verifier")
 	// ErrListen is a malformed listen address.
 	ErrListen = errors.New("web: invalid listen address")
+	// ErrPaneMissing is an unknown or closed pane id.
+	ErrPaneMissing = errors.New("web: pane not found")
 )
 
 // Config is the resolved `[web]` section. IO is injected by cmd; the package
