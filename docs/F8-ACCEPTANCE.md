@@ -103,7 +103,7 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 | MEM-005 | Plugin provider memori eksternal | satu provider aktif per `memory.provider`; provider asing → error; upload ≤ 1 MiB/item | `TestF8MEM005ExternalProvider`, `TestExternalMemoryUploadCap` | LULUS | GAP-PROV-05; ADR-338 |
 | MEM-008 | Memory provider Honcho | config & profil Honcho; token dari secret; 0 upload default | `TestF8MEM008Honcho` | LULUS | PLUG-022; wiring `assemblerAdapter`, ADR-338 |
 | MEM-009 | Memory query rewrite | rewrite query sebelum recall provider; hanya bila fitur aktif; prompt tetap Inggris | `TestF8MEM009QueryRewrite` | LULUS | default off, ADR-338 |
-| MEM-010 | Memory OAuth / setup | wizard setup + OAuth provider memori; referensi secret saja; revoke didukung | `TestF8MEM010MemoryOAuth` | BELUM | GAP-SEC-18; lapisan OAuth/keychain lulus, surface CLI-052 belum |
+| MEM-010 | Memory OAuth / setup | wizard setup + OAuth provider memori; referensi secret saja; revoke didukung | `TestF8MEM010MemoryOAuth` | LULUS | CLI-052; state `memory.json` 0600 + runtime fallback |
 | MEM-023 | Context engine plugin | ganti engine konteks via plugin `context_engine`; default off; engine asing ditolak | `TestF8MEM023ContextEngine` | LULUS | PLUG-014; slot read-only, ADR-338 |
 | MEM-035 | Learning journey / graph | timeline skill & memori; entri tanpa sumber diredaksi; 0 duplikat | `TestF8MEM035LearningJourney` | BELUM | CLI-051/SLASH-027; builder lokal lulus, surface CLI belum |
 

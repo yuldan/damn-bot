@@ -6619,6 +6619,8 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 - Amandemen (ADR-330, PR F8-UI-AUTO-3): `auto.CuratorState` mendapat pause/resume dan berhenti di `ErrBudget`; `startupMaintenance` menjalankan `auto.Service.Maintain` saat start TUI/`run` hanya bila `[modules.auto.maintenance] enabled` (default 0 mutasi). `/goal judge` dan trace upload berasal dari #897. Tes `TestF8AUTO003CuratorScheduler`, `TestF8AUTO014GoalsJudge`, `TestF8AUTO031AutoMaintenance`, `TestF8SLASH031Heartbeat`, `TestF8SLASH034Loop`, `TestF8SLASH037Subgoal`; parity+ledger `AUTO-003/014/031` dan `SLASH-031/034/037` menjadi `LULUS`. Tidak ada dependency atau baris budget baru.
 
+- Amandemen (ADR-330, PR F8-UI-MEM-2): `memory setup|off|reset` menulis/menghapus `<data_dir>/memory.json` 0600 dengan referensi provider/secret (tanpa token), dan `newExternalMemory` membaca state itu saat `[modules.memory]` kosong/off. Surface CLI-050/052 dan revoke keychain tetap dari #896. Tes `TestF8CLI052Memory`, `TestF8MEM010MemoryOAuth`, `TestF8MemoryStateFallback`; parity+ledger `MEM-010` menjadi `LULUS`. Tidak ada dependency atau baris budget baru.
+
 ## ADR-331 — Section `[web]` fail-closed untuk `damnbot serve --web` (F8)
 
 **Status:** Accepted 2026-11-08 (F8, GAP-SEC-07/GAP-SEC-08). Menambah section config `[web]` dan menaikkan plafon core 56.900 → 57.200.
