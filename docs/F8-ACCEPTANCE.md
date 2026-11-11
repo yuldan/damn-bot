@@ -202,15 +202,15 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 | PLUG-025 | Plugin: security-guidance | peringatan keamanan pada hasil write file; non-blokir | `TestF8PLUG025SecurityGuidance` | LULUS | `internal/plugins/builtin` security-guidance non-blokir pada hasil write (.env/private key/pipe-shell; ADR-345) |
 | PLUG-026 | Plugin: teams_pipeline | pipeline rapat MS Teams via Graph; subscription renew | `TestF8PLUG026TeamsPipeline` | LULUS | PLAT-030 |
 | PLUG-035 | Connectors (hosted) | connector app hosted + akun via `manage_connections`; OAuth referensi saja | `TestF8PLUG035Connectors` | LULUS | `internal/plugins/builtin` hosted connector accounts (referensi keychain saja, connector tertutup; ADR-345) |
-| OPS-010 | Debug upload / dump | laporan debug ter-redaksi; tautan sekali pakai; 0 host pastebin | `TestF8OPS010DebugUpload` | BELUM | GAP-SEC-17 |
-| OPS-016 | Insights | analitik pemakaian; agregat dari ledger; 0 secret | `TestF8OPS016Insights` | BELUM | CLI-058 |
+| OPS-010 | Debug upload / dump | laporan debug ter-redaksi; tautan sekali pakai; 0 host pastebin | `TestF8OPS010DebugUpload` | LULUS | GAP-SEC-17 |
+| OPS-016 | Insights | analitik pemakaian; agregat dari ledger; 0 secret | `TestF8OPS016Insights` | LULUS | CLI-058 |
 | OPS-018 | Monitoring & OTLP export | health gateway + export OTLP; endpoint opt-in; 0 konten pesan | `TestF8OPS018OTLP`, `TestOPS018DisabledNoConnect` | LULUS | CLI-060 LULUS |
 | OPS-020 | Batch runner | prompt massal paralel → trajectory; batas paralel + biaya | `TestF8OPS020BatchRunner`, `TestF8OPS020BatchRun` | LULUS | e2e `TestF8OPS020EvalBatch` |
 | OPS-021 | Trajectory save & compressor | simpan & kompres trajectory; format OpenAI/ShareGPT valid | `TestF8OPS021Trajectory`, `TestF8OPS021BatchCompress` | LULUS | `TestF8OPS022Trajectory` |
-| OPS-022 | Trace upload (HF) | upload trace ke Hugging Face; opt-in; 0 transcript user | `TestF8OPS022TraceUpload` | BELUM | — |
+| OPS-022 | Trace upload (HF) | upload trace ke Hugging Face; opt-in; 0 transcript user | `TestF8OPS022TraceUpload` | BELUM | `debug trace --upload` menolak bertipe `module_unavailable`; lane upload HF belum ada |
 | OPS-023 | Mini SWE runner | runner tugas SWE format trajectory Hermes; sandbox | `TestF8OPS023MiniSWE` | LULUS | subset in-memory (tanpa Docker) |
 | OPS-024 | Evals | suite evaluasi/probe perilaku deterministik; baseline ter-commit | `TestF8OPS024Evals`, `TestF8EvalDeterministic` | LULUS | GAP-INF-06 |
-| OPS-038 | Projects | workspace multi-folder bernama; path divalidasi | `TestF8OPS038Projects` | BELUM | CLI-030 |
+| OPS-038 | Projects | workspace multi-folder bernama; path divalidasi | `TestF8OPS038Projects` | LULUS | CLI-030 |
 
 ## 9. GAP F8 (17) — SPEC §22.1
 

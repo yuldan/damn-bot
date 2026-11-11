@@ -933,7 +933,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | OPS-013 | Usage / rate limits | Jendela rate limit akun & token usage | `agent/account_usage.py`, `agent/rate_limit_tracker.py`, `hermes_state_usage.py` | on | — | `hermes usage`, `/usage` | F3 | planned |
 | OPS-014 | Billing / Nous subscription | Saldo, plan, topup Nous | `agent/billing_usage.py`, `hermes_cli/nous_billing.py`, `hermes_cli/nous_subscription.py` | on bila Nous | Nous Portal | `/topup`, `/subscription` | — | dropped-with-approval (NP-19) |
 | OPS-015 | Usage pricing / cost | Estimasi biaya per model | `agent/usage_pricing.py`, `hermes_cli/models_pricing.py` | on | models.dev data |  | F3 | planned |
-| OPS-016 | Insights | Analitik penggunaan | `agent/insights.py` | opt-in | — | `hermes insights` | F8 | planned |
+| OPS-016 | Insights | Analitik penggunaan | `agent/insights.py` | opt-in | — | `hermes insights` | F8 | LULUS |
 | OPS-017 | Prompt size | Rincian byte system prompt + schema tool | `hermes_cli/prompt_size.py` | opt-in | — |  | F3 | planned |
 | OPS-018 | Monitoring & OTLP export | Health gateway, export OTLP | `agent/monitoring/otlp_exporter.py`, `agent/monitoring/gateway_health.py` | off (`monitoring.export.otlp.enabled`) | extra `otlp` |  | F8 | LULUS |
 | OPS-019 | Telemetry shared metrics | Metrik bersama ke Nous | `hermes_cli/config_defaults.py:2328` | off | Network |  | — | dropped-with-approval (NP-19) |
@@ -955,7 +955,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | OPS-035 | Import Claude Code/Codex setup | Impor setup agent lain | `hermes_cli/agent_import.py` | opt-in | — | `hermes import-agent` | F3 | planned |
 | OPS-036 | Model/config migration | Migrasi model pensiun/setting usang | `hermes_cli/migrate.py`, `hermes_cli/xai_retirement.py` | opt-in | — | `hermes migrate` | — | dropped-with-approval (NP-15) |
 | OPS-037 | Emergency stop `pause` | Hentikan dispatch cron/kanban & turn baru | `hermes_cli/subcommands/pause.py`, `agent/estop.py` | opt-in | — | `hermes pause/resume`, `/pause` | F4 | planned |
-| OPS-038 | Projects | Workspace multi-folder bernama | `hermes_cli/projects_cmd.py`, `hermes_cli/projects_db.py` | opt-in | — | `hermes project` | F8 | planned |
+| OPS-038 | Projects | Workspace multi-folder bernama | `hermes_cli/projects_cmd.py`, `hermes_cli/projects_db.py` | opt-in | — | `hermes project` | F8 | LULUS |
 
 ## 13. GW — fitur inti gateway (tambahan)
 | ID | Fitur | Deskripsi singkat (≤15 kata) | Sumber hermes | Default di hermes | Dependensi eksternal | Catatan | fase | status |
