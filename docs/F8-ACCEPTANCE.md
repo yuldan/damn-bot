@@ -1,11 +1,11 @@
 # F8-ACCEPTANCE — Ledger acceptance F8 (web UI, ekosistem, otomatisasi)
 
-Status: **ledger hidup** untuk `PHASE=F8` pada `origin/main` `a1d59634`. Dari 167 baris data, **165 `LULUS`** (148 parity + 17 GAP), **0 `BELUM`**, dan 2 `N/A — … (carryover F9)`; ketujuh baris agregat §1 masih `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326/ADR-330 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
+Status: **ledger tertutup** untuk `PHASE=F9` pada `origin/main` `9c14575e`. Dari 167 baris data, **165 `LULUS`** (148 parity + 17 GAP) dan **2 `N/A — … (carryover F9)`**; ketujuh baris agregat §1 `LULUS`, sehingga totalnya **172 `LULUS` + 2 `N/A` dari 174 baris**. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; erratum ADR-326/ADR-330 mencatat pengecualian untuk baris yang tesnya sudah di-merge pada PR sebelumnya dan hanya disinkronkan oleh PR dokumen ini. Tidak ada kriteria yang diubah, dan setiap status `LULUS` menunjuk tes bernama yang sudah ada.
 
 Sumber normatif: ROADMAP F8 (docs/ROADMAP.md:206-214), 148 baris parity berfase F8 (docs/FEATURE-PARITY.md; 148 `LULUS`, 0 `planned`), kontrak modul SPEC §3.2.4 (SPEC.md:302-307), 17 baris GAP F8 (SPEC.md:2927-2930,2938,2956,2965,2974,2979,3000,3017-3020,3035,3037-3038), katalog EC (tidak ada entri F8; docs/ROADMAP.md:58-67), dan carryover F7 (docs/F7-ACCEPTANCE.md:20,206). Nama paket, baris `MODULE`, dan plafon family mengikuti ADR-330 (docs/DECISIONS.md).
 Aturan gate:
 - **Penutupan (ADR-330, melanjutkan ADR-326/ADR-323).** Baris hanya `LULUS` bila PR yang sama menambah tes bernama, mengubah baris parity F8 menjadi `LULUS`, dan mengubah baris ledger `BELUM`→`LULUS`. Baris yang tidak dapat dibuktikan ditulis `N/A — <alasan teknis> (carryover F9)`, bukan `BELUM`. Baris agregat hanya `LULUS` setelah semua anggota tertutup.
-- **Gate mesin.** Selama `PHASE=F8` gate tidak aktif (ledger hidup). Begitu `PHASE` > F8, `TestF8LedgerClosed` menolak `BELUM`, `N/A` telanjang (< 8 karakter alasan), dan baris parity F8 yang bukan `LULUS`/`N/A — …`; `TestParityPhaseColumn` memeriksa hal yang sama dari sisi parity. `TestF8LedgerGateRules` adalah kontrol negatifnya.
+- **Gate mesin.** Selama `PHASE=F8` gate tidak aktif (ledger hidup). Sejak `PHASE=F9`, `TestF8LedgerClosed` menolak `BELUM`, `N/A` telanjang (< 8 karakter alasan), dan baris parity F8 yang bukan `LULUS`/`N/A — …`; `TestParityPhaseColumn` memeriksa hal yang sama dari sisi parity. `TestF8LedgerGateRules` adalah kontrol negatifnya.
 - **Budget.** `maxF8ModuleLOC` = 22.800 (ROADMAP F8, ADR-340) dan `maxModuleLOC` = 132.000 (ADR-330); baris `MODULE` F8 berada di luar Σ core (ADR-196). Naikkan angka hanya lewat ADR terukur.
 - Tidak ada `t.Skip` runtime (REL-15). Web UI diuji dengan `httptest`/Chromium headless dan fake server; binary nyata hanya dipakai harness `internal/e2e`. Network keluar (petdex, skills hub, connector, upload debug) memakai fake server dan tidak pernah menjadi default.
 - Nama tes bersifat target, bukan implementasi. Nama yang sudah diwajibkan SPEC dipertahankan apa adanya: `TestWebCSPHeaders`, `TestWebCSRF`, `TestWebSessionRevoke`, `TestContrastTokens`, `TestWebAssetsNoExternalURL`, `TestHelpOffline`, `TestSurfaceParity`, `TestSurfaceDocSync`, `TestRemoteLinkOneTime`, `TestI18nNoEmpty`, `TestNoUILiterals`, `TestCriticalKeysAllLocales`, `TestLocaleSetIdentical`, `TestReplyLanguageLine`, `TestLocaleNotEnglishCopy`, `TestThreatScanDotenv`, `TestExternalMemoryUploadCap`, `TestWebSessionRevoke`.
@@ -14,13 +14,13 @@ Aturan gate:
 
 | Item ROADMAP F8 | Kriteria | Tes yang harus ada | Status |
 |---|---|---|---|
-| UI 28/28 | 8 baris UI berfase F8 `LULUS` (§7) + 20 baris UI fase sebelumnya yang sudah berjalan; setiap permukaan frontend merender atau memakai fallback terdefinisi | §7 `LULUS` + `TestF8UIMatrix` | BELUM |
-| AUTO 32/32 | 12 baris AUTO berfase F8 `LULUS` (§7) + 20 baris AUTO fase sebelumnya; semua fitur `auto` default off | §7 `LULUS` + `TestF8AUTOMatrix` | BELUM |
-| P11 budget auto | config default → 0 call `purpose=auto`; setiap fitur berhenti tepat di budget dan menulis event `llm_call` dengan `feature=<id>` | `TestF8AutoDefaultZeroCalls`, `TestF8AutoBudgetStop` | BELUM |
-| SKILL/SKCAT/PLUG | 8 baris SKILL + 35 SKCAT + 10 PLUG berfase F8 `LULUS`; katalog 58 bundled + 153 optional = 211 entri | §5/§6/§8 `LULUS` + `TestF8SkillCatalogCounts`, `TestF8PluginCatalog645` | BELUM |
-| Web UI perf & aset | first token ≤ +50 ms; aset embedded ≤ 1,5 MB; 0 key i18n hilang di 18 locale | `BenchmarkWebFirstToken`, `TestF8WebAssetsBudget`, `TestI18nNoEmpty` | BELUM |
-| Budget modul & binary | `make loc` 0 GAGAL dengan baris F8 (ADR-330); P13 full ≤ 52.000.000 B dan minimal ≤ 22.100.000 B (ADR-325) | `TestLocBudgetModuleRows`, `TestBudgetTableSum`, `make size-check` di PR penutup | BELUM |
-| Ledger F8 | 148 baris parity F8 + 17 GAP tertutup; `PHASE` → F9 hanya setelahnya | `TestF8LedgerClosed`, `TestParityPhaseColumn`, `TestF8LedgerGateRules` | BELUM |
+| UI 28/28 | 8 baris UI berfase F8 `LULUS` (§7) + 20 baris UI fase sebelumnya yang sudah berjalan; setiap permukaan frontend merender atau memakai fallback terdefinisi | §7 `LULUS` + `TestF8UIMatrix` (`cmd/damnbot/f8_matrix_test.go:21`: 28 baris UI/8 F8, kontrak 6 request × 5 frontend, surface runtime, 18 locale) | LULUS |
+| AUTO 32/32 | 12 baris AUTO berfase F8 `LULUS` (§7) + 20 baris AUTO fase sebelumnya; semua fitur `auto` default off | §7 `LULUS` + `TestF8AUTOMatrix` (`internal/auto/f8_matrix_test.go:21`: 12 fitur registry, 32 baris parity, default off + 0 call) | LULUS |
+| P11 budget auto | config default → 0 call `purpose=auto`; setiap fitur berhenti tepat di budget dan menulis event `llm_call` dengan `feature=<id>` | `TestF8AutoDefaultZeroCalls` (`internal/auto/f8_matrix_test.go:121`), `TestF8AutoBudgetStop` (`:147`), `TestF8P11BudgetDefaultOff` (`cmd/damnbot/serve_auto_test.go:211`) | LULUS |
+| SKILL/SKCAT/PLUG | 8 baris SKILL + 35 SKCAT + 10 PLUG berfase F8 `LULUS`; katalog 58 bundled + 153 optional = 211 entri | §5/§6/§8 `LULUS` + `TestF8SkillCatalogCounts` (`internal/skills/catalog/counts_test.go:33`: 58/153/211 + 35 kategori), `TestF8PluginCatalog645` (`internal/plugins/catalog/catalog_test.go:25`) | LULUS |
+| Web UI perf & aset | first token ≤ +50 ms; aset embedded ≤ 1,5 MB; 0 key i18n hilang di 18 locale | `BenchmarkWebFirstToken` (`internal/web/web_bench_test.go:47`), `TestF8WebAssetsBudget` (`internal/web/assets_budget_test.go:19`), `TestI18nNoEmpty` (`internal/i18n/i18n_test.go:241`) | LULUS |
+| Budget modul & binary | `make loc` 0 GAGAL dengan baris F8 (ADR-330); P13 full ≤ 52.000.000 B dan minimal ≤ 22.100.000 B (ADR-325) | `TestLocBudgetModuleRows` (`internal/archtest/budget_module_test.go:37`), `TestBudgetTableSum` (`internal/archtest/repometa_test.go:64`), `make loc` + `make size-check` di PR penutup | LULUS |
+| Ledger F8 | 148 baris parity F8 + 17 GAP tertutup; `PHASE` → F9 hanya setelahnya | `TestF8LedgerClosed` (`internal/archtest/parity_phase_test.go:435`), `TestParityPhaseColumn` (`:85`), `TestF8LedgerGateRules` (`:446`) | LULUS |
 
 ## 2. Ledger parity F8 — CLI (14) dan slash (13)
 
@@ -247,7 +247,7 @@ Tidak ada EC F8: `docs/ROADMAP.md:58-67` hanya memetakan `EC-PROV`, `EC-TCALL`, 
 ## 12. Perintah bukti
 
 ```sh
-# PHASE kini F8: acceptance mensertifikasi fase yang ditinggalkan, F8 (ADR-176, ADR-330).
+# PHASE kini F9: acceptance mensertifikasi fase yang ditinggalkan, F8 (ADR-176, ADR-330).
 # Jalankan di mesin dengan alamat virtual >= 8 GiB; internal/ctxdb chaos OOM di 4 GiB.
 make phase-acceptance
 
@@ -282,4 +282,4 @@ Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 
 - Baris agregat §1: **7**. Jumlah baris data ledger: **167** (148 parity + 17 GAP + 0 EC + 2 carryover); total baris ledger termasuk agregat: **174**.
 - Katalog SKCAT: **58 bundled + 153 optional = 211** skill; PLUG-009 = **645** entri.
 - Budget F8: **22.800 Go** (`maxF8ModuleLOC`, ADR-345) + **≈9.900 JS/CSS** (≤ 10.000, SPEC §3.2.4); `maxModuleLOC` **132.000**.
-- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). F8 berjalan pada `a1d59634`: 167 baris data dengan **165 `LULUS`** (148 parity + 17 GAP), **0 `BELUM`**, dan 2 `N/A`; ketujuh baris agregat §1 masih `BELUM`.
+- Ledger F7 ditutup dengan 131 baris data (129 `LULUS`, 2 `N/A`). Ledger F8 ditutup pada `9c14575e`: 167 baris data dengan **165 `LULUS`** (148 parity + 17 GAP) dan 2 `N/A`, ditambah tujuh baris agregat §1 `LULUS` (172 `LULUS` + 2 `N/A` dari 174 baris); `PHASE` naik F8 → **F9** setelah `make phase-acceptance` hijau.
