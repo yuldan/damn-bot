@@ -107,6 +107,17 @@ func (f *fakeSurface) Project(_ context.Context, name string) error {
 	return f.err
 }
 
+// projectJSON marshals project args so a Windows root path's backslashes
+// cannot break the argument literal.
+func projectJSON(t *testing.T, args map[string]any) string {
+	t.Helper()
+	b, err := json.Marshal(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 // previewJSON builds the JSON argument so a Windows path's backslashes are
 // escaped instead of breaking the literal.
 func previewJSON(t *testing.T, target string) string {
@@ -491,7 +502,7 @@ func TestF8TOOL072DesktopProject(t *testing.T) {
 	if _, serr := invoke(t, m, env, "desktop_project", `{"action":"switch","name":"alpha"}`); serr != nil {
 		t.Fatalf("switch: %v", serr)
 	}
-	_, err = invoke(t, m, env, "desktop_project", `{"action":"create","name":"beta","root":"`+outside+`"}`)
+	_, err = invoke(t, m, env, "desktop_project", projectJSON(t, map[string]any{"action": "create", "name": "beta", "root": outside}))
 	wantCode(t, err, "outside_workspace")
 	_, err = invoke(t, m, env, "desktop_project", `{"action":"switch","name":"ghost"}`)
 	wantCode(t, err, "not_found")
