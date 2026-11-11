@@ -56,6 +56,10 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool
 		// explicitly instead of being hidden in the surface registry.
 		args = append([]string{"desktop"}, args[1:]...)
 	}
+	if args[0] == "learning" || args[0] == "memory-graph" {
+		// CLI-051 documents `learning` and `memory-graph` as journey aliases.
+		args = append([]string{"journey"}, args[1:]...)
+	}
 	if args[0] == "send" {
 		return runSend(args[1:], stdout, stderr), true
 	}

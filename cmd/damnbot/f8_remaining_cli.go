@@ -11,46 +11,6 @@ import (
 	"github.com/damnbot/damnbot/internal/connectors"
 )
 
-func runProxy(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("proxy", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	cfgPath := fs.String("config", "", "config path")
-	if err := fs.Parse(args); err != nil || fs.NArg() == 0 {
-		return f8ExitUsage
-	}
-	rest := fs.Args()
-	switch rest[0] {
-	case "start":
-		if len(rest) != 1 {
-			return f8ExitUsage
-		}
-		return f8CmdFail(stderr, "proxy", f8Unavail("proxy", "no OAuth provider is configured for the local proxy"))
-	case "status":
-		if len(rest) != 1 {
-			return f8ExitUsage
-		}
-		say(stdout, "proxy stopped\n")
-		return f8ExitOK
-	case "providers":
-		cfg, _, _, err := f8LoadSetup(*cfgPath, "")
-		if err != nil {
-			return f8CmdFail(stderr, "proxy", err)
-		}
-		if len(cfg.Providers.Custom) == 0 {
-			say(stdout, "providers none\n")
-			return f8ExitOK
-		}
-		for i := range cfg.Providers.Custom {
-			p := &cfg.Providers.Custom[i]
-			say(stdout, "provider %s api=%s models=%d\n", cleanLine(p.Name), cleanLine(p.API), len(p.Models))
-		}
-		return f8ExitOK
-	default:
-		say(stderr, "proxy: unknown subcommand %q\n", cleanArg(rest[0]))
-		return f8ExitUsage
-	}
-}
-
 func runMemory(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("memory", flag.ContinueOnError)
 	fs.SetOutput(stderr)

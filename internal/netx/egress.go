@@ -15,11 +15,7 @@ type Egress struct {
 // fails when a production client is missing from (or stale in) this table.
 func Registry() map[string]Egress {
 	reg := map[string]Egress{
-		"inference": {
-			Purpose: Inference,
-			Host:    "provider base URL from [provider].model, [[providers.custom]].base_url, or --base-url",
-			Trigger: "every turn request to the configured LLM",
-		},
+		"inference": {Purpose: Inference, Host: "provider base URL from [provider].model, [[providers.custom]].base_url, --base-url, or `proxy start --provider`", Trigger: "every turn request to the configured LLM and every request the local OAuth proxy forwards"},
 		"refs": {
 			Purpose: Tool,
 			Host:    "host of the referenced URL",
@@ -27,11 +23,7 @@ func Registry() map[string]Egress {
 		},
 		"kanban-attach":  {Purpose: Tool, Host: "https URL attached to a kanban task", Trigger: "kanban AttachURL"},
 		"whatsapp-cloud": {Purpose: Gateway, Host: "WhatsApp Cloud API base URL", Trigger: "WhatsApp Cloud outbound send"},
-		"update": {
-			Purpose: Background,
-			Host:    "[update].feed_url (default https://api.github.com/repos/yuldan/damn-bot/releases)",
-			Trigger: "damnbot update; the daily check in serve (F4)",
-		},
+		"update":         {Purpose: Background, Host: "[update].feed_url (default https://api.github.com/repos/yuldan/damn-bot/releases)", Trigger: "damnbot update; the daily check in serve (F4)"},
 		"cron-monitor": {
 			Purpose: Tool,
 			Host:    "monitor.url in cron_jobs.gate",
