@@ -3,7 +3,9 @@
 // Package desktopui implements the desktop/web GUI tools of SPEC §9 / TSET-002
 // (TOOL-027..037, TOOL-071, TOOL-072). The package is a seam: it never draws a
 // window, opens a URL or reads a file. Every effect goes through [Surface],
-// which the desktop shell or the web bridge implements.
+// which the desktop shell or the web bridge implements. A session without the
+// GUI origin and a process without a surface both fail closed with
+// module_unavailable, so the tools cannot act on a terminal-only run.
 package desktopui
 
 import (
@@ -41,11 +43,14 @@ type Drive struct {
 	Y        int    `json:"y,omitempty"`
 }
 
-// Surface is the GUI the tools drive.
+// Surface is the GUI the tools drive. It is the only stateful part: the module
+// validates the request and the surface performs one bounded action.
 type Surface interface {
 	PaneSurface
 	PreviewSurface
+	TerminalSurface
 	ChromeSurface
+	OnboardingSurface
 }
 
 // PaneSurface exposes the panes a session owns.
@@ -63,10 +68,24 @@ type PreviewSurface interface {
 	Drive(ctx context.Context, d Drive) error
 }
 
-// ChromeSurface controls tours and reactions.
+// TerminalSurface reads terminal and below-chat output.
+type TerminalSurface interface {
+	ReadTerminal(ctx context.Context, pane string, max int) (string, error)
+	ReadBelow(ctx context.Context, max int) (string, error)
+}
+
+// ChromeSurface controls theme, tips, tours and reactions.
 type ChromeSurface interface {
+	SetTheme(ctx context.Context, theme string) error
+	ShowTip(ctx context.Context, tip string) error
 	Tour(ctx context.Context, name string) error
 	React(ctx context.Context, messageID, emoji string) error
+}
+
+// OnboardingSurface shows first-run and project surfaces.
+type OnboardingSurface interface {
+	SetupBeat(ctx context.Context) error
+	Project(ctx context.Context, name string) error
 }
 
 // Tool is one deferred catalog entry of the desktop module.
@@ -78,6 +97,7 @@ type Tool struct {
 	Tags        []string
 }
 
+// object renders a closed tool schema.
 func object(props string, required ...string) json.RawMessage {
 	req := ""
 	if len(required) > 0 {
@@ -93,7 +113,7 @@ func object(props string, required ...string) json.RawMessage {
 	return json.RawMessage(`{"type":"object","properties":{` + props + `},"additionalProperties":false` + req + `}`)
 }
 
-func annotateTools() []Tool {
+func desktopTools() []Tool {
 	return []Tool{
 		{
 			Name: "annotate_preview", Description: "Annotate an element in the active desktop preview pane",
@@ -130,11 +150,41 @@ func annotateTools() []Tool {
 			Effect: "idempotent", Tags: []string{"reaction", "emoji", "desktop"},
 			Schema: object(`"message_id":{"type":"string","minLength":1,"maxLength":128},"emoji":{"type":"string","minLength":1,"maxLength":16}`, "message_id", "emoji"),
 		},
+		{
+			Name: "read_terminal", Description: "Read bounded, redacted output from a desktop terminal pane",
+			Effect: "read", Tags: []string{"terminal", "output", "desktop"},
+			Schema: object(`"pane":{"type":"string","maxLength":64},"lines":{"type":"integer","minimum":1,"maximum":500}`),
+		},
+		{
+			Name: "read_window_below", Description: "Read the desktop pane below the chat",
+			Effect: "read", Tags: []string{"pane", "window", "desktop"},
+			Schema: object(``),
+		},
+		{
+			Name: "set_theme", Description: "Set the desktop theme from the closed list",
+			Effect: "idempotent", Tags: []string{"theme", "appearance", "desktop"},
+			Schema: object(`"theme":{"type":"string","enum":["light","dark","system","high-contrast"]}`, "theme"),
+		},
+		{
+			Name: "show_tip", Description: "Show a contextual desktop tip (legacy alias tip)",
+			Effect: "idempotent", Tags: []string{"tip", "notices", "desktop"},
+			Schema: object(`"tip":{"type":"string","maxLength":280}`),
+		},
+		{
+			Name: "setup_beat", Description: "Show the first-run onboarding card once per installation",
+			Effect: "non_idempotent", Tags: []string{"onboarding", "first-run", "desktop"},
+			Schema: object(``),
+		},
+		{
+			Name: "desktop_project", Description: "Create or switch a named Desktop Project inside the workspace",
+			Effect: "non_idempotent", Tags: []string{"project", "workspace", "desktop"},
+			Schema: object(`"action":{"type":"string","enum":["create","switch"]},"name":{"type":"string","minLength":1,"maxLength":64},"root":{"type":"string","maxLength":2048},"folders":{"type":"array","maxItems":32,"items":{"type":"string","maxLength":2048}}`, "action", "name"),
+		},
 	}
 }
 
 // Tools returns every tool this slice contributes in stable order.
-func Tools() []Tool { return annotateTools() }
+func Tools() []Tool { return desktopTools() }
 
 // Canonical returns the current name of a tool or its legacy alias.
 func Canonical(name string) string {
@@ -145,6 +195,19 @@ func Canonical(name string) string {
 		return "show_tip"
 	}
 	return name
+}
+
+// Themes is the closed desktop theme list.
+func Themes() []string { return []string{"light", "dark", "system", "high-contrast"} }
+
+// ThemeAllowed reports whether theme is in the closed list.
+func ThemeAllowed(theme string) bool { return slices.Contains(Themes(), theme) }
+
+// Section is the module's config fact: [ui] notices from the core config.
+// Zero value suppresses tips, matching the config default of an explicit
+// off switch.
+type Section struct {
+	Notices bool `json:"notices"`
 }
 
 // Emojis is the closed reaction allowlist.
@@ -212,5 +275,5 @@ func joinPanes(panes []string) string {
 	if len(panes) == 0 {
 		return "none"
 	}
-	return fmt.Sprint(strings.Join(panes, ","))
+	return strings.Join(panes, ",")
 }

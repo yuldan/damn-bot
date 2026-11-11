@@ -16,7 +16,7 @@ const (
 	maxF4ModuleLOC = 18712  // ROADMAP F4 = 20.012: heal core 1.500 + MODULE 18.712 (ADR-244, ADR-245, ADR-248, ADR-330 P1c)
 	maxF6ModuleLOC = 24500  // SPEC §3.2.4 F6: web 3.000 + browser 5.500 + media 9.500 + voice 4.500 + computer-use 2.000 (ADR-309/ADR-310)
 	maxF7ModuleLOC = 25100  // SPEC §3.2.4 F7: gwplat 13.000 + gwapi 3.000 + gwpeer 4.000 + gwwa 600 + gwmatrix 1.500 + kanban 3.000 (ADR-326)
-	maxF8ModuleLOC = 22800  // ROADMAP F8 = 22.800: web 5.000 + connectors 6.000 + skills-hub/memory-providers 3.500 + auto 4.000 + plugins 1.000 (ADR-345) + i18n 800 + batch 2.500 (ADR-330)
+	maxF8ModuleLOC = 22800  // ROADMAP F8 = 22.800: web 5.000 + connectors 6.000 + skills-hub/memory-providers 3.500 + auto 4.000 + plugins 1.000 (ADR-345) + i18n 800 + batch 2.500 (ADR-330); desktopui dibukukan pada baris web (ADR-346)
 	maxF3OpsLOC    = 9000   // SPEC §3.2.4: importer + setup/doctor/update/profiles/backup
 )
 

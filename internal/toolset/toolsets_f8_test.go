@@ -114,3 +114,34 @@ func TestF8TSETConnectorsBundle(t *testing.T) {
 		}
 	}
 }
+
+func TestF8TSET002DesktopUI(t *testing.T) {
+	t.Parallel()
+	want := []string{
+		"annotate_preview", "close_terminal", "drive_preview", "focus_pane",
+		"desktop_preview", "react_to_message", "read_terminal", "read_window_below",
+		"set_theme", "show_tip", "gui_tour",
+	}
+	f8Toolset(t, "desktop_ui", want)
+	// 0 shell/write: the bundle never names an execution or file-mutation tool.
+	for _, tool := range want {
+		switch tool {
+		case "shell", "write_file", "edit_file":
+			t.Fatalf("desktop_ui exposes %s", tool)
+		}
+	}
+	// Default off: an empty config selects no toolset and therefore no member.
+	if sel, err := Resolve(Config{}, "linux", available(want...)); err != nil || sel.Allowed != nil {
+		t.Fatalf("empty config resolved to %+v, %v", sel, err)
+	}
+}
+
+func TestF8TSET022Project(t *testing.T) {
+	t.Parallel()
+	f8Toolset(t, "project", []string{"desktop_project"})
+}
+
+func TestF8TSET024Onboarding(t *testing.T) {
+	t.Parallel()
+	f8Toolset(t, "onboarding", []string{"setup_beat"})
+}
