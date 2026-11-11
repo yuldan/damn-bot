@@ -51,6 +51,15 @@ func TestF8CLI051Journey(t *testing.T) {
 	if code, _, errs = runF8CLI(t, runJourney, "--data-dir", data, "nope"); code != f8ExitUsage || !strings.Contains(errs, "unknown subcommand") {
 		t.Fatalf("unknown = %d %q", code, errs)
 	}
+	for _, alias := range []string{"learning", "memory-graph"} {
+		var out, errb bytes.Buffer
+		if code, ok := dispatchCommand([]string{alias, "--data-dir", data, "list"}, &out, &errb); !ok || code != f8ExitOK {
+			t.Fatalf("alias %s = %d ok=%t %q", alias, code, ok, errb.String())
+		}
+		if !strings.Contains(out.String(), "note=hello") {
+			t.Fatalf("alias %s did not reach journey: %q", alias, out.String())
+		}
+	}
 }
 
 func journeyMutateChecks(t *testing.T, data, first, second string) {
