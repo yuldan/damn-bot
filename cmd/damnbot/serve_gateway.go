@@ -531,7 +531,7 @@ func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid st
 	if derr := deliver(ctx, ch); derr != nil {
 		return derr
 	}
-	g.autoTitleAfterTurn(ctx, model.provider, sid, in.Text)
+	g.afterTurnAuto(ctx, model.provider, sid, in.Text)
 	return nil
 }
 

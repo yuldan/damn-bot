@@ -4,12 +4,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/damnbot/damnbot/internal/auto"
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/render"
 )
@@ -104,6 +106,82 @@ func TestF8SLASH030Goal(t *testing.T) {
 	}
 	if got := cmds.Dispatch(ctx, owner, "/goal clear"); !strings.Contains(got.Reply, "none") {
 		t.Fatalf("idempotent clear = %q", got.Reply)
+	}
+	goalJudgeChecks(t, cmds, data)
+}
+
+// fakeGoalJudge records every judge call and replays the given verdicts.
+type fakeGoalJudge struct {
+	verdicts []auto.GoalVerdict
+	err      error
+	calls    int
+}
+
+func (f *fakeGoalJudge) Judge(context.Context, auto.Goal) (auto.GoalVerdict, error) {
+	f.calls++
+	if f.err != nil {
+		return auto.GoalVerdict{}, f.err
+	}
+	if len(f.verdicts) == 0 {
+		return auto.GoalVerdict{}, nil
+	}
+	v := f.verdicts[0]
+	f.verdicts = f.verdicts[1:]
+	return v, nil
+}
+
+// goalJudgeChecks proves the goal persists across turns and is judged by
+// AUTO-014 until achieved (SLASH-030, AUTO-014).
+func goalJudgeChecks(t *testing.T, cmds *gateway.Commands, data string) {
+	t.Helper()
+	owner, ctx := f8Ticket(gateway.RoleOwner), context.Background()
+	sid := owner.Scope.Label()
+	if got := cmds.Dispatch(ctx, owner, "/goal ship the release"); !strings.Contains(got.Reply, "goal set") {
+		t.Fatalf("set = %q", got.Reply)
+	}
+	fake := &fakeGoalJudge{verdicts: []auto.GoalVerdict{
+		{Reason: "not yet"}, {Reason: "closer"}, {Achieved: true, Reason: "done"},
+	}}
+	for range 2 {
+		if err := judgeGoalTurn(ctx, fake, data, sid); err != nil {
+			t.Fatalf("judge turn: %v", err)
+		}
+	}
+	if fake.calls != 2 {
+		t.Fatalf("judge calls = %d, want 2", fake.calls)
+	}
+	if err := judgeGoalTurn(ctx, fake, data, sid); err != nil {
+		t.Fatalf("judge third turn: %v", err)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/goal status"); !strings.Contains(got.Reply, "goal turns=3/20") || !strings.Contains(got.Reply, "achieved=true judge=done") {
+		t.Fatalf("achieved status = %q", got.Reply)
+	}
+	if err := judgeGoalTurn(ctx, fake, data, sid); err != nil {
+		t.Fatalf("judge after achieved: %v", err)
+	}
+	if fake.calls != 3 {
+		t.Fatalf("judge calls after achieved = %d, want 3", fake.calls)
+	}
+	_ = cmds.Dispatch(ctx, owner, "/goal clear")
+	_ = cmds.Dispatch(ctx, owner, "/goal budget")
+	budget := &fakeGoalJudge{err: auto.ErrBudget}
+	if err := judgeGoalTurn(ctx, budget, data, sid); !errors.Is(err, auto.ErrBudget) {
+		t.Fatalf("budget judge = %v", err)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/goal status"); !strings.Contains(got.Reply, "goal turns=0/20") {
+		t.Fatalf("budget changed turns = %q", got.Reply)
+	}
+	_ = cmds.Dispatch(ctx, owner, "/goal clear")
+	_ = cmds.Dispatch(ctx, owner, "/goal disabled")
+	off := &fakeGoalJudge{err: auto.ErrDisabled}
+	if err := judgeGoalTurn(ctx, off, data, sid); err != nil {
+		t.Fatalf("disabled judge = %v", err)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/goal status"); !strings.Contains(got.Reply, "goal turns=0/20") {
+		t.Fatalf("disabled judge changed turns = %q", got.Reply)
+	}
+	if err := judgeGoalTurn(ctx, nil, data, sid); err != nil {
+		t.Fatalf("nil judge = %v", err)
 	}
 }
 

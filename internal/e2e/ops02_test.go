@@ -62,7 +62,7 @@ func TestE2EDoctorNetwork(t *testing.T) {
 	writeProfileConfig(t, e, "[network]\nbackground = false\n")
 	res := e.Exec("doctor", "--network")
 	res.RequireOK(t)
-	for _, want := range []string{"inference", "refs", "telegram", "update", "cron-monitor", "auth", "web-oauth", "mcp", "mcp-local", "media", "image_endpoint", "video_create_url", "image_generate", "voice", "tts_endpoint", "speak", "gateway", "api.telegram.org", "webhook-delivery", "petdex", "disabled (egress_disabled)", "trigger:"} {
+	for _, want := range []string{"inference", "refs", "telegram", "update", "cron-monitor", "auth", "web-oauth", "mcp", "mcp-local", "media", "image_endpoint", "video_create_url", "image_generate", "voice", "tts_endpoint", "speak", "gateway", "api.telegram.org", "webhook-delivery", "petdex", "trace-upload", "disabled (egress_disabled)", "trigger:"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("doctor --network lacks %q:\n%s", want, res.Stdout)
 		}
@@ -135,6 +135,7 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"graph":              {"tool", "enabled"},
 		"memory-honcho":      {"tool", "enabled"},
 		"petdex":             {"tool", "enabled"},
+		"trace-upload":       {"tool", "enabled"},
 	}
 	if !background {
 		want["update"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}

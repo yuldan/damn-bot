@@ -51,7 +51,7 @@ func runDebug(args []string, stdout, stderr io.Writer) int {
 		}
 		return debugDelete(dir, stdout, stderr)
 	case "trace":
-		return debugTrace(rest[1:], stderr)
+		return debugTrace(rest[1:], dir, stdout, stderr)
 	default:
 		say(stderr, "debug: unknown subcommand %q\n", cleanArg(rest[0]))
 		debugUsage(stderr)
@@ -62,7 +62,7 @@ func runDebug(args []string, stdout, stderr io.Writer) int {
 func debugUsage(w io.Writer) {
 	say(w, "usage: damnbot debug share --out FILE --key-file KEY [--data-dir DIR]\n")
 	say(w, "       damnbot debug delete [--data-dir DIR]\n")
-	say(w, "       damnbot debug trace --file TRACE --upload [--data-dir DIR]\n")
+	say(w, "       damnbot debug trace --file TRACE --upload --repo OWNER/NAME [--endpoint URL] [--data-dir DIR]\n")
 	say(w, "share encrypts the redacted setup summary with the 32-byte key; no network upload.\n")
 }
 
@@ -106,23 +106,6 @@ func debugShare(args []string, dataDir string, stdout, stderr io.Writer) (int, e
 	sum := sha256.Sum256(sealed)
 	say(stdout, "shared %s bytes=%d key=%s sha256=%s\n", path, len(sealed), codec.ID(), hex.EncodeToString(sum[:]))
 	return f8ExitOK, nil
-}
-
-// debugTrace is the opt-in Hugging Face trace upload of OPS-022. No upload
-// lane (and no netx egress entry) exists in this build, so an explicit
-// --upload refuses with the typed module_unavailable line and sends nothing.
-// The trace file is never opened here: 0 transcript bytes leave the process.
-func debugTrace(args []string, stderr io.Writer) int {
-	fs := flag.NewFlagSet("debug trace", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	file := fs.String("file", "", "trace file (required with --upload)")
-	upload := fs.Bool("upload", false, "upload to Hugging Face (opt-in)")
-	if err := fs.Parse(args); err != nil || fs.NArg() != 0 || *file == "" || !*upload {
-		say(stderr, "usage: damnbot debug trace --file TRACE --upload [--data-dir DIR]\n")
-		return f8ExitUsage
-	}
-	return f8CmdFail(stderr, "debug trace", f8Unavail("trace-upload",
-		"no Hugging Face trace upload lane is configured; nothing was sent"))
 }
 
 func readDebugKey(path string) ([]byte, error) {

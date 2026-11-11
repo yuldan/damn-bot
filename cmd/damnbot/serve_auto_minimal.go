@@ -19,5 +19,9 @@ func (*serveAuto) runTitle(context.Context, loop.Provider, *ctxdb.Store, string,
 
 func (*serveGateway) autoTitleAfterTurn(context.Context, loop.Provider, string, string) {}
 
+func (*serveGateway) goalAfterTurn(context.Context, loop.Provider, string) {}
+
+func (*serveGateway) afterTurnAuto(context.Context, loop.Provider, string, string) {}
+
 // startServeAuto is a no-op in the minimal binary.
 func startServeAuto(context.Context, *config.Config, string, *serveGateway, io.Writer) {}

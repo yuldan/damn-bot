@@ -167,6 +167,60 @@ func (a *serveAuto) runTitle(ctx context.Context, prov loop.Provider, db *ctxdb.
 	})
 }
 
+// autoGoalJudge adapts the auxiliary auto service to the goal seam.
+type autoGoalJudge struct{ svc *auto.Service }
+
+func (j autoGoalJudge) Judge(ctx context.Context, g auto.Goal) (auto.GoalVerdict, error) {
+	verdict, err := auto.JudgeGoal(ctx, j.svc, g)
+	if err != nil {
+		return auto.GoalVerdict{}, fmt.Errorf("goal judge: %w", err)
+	}
+	return verdict, nil
+}
+
+// goalJudge builds the AUTO-014 judge for one turn. A disabled feature
+// returns nil before any service or transport is created.
+func (a *serveAuto) goalJudge(prov loop.Provider, model string) goalJudge {
+	if a == nil || a.svc == nil || !a.svc.Enabled(auto.Goals) {
+		return nil
+	}
+	cfg := a.cfg
+	cfg.Model = model
+	svc, err := auto.New(cfg, &loopAutoClient{prov: prov, model: model}, auto.WithNow(a.now))
+	if err != nil {
+		return nil
+	}
+	return autoGoalJudge{svc: svc}
+}
+
+// afterTurnAuto runs the post-turn automation lane: title first, then the
+// standing-goal judge. Both are off by default and never block the answer.
+func (g *serveGateway) afterTurnAuto(ctx context.Context, prov loop.Provider, sid, prompt string) {
+	g.autoTitleAfterTurn(ctx, prov, sid, prompt)
+	g.goalAfterTurn(ctx, prov, sid)
+}
+
+// goalAfterTurn judges a standing goal once the answer is delivered, so the
+// judge never delays the turn and a provider failure cannot fail it.
+func (g *serveGateway) goalAfterTurn(ctx context.Context, prov loop.Provider, sid string) {
+	if g.auto == nil {
+		return
+	}
+	j := g.auto.goalJudge(prov, g.modelRef)
+	if j == nil {
+		return
+	}
+	bg, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	_ = boundary.Go(bg, "auto.goals", func(ctx context.Context) error {
+		defer cancel()
+		err := judgeGoalTurn(ctx, j, g.dataDir, sid)
+		if err != nil && !errors.Is(err, auto.ErrBudget) && !errors.Is(err, auto.ErrDisabled) {
+			sessionsPrintf(g.stderr, "gateway: goal judge: %s\n", cleanLine(err.Error()))
+		}
+		return nil
+	})
+}
+
 // autoTitleStore adapts ctxdb labels to the title feature.
 type autoTitleStore struct{ db *ctxdb.Store }
 

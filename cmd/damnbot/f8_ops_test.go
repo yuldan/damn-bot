@@ -4,10 +4,14 @@ package main
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/ctxdb/usagestore"
@@ -89,34 +93,124 @@ func TestF8OPS016Insights(t *testing.T) {
 	}
 }
 
-// TestF8OPS022TraceUpload: the Hugging Face upload is explicit opt-in and, in
-// this build, refuses with the typed module_unavailable before reading the
-// trace or opening any egress lane.
+// TestF8OPS022TraceUpload: the Hugging Face upload is explicit opt-in, uses
+// the registered trace-upload lane, and sends metadata only: no user
+// transcript byte leaves the process (OPS-022).
 func TestF8OPS022TraceUpload(t *testing.T) {
-	data := t.TempDir()
-	trace := filepath.Join(t.TempDir(), "trace.jsonl")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "cfg"))
+	token := strings.Join([]string{"hf", "ops022", "secret"}, "_")
 	const canary = "user-transcript-canary-ops022"
-	if err := os.WriteFile(trace, []byte(`{"message":"`+canary+`"}`), 0o600); err != nil {
+	t.Setenv("HF_TOKEN", token)
+	trace := filepath.Join(t.TempDir(), "trace.jsonl")
+	rows := `{"ts":1,"event":"tool_call","tool":"read","message":"` + canary + `","args":{"text":"` + canary + `"}}
+{"event":"turn_end","duration_ms":12,"user_transcript":"` + canary + `","ok":true}
+`
+	if err := os.WriteFile(trace, []byte(rows), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	srv, capture := traceFakeServer(t)
+	defer srv.Close()
+	data := t.TempDir()
+	traceUploadOptOutCheck(t, data, trace, capture)
+	traceUploadCheck(t, data, trace, srv.URL, token, canary, capture)
+	traceLaneCheck(t)
+	traceRefusalChecks(t, data, trace)
+	if capture.hits() != 1 {
+		t.Fatalf("refusals dialled the network: %d", capture.hits())
+	}
+}
+
+type traceCapture struct {
+	mu   sync.Mutex
+	n    int
+	auth string
+	path string
+	body []byte
+}
+
+func (c *traceCapture) hits() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.n
+}
+
+func traceFakeServer(t *testing.T) (*httptest.Server, *traceCapture) {
+	t.Helper()
+	c := &traceCapture{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read", http.StatusBadRequest)
+			return
+		}
+		c.mu.Lock()
+		c.n++
+		c.auth, c.path, c.body = r.Header.Get("Authorization"), r.URL.Path, b
+		c.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := io.WriteString(w, `{"ok":true}`); err != nil {
+			return
+		}
+	}))
+	return srv, c
+}
+
+func traceUploadOptOutCheck(t *testing.T, data, trace string, c *traceCapture) {
+	t.Helper()
 	if code, _, _ := runF8CLI(t, runDebug, "--data-dir", data, "trace", "--file", trace); code != f8ExitUsage {
 		t.Fatalf("trace without --upload = %d", code)
 	}
-	code, out, errs := runF8CLI(t, runDebug, "--data-dir", data, "trace", "--file", trace, "--upload")
-	if code != f8ExitUnavailable || !strings.Contains(errs, "module_unavailable: trace-upload") {
+	if c.hits() != 0 {
+		t.Fatal("trace without --upload dialled the network")
+	}
+}
+
+func traceUploadCheck(t *testing.T, data, trace, endpoint, token, canary string, c *traceCapture) {
+	t.Helper()
+	code, out, errs := runF8CLI(t, runDebug, "--data-dir", data, "trace", "--file", trace, "--upload",
+		"--repo", "acme/traces", "--endpoint", endpoint, "--token-secret", "missing")
+	if code != f8ExitOK || !strings.Contains(out, "uploaded trace") {
 		t.Fatalf("trace upload = %d %q %q", code, out, errs)
 	}
-	if strings.Contains(out+errs, canary) {
-		t.Fatal("trace upload leaked the transcript")
+	if strings.Contains(out+errs, token) {
+		t.Fatal("trace upload printed the token")
 	}
-	body, err := os.ReadFile(trace) // #nosec G304 -- fixture path
-	if err != nil || !strings.Contains(string(body), canary) {
-		t.Fatalf("trace was modified: %q, %v", body, err)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n != 1 || !strings.HasPrefix(c.path, "/api/datasets/acme/traces/upload/main/trace-") {
+		t.Fatalf("upload hits=%d path=%q", c.n, c.path)
 	}
-	for name := range netx.Registry() {
-		if strings.Contains(name, "hugging") || strings.Contains(name, "trace") {
-			t.Fatalf("trace upload grew an egress lane %q", name)
-		}
+	if c.auth != "Bearer "+token || strings.Contains(string(c.body), canary) {
+		t.Fatalf("auth=%q body leaked transcript=%t", c.auth, strings.Contains(string(c.body), canary))
+	}
+	if !strings.Contains(string(c.body), "tool_call") || !strings.Contains(string(c.body), "turn_end") {
+		t.Fatalf("sanitized body lost metadata: %q", c.body)
+	}
+	fi, err := os.ReadFile(trace) // #nosec G304 -- fixture path
+	if err != nil || !strings.Contains(string(fi), canary) {
+		t.Fatalf("trace was modified: %q, %v", fi, err)
+	}
+}
+
+func traceLaneCheck(t *testing.T) {
+	t.Helper()
+	e, ok := netx.Registry()["trace-upload"]
+	if !ok || e.Purpose != netx.Tool || e.Host == "" || e.Trigger == "" {
+		t.Fatalf("trace-upload lane = %+v ok=%t", e, ok)
+	}
+}
+
+func traceRefusalChecks(t *testing.T, data, trace string) {
+	t.Helper()
+	if code, _, errs := runF8CLI(t, runDebug, "--data-dir", data, "trace", "--file", trace, "--upload", "--repo", "acme/traces", "--endpoint", "http://example.com"); code != f8ExitUsage || !strings.Contains(errs, "loopback") {
+		t.Fatalf("remote http endpoint = %d %q", code, errs)
+	}
+	if code, _, _ := runF8CLI(t, runDebug, "--data-dir", data, "trace", "--file", trace, "--upload"); code != f8ExitUsage {
+		t.Fatalf("missing repo = %d", code)
 	}
 }
 
