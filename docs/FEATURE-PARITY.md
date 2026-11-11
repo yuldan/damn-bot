@@ -210,7 +210,7 @@ Sumber: `hermes_cli/commands.py` (103 `CommandDef`). Deskripsi verbatim hermes, 
 | SLASH-046 | `/config` | Show current configuration | `hermes_cli/commands.py:185` | tersedia (CLI-only); kategori Configuration | — |  | F3 | planned |
 | SLASH-047 | `/model` | Switch model (session-scoped; --global to persist) | `hermes_cli/commands.py:187` | tersedia (CLI + gateway); kategori Configuration | — | args `[model] [--provider name] [--reasoning level] [--global\\|--session] [--refresh]` | F3 | planned |
 | SLASH-048 | `/codex-runtime` | Toggle codex app-server runtime for OpenAI/Codex models | `hermes_cli/commands.py:190` | tersedia (CLI + gateway); kategori Configuration | — | alias: /codex_runtime; args `[auto\\|codex_app_server]` | F5 | planned |
-| SLASH-049 | `/personality` | Set a predefined personality | `hermes_cli/commands.py:193` | tersedia (CLI + gateway); kategori Configuration | — | args `[name]` | F8 | planned |
+| SLASH-049 | `/personality` | Set a predefined personality | `hermes_cli/commands.py:193` | tersedia (CLI + gateway); kategori Configuration | — | args `[name]` | F8 | LULUS |
 | SLASH-050 | `/statusbar` | Toggle the context/model status bar | `hermes_cli/commands.py:195` | tersedia (CLI-only); kategori Configuration | — | alias: /sb | F3 | planned |
 | SLASH-051 | `/battery` | Toggle a color-coded battery indicator in the status bar | `hermes_cli/commands.py:197` | tersedia (CLI-only); kategori Configuration | — | sub: on, off, status; args `[on\\|off\\|status]` | F3 | planned |
 | SLASH-052 | `/timestamps` | Toggle [HH:MM] timestamps on messages and /history | `hermes_cli/commands.py:200` | tersedia (CLI-only); kategori Configuration | — | alias: /ts; sub: on, off, status; args `[on\\|off\\|status]` | F3 | planned |
@@ -233,8 +233,8 @@ Sumber: `hermes_cli/commands.py` (103 `CommandDef`). Deskripsi verbatim hermes, 
 | SLASH-069 | `/skills` | Search, install, inspect, or manage skills | `hermes_cli/commands.py:250` | tersedia (CLI-only); kategori Tools & Skills | — | sub: search, browse, inspect, install, audit, pending, approve, reject, diff, approval; gate: `skills.write_approval` | F3 | planned |
 | SLASH-070 | `/memory` | Review pending memory writes / toggle the approval gate | `hermes_cli/commands.py:262` | tersedia (CLI + gateway); kategori Tools & Skills | — | sub: pending, approve, reject, approval; args `[pending\\|approve\\|reject\\|approval] [id\\|on\\|off]` | F3 | planned |
 | SLASH-071 | `/bundles` | List skill bundles (aliases /<name> for multiple skills) | `hermes_cli/commands.py:265` | tersedia (CLI + gateway); kategori Tools & Skills | — |  | F3 | planned |
-| SLASH-072 | `/pet` | Toggle or adopt a petdex mascot (/pet, /pet list, /pet <slug>) | `hermes_cli/commands.py:267` | tersedia (CLI-only); kategori Tools & Skills | — | sub: toggle, list, scale, off; args `[toggle\\|list\\|scale <n>\\|<slug>]` | F8 | planned |
-| SLASH-073 | `/hatch` | Generate a new petdex pet from a description | `hermes_cli/commands.py:269` | tersedia (CLI-only); kategori Tools & Skills | — | alias: /generate-pet; args `[description]` | F8 | planned |
+| SLASH-072 | `/pet` | Toggle or adopt a petdex mascot (/pet, /pet list, /pet <slug>) | `hermes_cli/commands.py:267` | tersedia (CLI-only); kategori Tools & Skills | — | sub: toggle, list, scale, off; args `[toggle\\|list\\|scale <n>\\|<slug>]` | F8 | LULUS |
+| SLASH-073 | `/hatch` | Generate a new petdex pet from a description | `hermes_cli/commands.py:269` | tersedia (CLI-only); kategori Tools & Skills | — | alias: /generate-pet; args `[description]` | F8 | LULUS |
 | SLASH-074 | `/learn` | Learn a reusable skill from anything you describe (dirs, URLs, this chat, notes) | `hermes_cli/commands.py:271` | tersedia (CLI + gateway); kategori Tools & Skills | — | args `<what to learn from>` | F3 | planned |
 | SLASH-075 | `/init` | Generate or update AGENTS.md project instructions from a repo scan | `hermes_cli/commands.py:273` | tersedia (CLI + gateway); kategori Tools & Skills | — | args `[notes]` | F3 | planned |
 | SLASH-076 | `/cron` | Manage scheduled tasks | `hermes_cli/commands.py:275` | tersedia (CLI-only); kategori Tools & Skills | — | sub: list, add, create, edit, pause, resume, run, remove; args `[subcommand]` | F4 | planned |
@@ -702,8 +702,8 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | UI-007 | Command palette | Palette fuzzy (Ctrl+P) | `hermes_cli/commands.py:315` | on | — |  | F3 | planned |
 | UI-008 | Clipboard image / paste collapse | Tempel gambar clipboard; lipat paste panjang | `hermes_cli/clipboard.py`, `hermes_cli/pt_input_extras.py` | on | xclip/wl-paste/pbpaste [INFERENCE] | `/paste`, `/image` | F6 | LULUS |
 | UI-009 | External editor `/prompt` | Tulis prompt di $EDITOR | `hermes_cli/commands.py:101` | opt-in | $EDITOR | alias `/compose` | F3 | planned |
-| UI-010 | Pets (petdex) | Maskot animasi di terminal; generate pet | `agent/pet/__init__.py`, `hermes_cli/pets.py` | off (`display.pet.enabled`) | — | `/pet`, `/hatch` | F8 | planned |
-| UI-011 | Personalities | Persona preset | `hermes_cli/personality.py` | opt-in (`/personality`) | — |  | F8 | planned |
+| UI-010 | Pets (petdex) | Maskot animasi di terminal; generate pet | `agent/pet/__init__.py`, `hermes_cli/pets.py` | off (`display.pet.enabled`) | — | `/pet`, `/hatch` | F8 | LULUS |
+| UI-011 | Personalities | Persona preset | `hermes_cli/personality.py` | opt-in (`/personality`) | — |  | F8 | LULUS |
 | UI-012 | TUI (Ink/React) | TUI berbasis Node/Ink via tui_gateway JSON-RPC | `ui-tui/package.json`, `tui_gateway/entry.py`, `hermes_cli/main_tui_launch.py` | opt-in (`--tui` / `display.interface`) | Node.js | paket `ui-tui/packages/hermes-ink` | F3 | planned |
 | UI-013 | tui_gateway (backend RPC) | Server RPC sesi untuk TUI/desktop | `tui_gateway/entry.py` | on bila TUI/desktop dipakai | — | ~94 modul | F3 | planned |
 | UI-014 | Web dashboard | Dashboard web (React+Vite) dilayani FastAPI | `web/package.json`, `hermes_cli/web_server.py`, `hermes_cli/web_server_app.py` | opt-in (`hermes dashboard`) | extra `web` (fastapi, uvicorn), Node build |  | F8 | LULUS |

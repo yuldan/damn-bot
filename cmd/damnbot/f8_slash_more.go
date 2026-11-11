@@ -108,10 +108,11 @@ func (a *f8SlashAdapter) petToggle(dir string, owner bool, sub string, args []st
 	if len(args) != 1 {
 		return "usage: /pet " + sub + " <name>"
 	}
+	var b strings.Builder
 	if sub == "toggle" && st.Active == args[0] {
-		changed, err := petsOff(nil, st, io.Discard, io.Discard)
-		return a.finishPets(dir, st, changed, err, nil)
+		changed, err := petsOff(nil, st, &b, io.Discard)
+		return a.finishPets(dir, st, changed, err, &b)
 	}
-	changed, err := petsSelect(args, st, io.Discard, io.Discard)
-	return a.finishPets(dir, st, changed, err, nil)
+	changed, err := petsSelect(args, st, &b, io.Discard)
+	return a.finishPets(dir, st, changed, err, &b)
 }

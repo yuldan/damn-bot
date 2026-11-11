@@ -64,6 +64,7 @@ func runTUI(args []string) int {
 		Sessions: actions, Files: filesAdapter{}, Clipboard: clipboardAdapter{},
 		Browser: r, Voice: newTUIVoice(&cfg), Resources: r,
 		F8:      newTUIF8(dataDir),
+		Decor:   newTUIDecor(dataDir),
 		Notices: noticeGateFor(&cfg, dataDir),
 	})
 	if err == nil {

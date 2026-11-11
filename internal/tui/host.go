@@ -190,12 +190,25 @@ type Host struct {
 	Voice Voice
 	// F8 backs the F8 slash commands; nil leaves them unavailable.
 	F8 SlashF8
+	// Decor is the optional mascot/persona badge (UI-010/UI-011); nil keeps
+	// both off, which is the documented default.
+	Decor Decor
 
 	Resources Resources
 	// Notices is the non-critical notice gate; nil disables such notices
 	// ([ui] notices = false or a frontend without one). Critical notices do
 	// not depend on it (GAP-OPS-09).
 	Notices NoticeGate
+}
+
+// Decor is the optional mascot/persona badge of the transcript chrome
+// (UI-010/UI-011). Nil means both are off, which is the default: the
+// composition root only supplies it when the operator opted in.
+type Decor interface {
+	// Pet returns the selected mascot name and scale; empty is off.
+	Pet() (name, scale string)
+	// Persona returns the selected personality preset; empty is default.
+	Persona() string
 }
 
 // validate rejects an incomplete host at assembly time, not at the first frame.
