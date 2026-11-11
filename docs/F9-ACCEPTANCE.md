@@ -30,17 +30,17 @@ Kontrak yang sama untuk semua baris: artefak rilis dibangun dari resep tunggal (
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| UI-018 | Bootstrap installer (script) | `install.sh`/`install.ps1` ≤ 150 baris POSIX/PowerShell, unduh→verifikasi `SHA256SUMS` + `.minisig` (ed25519) sebelum ekstrak/eksekusi, tanpa pipe-to-shell, artefak ditandatangani, 0 Node/Electron/Rust | `TestF9UI018BootstrapInstaller`, `TestInstallerRejectsTamper` | BELUM | menggantikan Tauri (SPEC:844) |
+| UI-018 | Bootstrap installer (script) | `install.sh`/`install.ps1` ≤ 150 baris POSIX/PowerShell, unduh→verifikasi `SHA256SUMS` + `.minisig` (ed25519) sebelum ekstrak/eksekusi, tanpa pipe-to-shell, artefak ditandatangani, 0 Node/Electron/Rust | `TestF9UI018BootstrapInstaller`, `TestInstallerRejectsTamper` | LULUS | menggantikan Tauri (SPEC:844) |
 | OPS-029 | Docker image & compose | image resmi 1 stage `FROM scratch`/distroless; compose opt-in; healthcheck `doctor health --ready` | `TestF9OPS029DockerCompose` | LULUS | GAP-SEC-22/GAP-INF-03 |
 | OPS-030 | Nix flake | `flake.nix` membangun binary yang sama; dev shell tidak menambah dependency runtime | `TestF9OPS030NixFlake` | LULUS | — |
 | OPS-031 | Termux/Android | build + unit di QEMU, smoke Termux arm64; 0 syscall Linux-desktop | `TestF9OPS031Termux` | LULUS | OS matrix |
-| OPS-032 | Installer scripts | `install.sh`/`install.ps1` ≤ 150 baris POSIX/PowerShell; unduh→verifikasi→jalankan tanpa pipe-to-shell | `TestF9OPS032InstallerScripts`, `TestInstallerRejectsTamper` | BELUM | GAP-SEC-19/GAP-OPS-03 |
+| OPS-032 | Installer scripts | `install.sh`/`install.ps1` ≤ 150 baris POSIX/PowerShell; unduh→verifikasi→jalankan tanpa pipe-to-shell | `TestF9OPS032InstallerScripts`, `TestInstallerRejectsTamper` | LULUS | GAP-SEC-19/GAP-OPS-03 |
 
 ## 3. GAP F9 (8) — SPEC §22.1
 
 | GAP | Kriteria verifikasi | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|
-| GAP-SEC-19 | installer memverifikasi `SHA256SUMS` + `.minisig` (ed25519, kunci pinned) sebelum ekstrak/eksekusi; paket Homebrew/winget/deb/rpm; Authenticode Windows; 0 instruksi exclusion antivirus | `TestInstallerRejectsTamper`, `TestInstallerDocsNoAVExclusion` | BELUM | P1 |
+| GAP-SEC-19 | installer memverifikasi `SHA256SUMS` + `.minisig` (ed25519, kunci pinned) sebelum ekstrak/eksekusi; paket Homebrew/winget/deb/rpm; Authenticode Windows; 0 instruksi exclusion antivirus | `TestInstallerRejectsTamper`, `TestInstallerDocsNoAVExclusion` | LULUS | P1 |
 | GAP-SEC-22 | image `ghcr.io/damnbot/damnbot` distroless static, `USER 65532:65532`, tanpa shell/compiler/docker-cli; `docker.sock` hanya opt-in `DAMNBOT_ALLOW_DOCKER_SOCKET=1` + WARN; backend docker tidak me-mount socket | `TestDockerImageNonRoot`, `TestDockerBackendNoSocketMount` | LULUS | P0 |
 | GAP-SEC-28 | `SECURITY.md`: dukungan N/N−1, SLA ack 72 jam/triage 7 hari/fix critical 30 hari, GHSA private + email PGP, proses CVE; `docs/TRUST-MODEL.md` lengkap sesuai SPEC | `TestSecurityPolicySLA`, `TestTrustModelDoc` | BELUM | P1 |
 | GAP-OPS-03 | installer hanya menulis blok bermarker `# >>> damnbot >>>`…`# <<< damnbot <<<`; `install-manifest.json` mencatat path + sha256; `setup --uninstall [--dry-run] [--purge-data]` mengembalikan rc byte-identik | `TestInstallerRCMarkers`, `TestUninstallRestoresRC`, `TestInstallManifest` | BELUM | P1 |

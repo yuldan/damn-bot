@@ -6901,6 +6901,9 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 **Konsekuensi.** (+) Artefak distribusi F9 dapat dibangun dan diukur di CI tanpa menambah runtime Python/Node; image gagal build/gate bila berat atau identitasnya menyimpang. (−) Varian `damnbot:toolbox` (interpreter `execute_code`, Q35) dan multi-arch manifest registry tidak termasuk slice ini; build image CI hanya platform runner alami, sedangkan Dockerfile siap untuk `buildx --platform linux/amd64,linux/arm64` tanpa emulasi. (−) Lock Nix harus di-`nix flake update` saat toolchain Go bergerak; test parse tidak mengeksekusi Nix sehingga regresi evaluasi hanya tertangkap di job `nix` bila runner menyediakan Nix.
 
+
+**Amendemen 2026-11-12 (F9 UI-018/OPS-032/GAP-SEC-19; ADR-330/ADR-347).** `install.sh` (POSIX, 150 baris) dan `install.ps1` menggantikan bootstrap Tauri dengan jalur unduh→verifikasi→jalankan: `SHA256SUMS` + `SHA256SUMS.minisig` diverifikasi ed25519 memakai kunci publik yang di-pin sebelum ekstrak/eksekusi; URL non-https (kecuali loopback tes) dan path arsip non-`damnbot` ditolak; rilis menerbitkan arsip `.tar.gz`/`.zip` serta metadata Homebrew/winget/deb/rpm dari `SHA256SUMS`. Bukti tes: `TestF9UI018BootstrapInstaller` (`internal/e2e/installer_test.go:623`), `TestF9OPS032InstallerScripts` (`:645`), `TestInstallerRejectsTamper` (`:185`), `TestInstallerVerifiesSignature` (`:234`), `TestInstallerManifest` (`:273`), `TestInstallerE2EVersion` (`:337`), `TestInstallerDocsNoAVExclusion` (`:669`). Baris parity `UI-018`/`OPS-032` dan ledger `UI-018`/`OPS-032`/`GAP-SEC-19` menjadi `LULUS`; baris lain tidak berubah.
+
 ## ADR-349 — Backfill parity F1–F5: 309 baris berbukti, 121 deferred dipin, 63 residual
 
 **Status:** Accepted 2026-11-12 (F9; melanjutkan ADR-347).

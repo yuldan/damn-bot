@@ -1,0 +1,28 @@
+Name: damnbot
+Version: @RPMVERSION@
+Release: 1%{?dist}
+Summary: Single-binary AI assistant with tools, gateway, and TUI
+License: MIT
+URL: https://github.com/damnbot/damnbot
+Source0: damnbot_@VERSION@_linux_@RPMARCH@.tar.gz
+BuildArch: @RPMARCH@
+
+%description
+Damn-Bot ships one binary, local storage, and signed releases. This package
+installs the official release binary; install.sh verifies checksums and the
+ed25519 signature before installation.
+
+%prep
+%setup -q -c
+
+%build
+
+%install
+install -Dm0755 damnbot %{buildroot}%{_bindir}/damnbot
+
+%files
+%{_bindir}/damnbot
+
+%changelog
+* Mon Jan 01 2026 Damn-Bot contributors <maintainers@damnbot.dev> - @RPMVERSION@-1
+- Release @VERSION@
