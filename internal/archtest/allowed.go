@@ -76,6 +76,9 @@ func f8ModuleImports(m map[string][]string) {
 	// through the sandbox leaf and reports through the host seam; the GUI
 	// itself is a caller-supplied Surface, never an OS or shell call.
 	m["internal/desktopui"] = []string{"internal/modules/host", "internal/sandbox", "internal/redact"}
+	// F9 installer manifest/uninstall (GAP-OPS-03): stdlib-only file and
+	// marker-block editing; no config/env/netx edge.
+	m["internal/setup"] = nil
 }
 
 func allowedImports() map[string][]string {
