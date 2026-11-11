@@ -457,6 +457,53 @@ jobs:
           DAMNBOT_E2E_DOCKER_IMAGE: damnbot-e2e:ci
         run: make e2e-docker
 
+  # GAP-INF-03/GAP-SEC-22 (ADR-033 Q35/Q49): ubuntu runners carry a Docker daemon, so the
+  # shipped Dockerfile is built and measured: image size ≤ release binary + 2 MB, UID 65532,
+  # exec-form healthcheck, and no shell/compiler in the runtime image. The test is compiled
+  # only under `e2e_docker`, and DAMNBOT_REQUIRE_DOCKER=1 makes a missing daemon fail (gate).
+  image:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Build image + size/uid/shell check (GAP-INF-03)
+        run: make image-test
+
+  # GAP-INF-03/OPS-030: Nix flake (paket CGO=0 + devShell). The parse test needs no Nix,
+  # so it always runs; `nix flake check` runs only when the runner already has Nix (hosted
+  # runners do not install it, so the job adds no default download). When flake.nix has not
+  # landed yet, the step is a no-op; the flake PR turns on the `make nix-check` path.
+  nix:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Flake parse + nix flake check bila tersedia (GAP-INF-03)
+        run: |
+          if [ -f flake.nix ]; then
+            make nix-check
+          else
+            echo "flake.nix belum ada (PR Nix menyusul); parse statis dilewati"
+          fi
+
   # ADR-324: `bench-budget` (NEW2-07) tetap per-PR — cepat dan menjaga seluruh test modul bench.
   bench:
     needs: changes

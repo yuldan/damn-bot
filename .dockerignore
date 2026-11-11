@@ -1,0 +1,17 @@
+# Build context is the repository root; keep the image layer small and
+# deterministic. Source needed by `go build ./cmd/damnbot` stays included.
+.git
+.gitignore
+.github
+.bin
+f4-gwstore
+bench
+testdata
+tools
+docs
+*.md
+!go.mod
+!go.sum
+**/*_test.go
+**/testdata
+**/.DS_Store
