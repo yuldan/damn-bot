@@ -6808,7 +6808,7 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 **Konsekuensi.** (+) Dua surface F8 selesai tanpa menaikkan plafon core. (−) Headroom core tinggal 11; kunci config/ctxdb berikutnya butuh ADR terukur.
 
-**Amandemen (CLI-051, slice journey).** Kenaikan `ctxdb` 6.008 → 6.022 dan Σ core **57.375 → 57.389** dibukukan bersama `ctxdb.Store.Rows` pada PR journey; konfigurasi `[web].auth` sudah dibukukan lebih dulu di PR UI-015. Kedua slice tetap di bawah `maxCoreLOC` 57.400 dengan headroom 45 setelah keduanya mendarat.
+**Amandemen (CLI-051, slice journey).** Kenaikan `ctxdb` 6.008 → 6.022 dan Σ core **57.375 → 57.389** dibukukan bersama `ctxdb.Store.Rows` pada PR journey; konfigurasi `[web].auth` sudah dibukukan lebih dulu di PR UI-015. Implementasi `ctxdb.Store.Rows`, penggabungan memori di `damnbot journey`/`/journey`, dan clip reply 3800 rune mendarat di PR ini; tes `TestF8CLI051JourneyMemory`, `TestF8MEM035LearningJourney`, `TestF8SLASH027Journey`. Kedua slice tetap di bawah `maxCoreLOC` 57.400 dengan headroom 45 setelah keduanya mendarat.
 
 ## ADR-345 — Plugin catalog Q18: katalog embedded 645 entri, resolusi target, dan permukaan `damnbot plugins`
 

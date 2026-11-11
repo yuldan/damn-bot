@@ -42,7 +42,7 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | CLI-068 | `damnbot dashboard` | satu sub `register`; menyajikan aset embedded; 0 URL eksternal | `TestF8CLI068Dashboard` | LULUS | UI-014/GAP-UX-08 |
 | CLI-069 | `damnbot serve` | backend headless untuk desktop/remote; bind loopback default; auth wajib | `TestF8CLI069Serve` | LULUS | UI-016 |
 | CLI-070 | `damnbot desktop` | alias `gui`; membuka web UI; 0 dependency Node/Electron saat runtime | `TestF8CLI070Desktop` | LULUS | UI-017 diganti web UI |
-| SLASH-027 | `/journey` | alias `/learning`, `/memory-graph`; sub list/delete/edit; output ≤ batas renderer | `TestF8SLASH027Journey` | BELUM | CLI-051 |
+| SLASH-027 | `/journey` | alias `/learning`, `/memory-graph`; sub list/delete/edit; output ≤ batas renderer | `TestF8SLASH027Journey` | LULUS | CLI-051; reply di-clip 3800 rune |
 | SLASH-030 | `/goal` | teks wajib; goal aktif lintas turn; dinilai judge (AUTO-014) | `TestF8SLASH030Goal` | LULUS | — |
 | SLASH-031 | `/heartbeat` | alias `/hb`; sub status/pause/resume/clear; interval minimum dihormati | `TestF8SLASH031Heartbeat` | LULUS | AUTO-016; minimum 60 s |
 | SLASH-034 | `/loop` | alias `/proactive`; interval + prompt, `--times`, `--until`; batas jumlah | `TestF8SLASH034Loop` | LULUS | AUTO-015; minimum 30 s, cap 1000 |
@@ -105,7 +105,7 @@ Kontrak: tool client-surface hanya tersedia di sesi yang mengiklankan surface (d
 | MEM-009 | Memory query rewrite | rewrite query sebelum recall provider; hanya bila fitur aktif; prompt tetap Inggris | `TestF8MEM009QueryRewrite` | LULUS | default off, ADR-338 |
 | MEM-010 | Memory OAuth / setup | wizard setup + OAuth provider memori; referensi secret saja; revoke didukung | `TestF8MEM010MemoryOAuth` | LULUS | CLI-052; state `memory.json` 0600 + runtime fallback |
 | MEM-023 | Context engine plugin | ganti engine konteks via plugin `context_engine`; default off; engine asing ditolak | `TestF8MEM023ContextEngine` | LULUS | PLUG-014; slot read-only, ADR-338 |
-| MEM-035 | Learning journey / graph | timeline skill & memori; entri tanpa sumber diredaksi; 0 duplikat | `TestF8MEM035LearningJourney` | BELUM | CLI-051/SLASH-027; builder lokal lulus, surface CLI belum |
+| MEM-035 | Learning journey / graph | timeline skill & memori; entri tanpa sumber diredaksi; 0 duplikat | `TestF8MEM035LearningJourney` | LULUS | CLI-051/SLASH-027; skill+memori via `BuildJourney` |
 
 ## 5. Ledger parity F8 — SKILL (8)
 
