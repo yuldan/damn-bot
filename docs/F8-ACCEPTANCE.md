@@ -44,9 +44,9 @@ Kontrak yang sama untuk semua baris: perintah/slash terdaftar di `damnbot help` 
 | CLI-070 | `damnbot desktop` | alias `gui`; membuka web UI; 0 dependency Node/Electron saat runtime | `TestF8CLI070Desktop` | LULUS | UI-017 diganti web UI |
 | SLASH-027 | `/journey` | alias `/learning`, `/memory-graph`; sub list/delete/edit; output ≤ batas renderer | `TestF8SLASH027Journey` | BELUM | CLI-051 |
 | SLASH-030 | `/goal` | teks wajib; goal aktif lintas turn; dinilai judge (AUTO-014) | `TestF8SLASH030Goal` | LULUS | — |
-| SLASH-031 | `/heartbeat` | alias `/hb`; sub status/pause/resume/clear; interval minimum dihormati | `TestF8SLASH031Heartbeat` | BELUM | AUTO-016 |
-| SLASH-034 | `/loop` | alias `/proactive`; interval + prompt, `--times`, `--until`; batas jumlah | `TestF8SLASH034Loop` | BELUM | AUTO-015 |
-| SLASH-037 | `/subgoal` | tambah/kelola kriteria goal aktif; hanya saat goal ada | `TestF8SLASH037Subgoal` | BELUM | — |
+| SLASH-031 | `/heartbeat` | alias `/hb`; sub status/pause/resume/clear; interval minimum dihormati | `TestF8SLASH031Heartbeat` | LULUS | AUTO-016; minimum 60 s |
+| SLASH-034 | `/loop` | alias `/proactive`; interval + prompt, `--times`, `--until`; batas jumlah | `TestF8SLASH034Loop` | LULUS | AUTO-015; minimum 30 s, cap 1000 |
+| SLASH-037 | `/subgoal` | tambah/kelola kriteria goal aktif; hanya saat goal ada | `TestF8SLASH037Subgoal` | LULUS | cap 20; tanpa goal ditolak |
 | SLASH-049 | `/personality` | nama persona divalidasi; preset dibaca dari katalog | `TestF8SLASH049Personality` | LULUS | UI-011; katalog tertutup 4 preset |
 | SLASH-072 | `/pet` | sub toggle/list/scale/off; adopsi maskot opt-in | `TestF8SLASH072Pet` | LULUS | UI-010 |
 | SLASH-073 | `/hatch` | alias `/generate-pet`; deskripsi → pet baru; network opt-in | `TestF8SLASH073Hatch` | LULUS | jaringan `--remote` fail-closed |
@@ -169,15 +169,15 @@ Kontrak: kategori tersedia setelah sync idempoten; frontmatter setiap SKILL.md v
 |---|---|---|---|---|---|
 | AUTO-001 | Background review | review turn di background → usul memori/skill; default off; 0 call jalur kritis | `TestF8AUTO001BackgroundReview` | LULUS | P11; bukti `internal/auto/features_medium_test.go:21` (#821 @ 8e99ed7cf) |
 | AUTO-002 | Title generation | judul sesi otomatis; default off; biaya per fitur | `TestF8AUTO002TitleGeneration` | LULUS | wiring serve: label setelah turn pertama; provider `purpose=auto`; `config` default-off |
-| AUTO-003 | Curator scheduler | curator saat idle ≥ 2 jam; pause/resume; budget | `TestF8AUTO003CuratorScheduler` | BELUM | SKILL-021 |
+| AUTO-003 | Curator scheduler | curator saat idle ≥ 2 jam; pause/resume; budget | `TestF8AUTO003CuratorScheduler` | LULUS | `Paused`/`Pause`/`Resume`; budget `ErrBudget` |
 | AUTO-004 | Idle/hygiene compaction | compaction sesi gateway saat idle/panjang; tidak memotong turn | `TestF8AUTO004IdleCompaction` | LULUS | bukti `internal/auto/features_test.go:103` (#820 @ 665b3aeba) |
 | AUTO-012 | Blueprints | template otomasi siap pakai; slot divalidasi; default off | `TestF8AUTO012Blueprints` | LULUS | SLASH-078; bukti `internal/auto/features_medium_test.go:100` (#821 @ 8e99ed7cf) |
 | AUTO-013 | Suggestions | saran otomasi accept/dismiss; default off; rate-limited | `TestF8AUTO013Suggestions` | LULUS | SLASH-077; bukti `internal/auto/features_test.go:76` (#820 @ 665b3aeba) |
-| AUTO-014 | Goals + goal judge | tujuan berdiri lintas turn; judge terpisah; budget per fitur | `TestF8AUTO014GoalsJudge` | BELUM | SLASH-030 |
+| AUTO-014 | Goals + goal judge | tujuan berdiri lintas turn; judge terpisah; budget per fitur | `TestF8AUTO014GoalsJudge` | LULUS | SLASH-030; lane `goals` 20.000 token |
 | AUTO-015 | Loops / proactive | ulangi prompt pada interval di sesi; `--times`/`--until`; batas | `TestF8AUTO015Loops` | LULUS | SLASH-034; bukti `internal/auto/features_medium_test.go:157` (#821 @ 8e99ed7cf) |
 | AUTO-016 | Heartbeat | prompt berulang saat sesi idle; pause/resume/clear | `TestF8AUTO016Heartbeat` | LULUS | SLASH-031; bukti `internal/auto/features_medium_test.go:190` (#821 @ 8e99ed7cf) |
 | AUTO-030 | Disk cleanup plugin | lacak & bersihkan file sementara sesi; dry-run default | `TestF8AUTO030DiskCleanup` | LULUS | PLUG-017 tetap BELUM; bukti `internal/auto/features_test.go:125` (#820 @ 665b3aeba) |
-| AUTO-031 | Auto maintenance CLI | pemeliharaan otomatis saat start CLI; 0 mutasi tanpa config | `TestF8AUTO031AutoMaintenance` | BELUM | — |
+| AUTO-031 | Auto maintenance CLI | pemeliharaan otomatis saat start CLI; 0 mutasi tanpa config | `TestF8AUTO031AutoMaintenance` | LULUS | hook TUI + `run`; default 0 mutasi |
 | AUTO-032 | Outbound webhooks | kirim event ke webhook keluar; signature + retry berbatas | `TestF8AUTO032OutboundWebhooks` | LULUS | GW-011; bukti `internal/auto/features_medium_test.go:253` (#821 @ 8e99ed7cf) |
 | UI-010 | Pets (petdex) | maskot animasi terminal; generate pet; default off | `TestF8UI010Pets` | LULUS | status bar TUI `PetFrame`; default off |
 | UI-011 | Personalities | persona preset; opt-in; katalog tervalidasi | `TestF8UI011Personalities` | LULUS | badge TUI opt-in; katalog tertutup |

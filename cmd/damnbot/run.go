@@ -61,6 +61,9 @@ type runOptions struct {
 	noRecap          bool
 	providerAttempts int
 	answerSchema     string
+	// maintAtStart is set by the `run` flag parser (the headless CLI start)
+	// so the AUTO-031 hook does not run for cron/kanban-triggered turns.
+	maintAtStart bool
 	// eval-only seams (never set by a flag): a provider override (fake or
 	// budget-gated), a per-run config override, and a memory retriever
 	// factory fed the run's ctxdb for the context tier (SPEC §4.8/§18.5).
@@ -182,6 +185,7 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	if o.session != "" && o.cont {
 		return runOptions{}, errors.New("--session and --continue are mutually exclusive")
 	}
+	o.maintAtStart = true
 	return o, nil
 }
 
@@ -197,11 +201,20 @@ func warnUnavailableToolsets(stderr io.Writer, names []string) error {
 	return nil
 }
 
+func runStartupMaintenance(ctx context.Context, enabled bool, cfg *config.Config, dataDir string, stderr io.Writer) {
+	if enabled {
+		if merr := startupMaintenance(ctx, cfg, dataDir, time.Now); merr != nil {
+			say(stderr, "run: maintenance: %s\n", cleanLine(merr.Error()))
+		}
+	}
+}
+
 func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code int, err error) {
 	cfg, dataDir, configDir, home, err := loadRunEnv(o)
 	if err != nil {
 		return 0, err
 	}
+	runStartupMaintenance(ctx, o.maintAtStart, &cfg, dataDir, stderr)
 	modelRef := o.model
 	if modelRef == "" {
 		modelRef = cfg.Provider.Model
