@@ -46,8 +46,8 @@ func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dat
 		Sessions:     &webSessionStore{db: db},
 		Language:     cfg.UI.Language,
 	}
-	if cfg.Web.Auth == config.WebAuthBasic {
-		wc.Basic = keychainBasic{user: cfg.Web.BasicUser, secret: cfg.Web.BasicPasswordSecret}
+	if err := wireWebAuth(ctx, &wc, cfg); err != nil {
+		return nil, err
 	}
 	settings, serr := newWebSettings(configFile)
 	if serr != nil {
@@ -92,6 +92,18 @@ func startServeWeb(ctx context.Context, cfg *config.Config, o *serveOptions, dat
 		}
 		return srv.Shutdown(ctx)
 	}, nil
+}
+
+// wireWebAuth attaches the provider selected by [web].auth to the server
+// config; basic uses a keychain verifier and drain/nous/oidc wire OAuth.
+func wireWebAuth(ctx context.Context, wc *web.Config, cfg *config.Config) error {
+	switch cfg.Web.Auth {
+	case config.WebAuthBasic:
+		wc.Basic = keychainBasic{user: cfg.Web.BasicUser, secret: cfg.Web.BasicPasswordSecret}
+	case config.WebAuthDrain, config.WebAuthNous, config.WebAuthOIDC:
+		return wireWebOAuth(ctx, wc, cfg)
+	}
+	return nil
 }
 
 // keychainBasic verifies the single basic-auth principal against a keychain

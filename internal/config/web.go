@@ -8,6 +8,12 @@ const (
 	WebAuthOnce  = "once"
 	WebAuthBasic = "basic"
 	WebAuthOIDC  = "oidc"
+	// WebAuthDrain is the non-interactive shared-bearer drain provider; its
+	// secret comes from the keychain (UI-015).
+	WebAuthDrain = "drain"
+	// WebAuthNous is the Nous Portal authorization-code + PKCE provider; its
+	// client id and portal URL come from the environment (UI-015).
+	WebAuthNous = "nous"
 )
 
 // DefaultWebListen is the SPEC §13.2 loopback bind. The web UI never listens

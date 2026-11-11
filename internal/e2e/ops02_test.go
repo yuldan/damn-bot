@@ -62,14 +62,15 @@ func TestE2EDoctorNetwork(t *testing.T) {
 	writeProfileConfig(t, e, "[network]\nbackground = false\n")
 	res := e.Exec("doctor", "--network")
 	res.RequireOK(t)
-	for _, want := range []string{"inference", "refs", "telegram", "update", "cron-monitor", "auth", "mcp", "mcp-local", "media", "image_endpoint", "video_create_url", "image_generate", "voice", "tts_endpoint", "speak", "gateway", "api.telegram.org", "webhook-delivery", "disabled (egress_disabled)", "trigger:"} {
+	for _, want := range []string{"inference", "refs", "telegram", "update", "cron-monitor", "auth", "web-oauth", "mcp", "mcp-local", "media", "image_endpoint", "video_create_url", "image_generate", "voice", "tts_endpoint", "speak", "gateway", "api.telegram.org", "webhook-delivery", "disabled (egress_disabled)", "trigger:"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("doctor --network lacks %q:\n%s", want, res.Stdout)
 		}
 	}
-	// Only the background entry is disabled; inference and tool stay enabled.
-	if got := strings.Count(res.Stdout, "disabled (egress_disabled)"); got != 1 {
-		t.Errorf("%d background entries disabled, want 1:\n%s", got, res.Stdout)
+	// The two background entries (update, web-oauth) are disabled; inference
+	// and tool stay enabled.
+	if got := strings.Count(res.Stdout, "disabled (egress_disabled)"); got != 2 {
+		t.Errorf("%d background entries disabled, want 2:\n%s", got, res.Stdout)
 	}
 
 	writeProfileConfig(t, e, "")
@@ -115,6 +116,7 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"update":             {"background", "enabled"},
 		"cron-monitor":       {"tool", "enabled"},
 		"auth":               {"inference", "enabled"},
+		"web-oauth":          {"background", "enabled"},
 		"mcp":                {"tool", "enabled"},
 		"mcp-local":          {"inference", "enabled"},
 		"media":              {"tool", "enabled"},
@@ -135,6 +137,7 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 	}
 	if !background {
 		want["update"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}
+		want["web-oauth"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}
 	}
 	seen := make(map[string]bool, len(want))
 	for _, row := range doc.Egress {
