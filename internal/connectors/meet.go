@@ -53,7 +53,7 @@ func (m *Module) newMeet() (Handler, error) {
 	if err != nil || !cfg.Enabled {
 		return nil, err
 	}
-	if !tlsURL(cfg.NodeURL) && !m.deps.InsecureTestNode {
+	if !tlsURL(cfg.NodeURL) && (m.deps.Manage == nil || !m.deps.Manage.InsecureTestNode) {
 		return nil, &Error{Code: codeInvalidArgs, Message: "meet.node_url must be https or wss"}
 	}
 	announce := cfg.ConsentAnnouncement == nil || *cfg.ConsentAnnouncement

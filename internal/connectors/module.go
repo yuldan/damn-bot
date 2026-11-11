@@ -10,6 +10,7 @@ import (
 
 	"github.com/damnbot/damnbot/internal/modules/host"
 	"github.com/damnbot/damnbot/internal/netx"
+	plugcatalog "github.com/damnbot/damnbot/internal/plugins/catalog"
 )
 
 // Deps is the composition-root seam of the module.
@@ -19,21 +20,29 @@ type Deps struct {
 	Network      *netx.Network
 	Now          func() time.Time
 	GOOS         string
-	// InsecureTestNode lets a test point the Meet connector at an httptest
-	// HTTP server; the composition root never sets it.
+	Manage       *ManageDeps
+}
+
+// ManageDeps is the optional management seam; nil fails closed.
+type ManageDeps struct {
+	Accounts         AccountStore
+	Installer        Installer
 	InsecureTestNode bool
 }
 
 // Module is the F8 connectors module.
 type Module struct {
-	cfg      Config
-	deps     Deps
-	redactor *Redactor
-	registry *Registry
-	network  *netx.Network
-	handlers map[string]Handler
-	status   host.Status
-	mu       sync.RWMutex
+	cfg       Config
+	deps      Deps
+	redactor  *Redactor
+	registry  *Registry
+	network   *netx.Network
+	handlers  map[string]Handler
+	accounts  AccountStore
+	installer Installer
+	catalog   *plugcatalog.Catalog
+	status    host.Status
+	mu        sync.RWMutex
 }
 
 // NewFromConfig decodes one [modules.connectors] section and builds the
@@ -60,10 +69,18 @@ func New(cfg *Config, deps Deps) *Module {
 	if deps.GOOS == "" {
 		deps.GOOS = runtime.GOOS
 	}
-	return &Module{
+	m := &Module{
 		cfg: *cfg, deps: deps, redactor: red, registry: NewRegistry(),
 		handlers: map[string]Handler{}, status: host.StatusStopped,
 	}
+	if deps.Manage != nil {
+		m.accounts = deps.Manage.Accounts
+		m.installer = deps.Manage.Installer
+	}
+	if cat, err := plugcatalog.Load(); err == nil {
+		m.catalog = cat
+	}
+	return m
 }
 
 // Start builds the enabled connectors.
@@ -132,6 +149,13 @@ func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, 
 			Code:    codeModuleUnavailable,
 			Message: "connectors module is not enabled", Hint: "set [modules.connectors].enabled = true",
 		}
+	}
+	if tool == "manage_catalog" || tool == "manage_connections" {
+		res, err := m.manage(ctx, tool, args, env)
+		if err != nil {
+			return host.Result{}, AsHostError(err)
+		}
+		return res, nil
 	}
 	handler, desc, ok := m.registry.HandlerFor(tool)
 	if !ok || handler == nil {

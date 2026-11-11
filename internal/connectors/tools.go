@@ -22,7 +22,8 @@ func Tools() []Tool {
 	out = append(out, meetTools()...)
 	out = append(out, xSearchTools()...)
 	out = append(out, discordTools()...)
-	return append(out, osvTools()...)
+	out = append(out, osvTools()...)
+	return append(out, managementTools()...)
 }
 
 // object renders one connector tool schema with a closed property set.

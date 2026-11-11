@@ -22,8 +22,13 @@ func connectorsDescriptor() modules.Descriptor {
 		Tools:     connectorToolDescriptors(),
 		ConfigKey: "modules.connectors",
 		Factory: func(_ host.Host, cfg host.Config) (modules.Module, error) {
+			store, err := connectors.OpenConnections(f8HostedPath())
+			if err != nil {
+				return nil, fmt.Errorf("hosted accounts: %w", err)
+			}
 			return connectors.NewFromConfig(cfg.Raw, connectors.Deps{
 				Secrets: func(name string) (string, error) { return config.LookupSecret(name), nil },
+				Manage:  &connectors.ManageDeps{Accounts: store},
 			})
 		},
 	}
@@ -80,3 +85,12 @@ func connectorsSection(cfg *config.Config) (connectors.Section, error) {
 }
 
 func connectorsEnabled(cfg *config.Config) bool { return cfg.Modules.Connectors.Enabled }
+
+// f8HostedPath is the shared hosted-account store of the module and the CLI.
+func f8HostedPath() string {
+	dir, err := f8Dir("")
+	if err != nil {
+		return ""
+	}
+	return f8StorePath(dir, "hosted.json")
+}
