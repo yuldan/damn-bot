@@ -33,6 +33,9 @@ func runTUI(args []string) int {
 		return tuiFail(err)
 	}
 	benchTUIOverrides(o, &cfg)
+	if merr := startupMaintenance(context.Background(), &cfg, dataDir, time.Now); merr != nil {
+		say(os.Stderr, "tui: maintenance: %s\n", cleanLine(merr.Error()))
+	}
 	benchTrace("config-done")
 	sid, err := newSessionID()
 	if err != nil {

@@ -192,13 +192,13 @@ Sumber: `hermes_cli/commands.py` (103 `CommandDef`). Deskripsi verbatim hermes, 
 | SLASH-028 | `/queue` | Queue a prompt for the next turn, or list/edit/rm/move/clear queued prompts | `hermes_cli/commands.py:141` | tersedia (CLI + gateway); kategori Session | — | alias: /q; sub: list, edit, rm, move, clear, add; args `[<prompt>\\|list\\|edit N <prompt>\\|rm N\\|move A B\\|clear]` | F3 | planned |
 | SLASH-029 | `/steer` | Inject a message after the next tool call without interrupting | `hermes_cli/commands.py:145` | tersedia (CLI + gateway); kategori Session | — | alias: /s; args `<prompt>` | F3 | planned |
 | SLASH-030 | `/goal` | Set a standing goal Hermes works on across turns until achieved | `hermes_cli/commands.py:147` | tersedia (CLI + gateway); kategori Session | — | args `[text \\| -- <text> \\| draft <text> \\| show \\| gate add <cmd> \\| pause \\| resume \\| clear \\| status \\| wait <pid> \\| unwait]` | F8 | LULUS |
-| SLASH-031 | `/heartbeat` | Set a recurring prompt that re-enters this session when idle | `hermes_cli/commands.py:150` | tersedia (CLI + gateway); kategori Session | — | alias: /hb; sub: status, pause, resume, clear; args `[every <interval> <prompt> \\| status \\| pause \\| resume \\| clear]` | F8 | planned |
+| SLASH-031 | `/heartbeat` | Set a recurring prompt that re-enters this session when idle | `hermes_cli/commands.py:150` | tersedia (CLI + gateway); kategori Session | — | alias: /hb; sub: status, pause, resume, clear; args `[every <interval> <prompt> \\| status \\| pause \\| resume \\| clear]` | F8 | LULUS |
 | SLASH-032 | `/refine` | Review this conversation now and save lessons to memory/skills | `hermes_cli/commands.py:154` | tersedia (CLI + gateway); kategori Session | — | args `[focus instructions]` | F3 | planned |
 | SLASH-033 | `/review` | Spawn an independent subagent to review the work just discussed (PR, code, docs) | `hermes_cli/commands.py:156` | tersedia (CLI + gateway); kategori Session | — | args `[review instructions]` | F5 | planned |
-| SLASH-034 | `/loop` | Re-run a prompt on a recurring interval in this session | `hermes_cli/commands.py:158` | tersedia (CLI + gateway); kategori Session | — | alias: /proactive; args `[interval] <prompt> [--times N] [--until <condition>] \\| status \\| pause \\| resume \\| stop` | F8 | planned |
+| SLASH-034 | `/loop` | Re-run a prompt on a recurring interval in this session | `hermes_cli/commands.py:158` | tersedia (CLI + gateway); kategori Session | — | alias: /proactive; args `[interval] <prompt> [--times N] [--until <condition>] \\| status \\| pause \\| resume \\| stop` | F8 | LULUS |
 | SLASH-035 | `/plan` | Write a markdown implementation plan to .hermes/plans/ without executing anything | `hermes_cli/commands.py:162` | tersedia (CLI + gateway); kategori Session | — | args `[task]` | F3 | planned |
 | SLASH-036 | `/moa` | Run one prompt through the default Mixture of Agents preset, then restore your model | `hermes_cli/commands.py:164` | tersedia (CLI + gateway); kategori Session | — | args `<prompt>` | F5 | planned |
-| SLASH-037 | `/subgoal` | Add or manage extra criteria on the active goal | `hermes_cli/commands.py:166` | tersedia (CLI + gateway); kategori Session | — | args `[text \\| remove N \\| clear]` | F8 | planned |
+| SLASH-037 | `/subgoal` | Add or manage extra criteria on the active goal | `hermes_cli/commands.py:166` | tersedia (CLI + gateway); kategori Session | — | args `[text \\| remove N \\| clear]` | F8 | LULUS |
 | SLASH-038 | `/status` | Show session, model, token, and context info | `hermes_cli/commands.py:168` | tersedia (CLI + gateway); kategori Session | — |  | F3 | planned |
 | SLASH-039 | `/egress` | Show Docker egress proxy status | `hermes_cli/commands.py:170` | tersedia (CLI + gateway); kategori Session | — | sub: status; args `[status]` | F5 | planned |
 | SLASH-040 | `/context` | Show detailed context window view with usage gauge, category breakdown, compression stats, and throughput | `hermes_cli/commands.py:173` | tersedia (CLI + gateway); kategori Session | — | alias: /ctx; sub: all; args `[all]` | F3 | planned |
@@ -659,7 +659,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 |---|---|---|---|---|---|---|---|---|
 | AUTO-001 | Background review | Review turn di background → usul memori/skill | `agent/background_review.py`, `agent/review_engine.py`, `agent/review_idle_queue.py` | on (`auxiliary.background_review.enabled`) | LLM auxiliary |  | F8 | LULUS |
 | AUTO-002 | Title generation | Judul sesi otomatis | `agent/title_generator.py` | on (`auxiliary.title_generation.enabled`) | LLM auxiliary |  | F8 | LULUS |
-| AUTO-003 | Curator scheduler | Jalankan curator saat idle (min 2 jam) | `agent/curator.py` | on | LLM auxiliary | lihat SKILL | F8 | planned |
+| AUTO-003 | Curator scheduler | Jalankan curator saat idle (min 2 jam) | `agent/curator.py` | on | LLM auxiliary | lihat SKILL | F8 | LULUS |
 | AUTO-004 | Idle/hygiene compaction | Compaction hygiene sesi gateway saat idle/terlalu panjang | `gateway/run_turn_hygiene.py`, `agent/compression_automation.py` | on | LLM auxiliary | `compression.hygiene_*` | F8 | LULUS |
 | AUTO-005 | Cron scheduler | Penjadwal job cron (tick, delivery, catch-up) | `cron/scheduler.py`, `cron/jobs.py`, `cron/scheduler_tick.py` | on di gateway; job dibuat user | croniter | `hermes cron`, `/cron` | F4 | LULUS |
 | AUTO-006 | Cron delivery ke platform | Kirim hasil job ke platform/home channel | `cron/scheduler_delivery.py`, `cron/delivery_queue.py` | on (`cron.delivery.notify`) | Platform terkait |  | F4 | planned |
@@ -670,7 +670,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | AUTO-011 | Agent self-scheduling | Agent membuat cron sendiri | `hermes_cli/config_defaults.py:1805` | off | — |  | F4 | planned |
 | AUTO-012 | Blueprints | Template otomasi siap pakai | `cron/blueprint_catalog.py`, `tools/blueprints.py`, `hermes_cli/blueprint_cmd.py` | opt-in (`/blueprint`) | — |  | F8 | LULUS |
 | AUTO-013 | Suggestions | Saran otomasi (accept/dismiss) | `hermes_cli/suggestions_cmd.py` | opt-in (`/suggestions`) | LLM |  | F8 | LULUS |
-| AUTO-014 | Goals + goal judge | Tujuan berdiri lintas turn, dinilai judge | `hermes_cli/goals.py`, `hermes_cli/goal_command.py`, `gateway/run_goals.py` | opt-in (`/goal`, max_turns 20) | LLM auxiliary (`auxiliary.goal_judge`) | `/subgoal` | F8 | planned |
+| AUTO-014 | Goals + goal judge | Tujuan berdiri lintas turn, dinilai judge | `hermes_cli/goals.py`, `hermes_cli/goal_command.py`, `gateway/run_goals.py` | opt-in (`/goal`, max_turns 20) | LLM auxiliary (`auxiliary.goal_judge`) | `/subgoal` | F8 | LULUS |
 | AUTO-015 | Loops / proactive | Ulangi prompt pada interval di sesi | `hermes_cli/loops.py` | opt-in (`/loop`, alias `/proactive`) | — | min interval 30 s | F8 | LULUS |
 | AUTO-016 | Heartbeat | Prompt berulang saat sesi idle | `hermes_cli/heartbeat.py` | opt-in (`/heartbeat`) | — | alias `/hb` | F8 | LULUS |
 | AUTO-017 | Kanban dispatcher | Dispatch task kanban ke worker profil | `hermes_cli/kanban_db_dispatch.py`, `gateway/kanban_watchers_dispatcher.py` | on di gateway (`kanban.dispatch_in_gateway`) | — |  | F7 | LULUS |
@@ -687,7 +687,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | AUTO-028 | Repetition/loop guardrails | Deteksi tool-loop berulang | `agent/repetition_guard.py`, `agent/tool_guardrails.py` | on (`tool_loop_guardrails`) | — |  | F1 | planned |
 | AUTO-029 | Periodic scheduler | Penjadwal tugas periodik internal | `agent/periodic_scheduler.py` | on | — | internal | F4 | planned |
 | AUTO-030 | Disk cleanup plugin | Lacak & bersihkan file sementara sesi | `plugins/disk-cleanup/plugin.yaml` | opt-in (plugin) | — |  | F8 | LULUS |
-| AUTO-031 | Auto maintenance CLI | Pemeliharaan otomatis saat start CLI | `hermes_cli/cli_auto_maintenance.py` | on | — |  | F8 | planned |
+| AUTO-031 | Auto maintenance CLI | Pemeliharaan otomatis saat start CLI | `hermes_cli/cli_auto_maintenance.py` | on | — |  | F8 | LULUS |
 | AUTO-032 | Outbound webhooks | Kirim event ke webhook keluar | `agent/outbound_webhooks.py` | opt-in | — |  | F8 | LULUS |
 
 ## 8. UI — antarmuka

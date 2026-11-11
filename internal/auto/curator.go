@@ -23,10 +23,17 @@ type CuratorResult struct {
 }
 
 // CuratorState enforces one run per 24 h and only while the session is idle for
-// at least two hours.
+// at least two hours. Paused stops due runs until Resume (AUTO-003).
 type CuratorState struct {
-	last time.Time
+	last   time.Time
+	Paused bool
 }
+
+// Pause stops future curator runs without losing the 24 h clock.
+func (c *CuratorState) Pause() { c.Paused = true }
+
+// Resume re-enables due runs after Pause.
+func (c *CuratorState) Resume() { c.Paused = false }
 
 const curatorIdle = 2 * time.Hour
 
@@ -38,6 +45,9 @@ const curatorPrompt = "Review this skill inventory. Propose at most five retire 
 func (c *CuratorState) MaybeCurate(ctx context.Context, s *Service, in CuratorInput) (*CuratorResult, error) {
 	if !s.Enabled(Curator) {
 		return nil, fmt.Errorf("%w: %s", ErrDisabled, Curator)
+	}
+	if c.Paused {
+		return nil, nil
 	}
 	now := in.Now
 	if now.IsZero() {
