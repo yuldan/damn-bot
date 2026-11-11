@@ -41,6 +41,7 @@ type proxyStartOptions struct {
 	provider string
 	listen   string
 	once     bool
+	web      bool
 }
 
 // runProxy implements `damnbot proxy` (CLI-012, UI-022): a loopback
@@ -78,7 +79,7 @@ func runProxy(args []string, stdout, stderr io.Writer) int {
 }
 
 func proxyUsage(w io.Writer) {
-	say(w, "usage: damnbot proxy [--config FILE] [--data-dir DIR] start --provider NAME [--listen 127.0.0.1:8811] [--once]\n")
+	say(w, "usage: damnbot proxy [--config FILE] [--data-dir DIR] start --provider NAME [--listen 127.0.0.1:8811] [--once] [--web]\n")
 	say(w, "       damnbot proxy status\n")
 	say(w, "       damnbot proxy providers\n")
 }
@@ -179,8 +180,13 @@ func proxyStart(args []string, cfgPath, dataDir string, stdout, stderr io.Writer
 			say(stderr, "proxy start: remove run state: %s\n", cleanLine(rerr.Error()))
 		}
 	}()
+	handler := newProxyServer(cfg, prov, token).handler()
+	if opts.web {
+		handler = newWebProxyHandler(handler, newProxyNonceStore())
+		say(stdout, "proxy web ui addr=http://%s/ (one-use nonce per page open)\n", cleanLine(st.Addr))
+	}
 	srv := &http.Server{
-		Handler:           newProxyServer(cfg, prov, token).handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	say(stdout, "proxy listening addr=%s provider=%s models=%d\n", cleanLine(st.Addr), cleanLine(prov.Name), len(prov.Models))
@@ -194,6 +200,7 @@ func proxyStartFlags(args []string, stderr io.Writer) (proxyStartOptions, bool) 
 	fs.StringVar(&o.provider, "provider", "", "custom provider with a stored OAuth token (required)")
 	fs.StringVar(&o.listen, "listen", proxyDefaultListen, "loopback listener")
 	fs.BoolVar(&o.once, "once", false, "serve one completion then exit")
+	fs.BoolVar(&o.web, "web", false, "serve the local web UI guarded by a one-use nonce")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 || o.provider == "" {
 		proxyUsage(stderr)
 		return o, false
