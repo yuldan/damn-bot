@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/auto"
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/loop"
@@ -201,6 +202,51 @@ func TestF8AUTO031MaintenanceScheduler(t *testing.T) {
 	}
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Fatal("maintenance left the old file")
+	}
+}
+
+// TestF8P11BudgetDefaultOff adalah agregat §1 "P11 budget auto" untuk jalur
+// produksi: config default memetakan dua belas fitur ke registry, semuanya
+// off, tidak ada task yang terdaftar, dan hook title tidak menyentuh provider.
+func TestF8P11BudgetDefaultOff(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	ac := autoConfig(&cfg)
+	defs := auto.Definitions()
+	if len(ac.Features) != len(defs) {
+		t.Fatalf("config features = %d, want %d", len(ac.Features), len(defs))
+	}
+	for _, d := range defs {
+		lim, ok := ac.Features[d.Feature]
+		if !ok {
+			t.Errorf("%s is absent from the config mapping", d.Feature)
+			continue
+		}
+		if lim.Enabled {
+			t.Errorf("%s is enabled by default", d.Feature)
+		}
+	}
+	now := time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC)
+	a, err := newServeAuto(&cfg, t.TempDir(), func() time.Time { return now })
+	if err != nil {
+		t.Fatalf("newServeAuto: %v", err)
+	}
+	if got := a.Tick(context.Background()); len(got) != 0 {
+		t.Fatalf("default tick ran %d tasks", len(got))
+	}
+	fake := &autoFakeProvider{content: "title"}
+	db := openAutoDB(t)
+	if err := a.maybeTitle(context.Background(), fake, db, "S1", "hello", "fake/model"); err != nil {
+		t.Fatalf("maybeTitle: %v", err)
+	}
+	fake.mu.Lock()
+	calls, purposes := fake.calls, len(fake.purposes)
+	fake.mu.Unlock()
+	if calls != 0 || purposes != 0 {
+		t.Fatalf("default config called the provider %d times (purposes=%d)", calls, purposes)
+	}
+	if _, ok, err := db.SessionLabel(context.Background(), "S1", ctxdb.LabelTitle); err != nil || ok {
+		t.Fatalf("default config wrote a title (ok=%v err=%v)", ok, err)
 	}
 }
 
