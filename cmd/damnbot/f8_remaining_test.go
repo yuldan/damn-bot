@@ -254,21 +254,134 @@ func TestF8CLI012ProxySubcommands(t *testing.T) {
 	}
 }
 
-// TestF8CLI052Memory covers status and the typed provider refusals
-// (CLI-052, MEM-005/008).
+// fakeMemorySecrets is the in-memory keychain seam of CLI-052.
+type fakeMemorySecrets struct {
+	mu sync.Mutex
+	m  map[string]string
+}
+
+func (f *fakeMemorySecrets) Get(_ context.Context, name string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if v, ok := f.m[name]; ok {
+		return v, nil
+	}
+	return "", os.ErrNotExist
+}
+
+func (f *fakeMemorySecrets) Set(_ context.Context, name, value string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.m[name] = value
+	return nil
+}
+
+func (f *fakeMemorySecrets) Delete(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.m, name)
+	return nil
+}
+
+// TestF8CLI052Memory covers the four subcommands: setup writes only a secret
+// reference, status reads it back, off disables, reset revokes (CLI-052,
+// MEM-005/008/010).
 func TestF8CLI052Memory(t *testing.T) {
-	code, out, _ := runF8CLI(t, runMemory, "status")
-	if code != f8ExitOK || !strings.Contains(out, "provider none") || !strings.Contains(out, "active false") {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "cfg"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	cfg := f8ConfigFile(t, "")
+	if code, out, _ := runF8CLI(t, runMemory, "--config", cfg, "status"); code != f8ExitOK || !strings.Contains(out, "provider none") || !strings.Contains(out, "active false") {
 		t.Fatalf("status = %d %q", code, out)
 	}
-	for _, sub := range []string{"setup", "off", "reset"} {
-		code, out, errs := runF8CLI(t, runMemory, sub)
-		if code != f8ExitUnavailable || !strings.Contains(errs, "module_unavailable") {
-			t.Fatalf("%s = %d %q %q", sub, code, out, errs)
-		}
+	sec := memorySetupCheck(t, cfg)
+	memoryStatusCheck(t, cfg, sec)
+	memoryOffCheck(t, cfg)
+	memoryResetCheck(t, cfg, sec)
+	memoryArgsCheck(t, cfg, sec)
+}
+
+func memorySetupCheck(t *testing.T, cfg string) *fakeMemorySecrets {
+	t.Helper()
+	token := strings.Join([]string{"honcho", "memory", "052"}, "-")
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sec := &fakeMemorySecrets{m: map[string]string{}}
+	var out, errs strings.Builder
+	code := memorySetup([]string{
+		"--provider", "honcho", "--token-file", tokenFile, "--token-secret", "memory_alpha",
+		"--base-url", "http://127.0.0.1:9", "--workspace", "w",
+	}, cfg, sec, &out, &errs)
+	if code != f8ExitOK {
+		t.Fatalf("setup = %d %q", code, errs.String())
+	}
+	if got := sec.m["memory_alpha"]; got != token {
+		t.Fatalf("stored token = %q", got)
+	}
+	body, err := os.ReadFile(cfg) // #nosec G304 -- fixture path
+	if err != nil || !strings.Contains(string(body), `provider = "honcho"`) || !strings.Contains(string(body), `token_secret = "memory_alpha"`) {
+		t.Fatalf("config = %q, %v", body, err)
+	}
+	if strings.Contains(string(body), token) || strings.Contains(out.String()+errs.String(), token) {
+		t.Fatal("memory setup wrote or printed the token")
+	}
+	return sec
+}
+
+func memoryStatusCheck(t *testing.T, cfg string, sec *fakeMemorySecrets) {
+	t.Helper()
+	code, out, _ := runF8CLI(t, runMemory, "--config", cfg, "status")
+	if code != f8ExitOK || !strings.Contains(out, "provider honcho") || !strings.Contains(out, "active true") || !strings.Contains(out, "token_secret memory_alpha") {
+		t.Fatalf("status after setup = %d %q", code, out)
+	}
+	if strings.Contains(out, sec.m["memory_alpha"]) {
+		t.Fatalf("status leaked the token: %q", out)
+	}
+}
+
+func memoryOffCheck(t *testing.T, cfg string) {
+	t.Helper()
+	if code, _, errs := runF8CLI(t, runMemory, "--config", cfg, "off"); code != f8ExitOK {
+		t.Fatalf("off = %d %q", code, errs)
+	}
+	if code, out, _ := runF8CLI(t, runMemory, "--config", cfg, "status"); code != f8ExitOK || !strings.Contains(out, "active false") {
+		t.Fatalf("status after off = %d %q", code, out)
+	}
+}
+
+func memoryResetCheck(t *testing.T, cfg string, sec *fakeMemorySecrets) {
+	t.Helper()
+	var out, errs strings.Builder
+	if code := memoryReset(nil, cfg, sec, &out, &errs); code != f8ExitOK {
+		t.Fatalf("reset = %d %q", code, errs.String())
+	}
+	if _, ok := sec.m["memory_alpha"]; ok {
+		t.Fatal("reset did not revoke the credential")
+	}
+	body, err := os.ReadFile(cfg) // #nosec G304 -- fixture path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `token_secret = "memory_alpha"`) {
+		t.Fatalf("reset kept the token reference: %q", body)
+	}
+}
+
+func memoryArgsCheck(t *testing.T, cfg string, sec *fakeMemorySecrets) {
+	t.Helper()
+	var out, errs strings.Builder
+	if code := memorySetup([]string{"--provider", "nope"}, cfg, sec, &out, &errs); code != f8ExitUsage || !strings.Contains(errs.String(), "unknown provider") {
+		t.Fatalf("unknown provider = %d %q", code, errs.String())
 	}
 	if code, _, _ := runF8CLI(t, runMemory); code != f8ExitUsage {
 		t.Fatalf("bare = %d", code)
+	}
+	if code, _, _ := runF8CLI(t, runMemory, "nope"); code != f8ExitUsage {
+		t.Fatalf("unknown sub = %d", code)
 	}
 }
 
