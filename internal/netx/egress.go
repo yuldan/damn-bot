@@ -22,6 +22,7 @@ func Registry() map[string]Egress {
 			Trigger: "an @url reference in the user prompt",
 		},
 		"kanban-attach":  {Purpose: Tool, Host: "https URL attached to a kanban task", Trigger: "kanban AttachURL"},
+		"petdex":         {Purpose: Tool, Host: "petdex manifest URL from `pets install --url` (default https://petdex.dev/api/manifest)", Trigger: "damnbot pets install <name> --url (opt-in)"},
 		"whatsapp-cloud": {Purpose: Gateway, Host: "WhatsApp Cloud API base URL", Trigger: "WhatsApp Cloud outbound send"},
 		"update":         {Purpose: Background, Host: "[update].feed_url (default https://api.github.com/repos/yuldan/damn-bot/releases)", Trigger: "damnbot update; the daily check in serve (F4)"},
 		"cron-monitor": {

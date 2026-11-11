@@ -3,16 +3,22 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 const f8PetAssetMax = 1 << 20
@@ -76,7 +82,7 @@ func runPets(args []string, stdout, stderr io.Writer) int {
 
 func petsUsage(w io.Writer) {
 	say(w, "usage: damnbot pets [--data-dir DIR] <sub>\n")
-	say(w, "  list  install <name> --from FILE [--description TEXT]  select <name>  show <name>\n")
+	say(w, "  list  install <name> --from FILE|--url MANIFEST [--description TEXT]  select <name>  show <name>\n")
 	say(w, "  off  scale <name> small|medium|large  remove <name>  doctor\n")
 }
 
@@ -126,7 +132,7 @@ func petsInstall(args []string, st *f8PetsState, stdout, stderr io.Writer) (bool
 	fs := flag.NewFlagSet("pets install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	from := fs.String("from", "", "local pet asset (<= 1 MiB)")
-	url := fs.String("url", "", "opt-in petdex URL (unavailable in this build)")
+	url := fs.String("url", "", "opt-in petdex manifest URL")
 	desc := fs.String("description", "", "one-line description")
 	pos, perr := parseInterleaved(fs, args)
 	if perr != nil {
@@ -137,7 +143,7 @@ func petsInstall(args []string, st *f8PetsState, stdout, stderr io.Writer) (bool
 		return false, errF8Usage
 	}
 	if *url != "" {
-		return false, f8Unavail("petdex", "remote install is not available; use --from FILE")
+		return petsRemoteInstall(pos[0], *url, st, stdout)
 	}
 	if err := petsNameOK(pos[0]); err != nil {
 		return false, err
@@ -156,15 +162,176 @@ func petsInstall(args []string, st *f8PetsState, stdout, stderr io.Writer) (bool
 		return false, nil
 	}
 	pet := f8Pet{Name: pos[0], Style: "terminal", Description: *desc, Scale: "medium", SHA256: digest, Bytes: int64(len(data)), InstalledAt: time.Now().Unix()}
-	if p := petsFind(st, pos[0]); p != nil {
+	return petsStore(st, &pet, stdout), nil
+}
+
+// petManifest is the opt-in petdex index: one entry per installable pet.
+type petManifest struct {
+	Pets []petManifestEntry `json:"pets"`
+}
+
+type petManifestEntry struct {
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Style       string `json:"style"`
+	Asset       string `json:"asset"`
+	SHA256      string `json:"sha256"`
+}
+
+// petsRemoteInstall fetches the manifest and the asset over the petdex egress
+// lane, then records metadata and the digest only: the runtime never loads an
+// external asset (CLI-050, UI-010).
+func petsRemoteInstall(name, manifestURL string, st *f8PetsState, stdout io.Writer) (bool, error) {
+	if err := petsRemoteURL(manifestURL); err != nil {
+		return false, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client := netx.New(netx.Config{NoBackground: true}).Client("petdex", netx.Tool)
+	entry, err := petsManifestFetch(ctx, client, manifestURL, name)
+	if err != nil {
+		return false, err
+	}
+	data, err := petsAssetFetch(ctx, client, manifestURL, entry)
+	if err != nil {
+		return false, err
+	}
+	sum := sha256.Sum256(data)
+	digest := hex.EncodeToString(sum[:])
+	if entry.SHA256 != "" && !strings.EqualFold(entry.SHA256, digest) {
+		return false, f8Unavail("petdex", "asset digest does not match the manifest")
+	}
+	if p := petsFind(st, name); p != nil && p.SHA256 == digest {
+		say(stdout, "already installed: %s\n", name)
+		return false, nil
+	}
+	pet := f8Pet{
+		Name: name, Style: petStyle(entry), Description: petDescription(entry, name), Scale: "medium",
+		SHA256: digest, Bytes: int64(len(data)), InstalledAt: time.Now().Unix(),
+	}
+	return petsStore(st, &pet, stdout), nil
+}
+
+func petsManifestFetch(ctx context.Context, client *netx.Client, manifestURL, name string) (*petManifestEntry, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
+	if err != nil {
+		return nil, f8BadArg("petdex manifest URL is invalid")
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, f8Unavail("petdex", "manifest fetch failed")
+	}
+	defer proxyCloseBody(resp)
+	if resp.StatusCode != http.StatusOK {
+		return nil, f8Unavail("petdex", fmt.Sprintf("manifest returned HTTP %d", resp.StatusCode))
+	}
+	var m petManifest
+	if derr := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&m); derr != nil {
+		return nil, f8Unavail("petdex", "manifest is not valid JSON")
+	}
+	entry := petsManifestFind(&m, name)
+	if entry == nil {
+		return nil, f8BadArg("pet %q is not in the petdex manifest", cleanArg(name))
+	}
+	return entry, nil
+}
+
+func petsAssetFetch(ctx context.Context, client *netx.Client, manifestURL string, entry *petManifestEntry) ([]byte, error) {
+	assetURL, err := petdexResolve(manifestURL, entry.Asset)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
+	if err != nil {
+		return nil, f8BadArg("petdex asset URL is invalid")
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, f8Unavail("petdex", "asset fetch failed")
+	}
+	defer proxyCloseBody(resp)
+	if resp.StatusCode != http.StatusOK {
+		return nil, f8Unavail("petdex", fmt.Sprintf("asset returned HTTP %d", resp.StatusCode))
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, f8PetAssetMax+1))
+	if err != nil {
+		return nil, f8Unavail("petdex", "asset read failed")
+	}
+	if len(data) > f8PetAssetMax {
+		return nil, f8BadArg("pet asset is larger than %d bytes", f8PetAssetMax)
+	}
+	return data, nil
+}
+
+func petStyle(entry *petManifestEntry) string {
+	if entry.Style == "" {
+		return "terminal"
+	}
+	return entry.Style
+}
+
+func petDescription(entry *petManifestEntry, name string) string {
+	if entry.Description != "" {
+		return entry.Description
+	}
+	if entry.Name != "" {
+		return entry.Name
+	}
+	return name
+}
+
+// petsStore replaces or appends one pet and keeps the scale of a reinstall.
+func petsStore(st *f8PetsState, pet *f8Pet, stdout io.Writer) bool {
+	if p := petsFind(st, pet.Name); p != nil {
 		pet.Scale = p.Scale
-		*p = pet
+		*p = *pet
 	} else {
-		st.Items = append(st.Items, pet)
+		st.Items = append(st.Items, *pet)
 	}
 	slices.SortFunc(st.Items, func(a, b f8Pet) int { return strings.Compare(a.Name, b.Name) })
-	say(stdout, "installed %s sha256=%s bytes=%d\n", pet.Name, pet.SHA256, pet.Bytes)
-	return true, nil
+	say(stdout, "installed %s sha256=%s bytes=%d style=%s\n", pet.Name, pet.SHA256, pet.Bytes, pet.Style)
+	return true
+}
+
+func petsManifestFind(m *petManifest, name string) *petManifestEntry {
+	for i := range m.Pets {
+		if m.Pets[i].Slug == name || m.Pets[i].Name == name {
+			return &m.Pets[i]
+		}
+	}
+	return nil
+}
+
+func petdexResolve(base, ref string) (string, error) {
+	u, err := url.Parse(ref)
+	if err != nil {
+		return "", f8BadArg("petdex asset reference is invalid")
+	}
+	if !u.IsAbs() {
+		b, berr := url.Parse(base)
+		if berr != nil {
+			return "", f8BadArg("petdex manifest URL is invalid")
+		}
+		u = b.ResolveReference(u)
+	}
+	if err := petsRemoteURL(u.String()); err != nil {
+		return "", err
+	}
+	return u.String(), nil
+}
+
+// petsRemoteURL accepts https, or loopback http for the fake test server.
+// Any other scheme or host is refused before a dial.
+func petsRemoteURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return f8BadArg("petdex URL is invalid")
+	}
+	if u.Scheme == "https" || (u.Scheme == "http" && proxyLoopback(u.Hostname())) {
+		return nil
+	}
+	return f8BadArg("petdex URL must be https or a loopback http URL")
 }
 
 func petsSelect(args []string, st *f8PetsState, stdout, stderr io.Writer) (bool, error) {

@@ -11,29 +11,6 @@ import (
 	"github.com/damnbot/damnbot/internal/connectors"
 )
 
-func runMemory(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("memory", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	cfgPath := fs.String("config", "", "config path")
-	if err := fs.Parse(args); err != nil || fs.NArg() == 0 {
-		return f8ExitUsage
-	}
-	rest := fs.Args()
-	switch rest[0] {
-	case "status":
-		cfg, _, _, err := f8LoadSetup(*cfgPath, "")
-		if err != nil {
-			return f8CmdFail(stderr, "memory", err)
-		}
-		say(stdout, "provider none\nactive false\nembeddings %s\n", cleanLine(cfg.Memory.Embeddings))
-		return f8ExitOK
-	case "setup", "off", "reset":
-		return f8CmdFail(stderr, "memory", f8Unavail("memory", "external memory provider is not available in this build"))
-	default:
-		return f8ExitUsage
-	}
-}
-
 func runConnectors(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("connectors", flag.ContinueOnError)
 	fs.SetOutput(stderr)

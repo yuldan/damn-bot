@@ -4,11 +4,17 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -92,9 +98,7 @@ func TestF8CLI050Pets(t *testing.T) {
 		t.Fatalf("idempotent install = %d %q", code, out)
 	}
 	petsLifecycleChecks(t, data)
-	if code, _, errs := runF8CLI(t, runPets, "--data-dir", data, "install", "remote", "--url", "https://petdex.invalid/x"); code != f8ExitUnavailable || !strings.Contains(errs, "module_unavailable") {
-		t.Fatalf("remote install = %d %q", code, errs)
-	}
+	petsRemoteChecks(t, data)
 	big := filepath.Join(t.TempDir(), "big.bin")
 	if err := os.WriteFile(big, bytes.Repeat([]byte{1}, f8PetAssetMax+1), 0o600); err != nil {
 		t.Fatal(err)
@@ -139,6 +143,83 @@ func petsLifecycleChecks(t *testing.T, data string) {
 	if code, out, _ := runF8CLI(t, runPets, "--data-dir", data, "remove", "byte"); code != f8ExitOK || out != "" {
 		t.Fatalf("idempotent remove = %d %q", code, out)
 	}
+}
+
+// petsRemoteChecks installs from an opt-in fake petdex server and proves the
+// default local path never dials (CLI-050, UI-010).
+func petsRemoteChecks(t *testing.T, data string) {
+	t.Helper()
+	srv, hits, sum, asset := petsFakeServer(t)
+	defer srv.Close()
+	petsRemoteInstallCheck(t, data, srv.URL, hits, sum)
+	petsLocalNoDialCheck(t, data, hits, asset)
+	petsRemoteRefusalCheck(t, data, srv.URL)
+}
+
+func petsFakeServer(t *testing.T) (*httptest.Server, *atomic.Int32, [32]byte, []byte) {
+	t.Helper()
+	asset := bytes.Repeat([]byte{7}, 48)
+	sum := sha256.Sum256(asset)
+	hits := &atomic.Int32{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		switch r.URL.Path {
+		case "/manifest.json":
+			if _, err := fmt.Fprintf(w, `{"pets":[{"slug":"remote","description":"a remote pet","style":"pixel","asset":"/pets/remote.bin","sha256":"%x"}]}`, sum); err != nil {
+				return
+			}
+		case "/pets/remote.bin":
+			if _, err := w.Write(asset); err != nil {
+				return
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	return srv, hits, sum, asset
+}
+
+func petsRemoteInstallCheck(t *testing.T, data, base string, hits *atomic.Int32, sum [32]byte) {
+	t.Helper()
+	if code, out, errs := runF8CLI(t, runPets, "--data-dir", data, "install", "remote", "--url", base+"/manifest.json"); code != f8ExitOK || !strings.Contains(out, "installed remote sha256="+hex.EncodeToString(sum[:])) || !strings.Contains(out, "style=pixel") {
+		t.Fatalf("remote install = %d %q %q", code, out, errs)
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("petdex hits = %d, want 2", hits.Load())
+	}
+	if code, out, _ := runF8CLI(t, runPets, "--data-dir", data, "show", "remote"); code != f8ExitOK || !strings.Contains(out, "description: a remote pet") || !strings.Contains(out, "style: pixel") {
+		t.Fatalf("show remote = %d %q", code, out)
+	}
+}
+
+func petsLocalNoDialCheck(t *testing.T, data string, hits *atomic.Int32, asset []byte) {
+	t.Helper()
+	before := hits.Load()
+	if code, _, _ := runF8CLI(t, runPets, "--data-dir", data, "install", "local", "--from", writePetAsset(t, asset)); code != f8ExitOK {
+		t.Fatalf("local install = %d", code)
+	}
+	if hits.Load() != before {
+		t.Fatal("local install dialed petdex")
+	}
+}
+
+func petsRemoteRefusalCheck(t *testing.T, data, base string) {
+	t.Helper()
+	if code, _, errs := runF8CLI(t, runPets, "--data-dir", data, "install", "bad", "--url", "http://petdex.invalid/x"); code != f8ExitUsage || !strings.Contains(errs, "loopback") {
+		t.Fatalf("remote http = %d %q", code, errs)
+	}
+	if code, _, _ := runF8CLI(t, runPets, "--data-dir", data, "install", "ghost", "--url", base+"/manifest.json"); code != f8ExitUsage {
+		t.Fatalf("unknown remote pet = %d", code)
+	}
+}
+
+func writePetAsset(t *testing.T, data []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "pet.bin")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestF8CLI049Curator(t *testing.T) {
