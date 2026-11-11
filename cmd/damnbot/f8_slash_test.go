@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/auto"
 	"github.com/damnbot/damnbot/internal/gateway"
@@ -250,6 +251,16 @@ func TestF8SLASH034Loop(t *testing.T) {
 	}
 	if got := cmds.Dispatch(ctx, owner, "/loop 30 x --times 1001"); !strings.Contains(got.Reply, "1..1000") {
 		t.Fatalf("times cap = %q", got.Reply)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/loop 30 x --until nope"); !strings.Contains(got.Reply, "RFC3339") {
+		t.Fatalf("until format = %q", got.Reply)
+	}
+	until := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	if got := cmds.Dispatch(ctx, owner, "/loop 30 until prompt --until "+until); !strings.Contains(got.Reply, "interval=30s") {
+		t.Fatalf("until set = %q", got.Reply)
+	}
+	if got := cmds.Dispatch(ctx, owner, "/loop status"); !strings.Contains(got.Reply, "until prompt") {
+		t.Fatalf("until status = %q", got.Reply)
 	}
 	if got := cmds.Dispatch(ctx, owner, "/loop clear"); !strings.Contains(got.Reply, "cleared") {
 		t.Fatalf("clear = %q", got.Reply)

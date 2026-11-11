@@ -263,7 +263,7 @@ Sumber: `hermes_cli/commands.py` (103 `CommandDef`). Deskripsi verbatim hermes, 
 | SLASH-099 | `/image` | Attach a local image file for your next prompt | `hermes_cli/commands.py:336` | tersedia (CLI-only); kategori Info | — | args `<path>` | F6 | LULUS |
 | SLASH-100 | `/update` | Update Hermes Agent to the latest version | `hermes_cli/commands.py:338` | tersedia (CLI + gateway); kategori Info | — |  | F3 | planned |
 | SLASH-101 | `/version` | Show Hermes Agent version | `hermes_cli/commands.py:340` | tersedia (CLI + gateway); kategori Info | — | alias: /v | F3 | planned |
-| SLASH-102 | `/debug` | Upload debug report (system info + logs) and get shareable links | `hermes_cli/commands.py:342` | tersedia (CLI + gateway); kategori Info | — | args `[nous\\|local]` | F8 | planned |
+| SLASH-102 | `/debug` | Upload debug report (system info + logs) and get shareable links | `hermes_cli/commands.py:342` | tersedia (CLI + gateway); kategori Info | — | args `[nous\\|local]` | F8 | LULUS |
 | SLASH-103 | `/quit` | Exit the CLI (use --delete to also remove session history) | `hermes_cli/commands.py:346` | tersedia (CLI-only); kategori Exit | — | alias: /exit; args `[--delete]` | F3 | planned |
 
 ## 2a. TOOL — tool terdaftar di registry
@@ -707,7 +707,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | UI-012 | TUI (Ink/React) | TUI berbasis Node/Ink via tui_gateway JSON-RPC | `ui-tui/package.json`, `tui_gateway/entry.py`, `hermes_cli/main_tui_launch.py` | opt-in (`--tui` / `display.interface`) | Node.js | paket `ui-tui/packages/hermes-ink` | F3 | planned |
 | UI-013 | tui_gateway (backend RPC) | Server RPC sesi untuk TUI/desktop | `tui_gateway/entry.py` | on bila TUI/desktop dipakai | — | ~94 modul | F3 | planned |
 | UI-014 | Web dashboard | Dashboard web (React+Vite) dilayani FastAPI | `web/package.json`, `hermes_cli/web_server.py`, `hermes_cli/web_server_app.py` | opt-in (`hermes dashboard`) | extra `web` (fastapi, uvicorn), Node build |  | F8 | LULUS |
-| UI-015 | Dashboard auth providers | Auth dashboard: basic, drain, Nous OAuth, OIDC self-hosted | `plugins/dashboard_auth/basic/plugin.yaml`, `plugins/dashboard_auth/nous/plugin.yaml`, `plugins/dashboard_auth/self_hosted/plugin.yaml`, `plugins/dashboard_auth/drain/plugin.yaml` | opt-in | env HERMES_DASHBOARD_* | 4 backend | F8 | planned |
+| UI-015 | Dashboard auth providers | Auth dashboard: basic, drain, Nous OAuth, OIDC self-hosted | `plugins/dashboard_auth/basic/plugin.yaml`, `plugins/dashboard_auth/nous/plugin.yaml`, `plugins/dashboard_auth/self_hosted/plugin.yaml`, `plugins/dashboard_auth/drain/plugin.yaml` | opt-in | env HERMES_DASHBOARD_* | 4 backend | F8 | LULUS |
 | UI-016 | Headless backend `hermes serve` | Backend server tanpa UI untuk desktop/remote | `hermes_cli/subcommands/dashboard.py:59` | opt-in | extra `web` |  | F8 | LULUS |
 | UI-017 | Desktop app (Electron) | Shell desktop native: pane terminal/preview, projects | `apps/desktop/package.json`, `hermes_cli/main_desktop.py` | opt-in (`hermes desktop`, alias `gui`) | Electron 40, Node.js | toolset desktop_ui/project/catalog | F8 | LULUS |
 | UI-018 | Bootstrap installer (Tauri) | Installer GUI bootstrap | `apps/bootstrap-installer/src-tauri/tauri.conf.json` | opt-in | Rust/Tauri |  | F9 | planned |

@@ -309,3 +309,53 @@ func curatorBackupChecks(t *testing.T, data string) {
 		t.Fatalf("rollback kept later pin: %q", out)
 	}
 }
+
+// TestF8CLI049CuratorSubcommands covers the closed 17-subcommand surface
+// (CLI-049) without network: every name is dispatched, no name reaches the
+// unknown-subcommand branch, and bare/unknown invocations stay usage errors.
+func TestF8CLI049CuratorSubcommands(t *testing.T) {
+	data := t.TempDir()
+	old := time.Now().Add(-31 * 24 * time.Hour).Unix()
+	if err := skills.AppendLedger(data, &skills.LedgerEntry{At: old, Name: "alpha", SHA256: "a", Source: "/s", Action: "indexed"}); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(data, "subcommands-backup.json")
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"status", nil},
+		{"usage", nil},
+		{"run", nil},
+		{"pause", nil},
+		{"resume", nil},
+		{"pin", []string{"alpha"}},
+		{"unpin", []string{"alpha"}},
+		{"list-unmanaged", nil},
+		{"adopt", []string{"alpha"}},
+		{"list-archived", nil},
+		{"archive", []string{"alpha"}},
+		{"restore", []string{"alpha"}},
+		{"prune", nil},
+		{"backup", []string{"--out", backup}},
+		{"rollback", []string{"--from", backup}},
+		{"ledger", nil},
+		{"purge", []string{"--yes"}},
+	}
+	if len(cases) != 17 {
+		t.Fatalf("subcommands = %d, want 17", len(cases))
+	}
+	for _, tc := range cases {
+		args := append([]string{"--data-dir", data, tc.name}, tc.args...)
+		_, out, errs := runF8CLI(t, runCurator, args...)
+		if strings.Contains(out+errs, "unknown subcommand") {
+			t.Fatalf("%s rejected: %q %q", tc.name, out, errs)
+		}
+	}
+	if code, _, errs := runF8CLI(t, runCurator, "--data-dir", data); code != f8ExitUsage {
+		t.Fatalf("bare = %d %q", code, errs)
+	}
+	if code, _, errs := runF8CLI(t, runCurator, "--data-dir", data, "nope"); code != f8ExitUsage || !strings.Contains(errs, "unknown subcommand") {
+		t.Fatalf("unknown = %d %q", code, errs)
+	}
+}
