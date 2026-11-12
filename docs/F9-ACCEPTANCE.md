@@ -33,7 +33,7 @@ Kontrak yang sama untuk semua baris: artefak rilis dibangun dari resep tunggal (
 | UI-018 | Bootstrap installer (script) | `install.sh`/`install.ps1` ≤ 150 baris POSIX/PowerShell, unduh→verifikasi `SHA256SUMS` + `.minisig` (ed25519) sebelum ekstrak/eksekusi, tanpa pipe-to-shell, artefak ditandatangani, 0 Node/Electron/Rust | `TestF9UI018BootstrapInstaller`, `TestInstallerRejectsTamper` | BELUM | menggantikan Tauri (SPEC:844) |
 | OPS-029 | Docker image & compose | image resmi 1 stage `FROM scratch`/distroless; compose opt-in; healthcheck `doctor health --ready` | `TestF9OPS029DockerCompose` | LULUS | GAP-SEC-22/GAP-INF-03 |
 | OPS-030 | Nix flake | `flake.nix` membangun binary yang sama; dev shell tidak menambah dependency runtime | `TestF9OPS030NixFlake` | BELUM | — |
-| OPS-031 | Termux/Android | build + unit di QEMU, smoke Termux arm64; 0 syscall Linux-desktop | `TestF9OPS031Termux` | BELUM | OS matrix |
+| OPS-031 | Termux/Android | build + unit di QEMU, smoke Termux arm64; 0 syscall Linux-desktop | `TestF9OPS031Termux` | LULUS | OS matrix |
 | OPS-032 | Installer scripts | `install.sh`/`install.ps1` ≤ 150 baris POSIX/PowerShell; unduh→verifikasi→jalankan tanpa pipe-to-shell | `TestF9OPS032InstallerScripts`, `TestInstallerRejectsTamper` | BELUM | GAP-SEC-19/GAP-OPS-03 |
 
 ## 3. GAP F9 (8) — SPEC §22.1
