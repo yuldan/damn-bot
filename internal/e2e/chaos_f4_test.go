@@ -173,7 +173,14 @@ func killServe9(t *testing.T, p *serveProc) {
 // no corruption before recovery, the inbound row exactly once, the open turn
 // recovered to a terminal status, and no duplicated event or Telegram message.
 func chaosKill9MidTurn(t *testing.T) {
-	rounds := chaosRounds(t)
+	chaosKill9Rounds(t, chaosRounds(t))
+}
+
+// chaosKill9Rounds is the shared kill -9 loop: the F4 acceptance runs
+// chaosRounds(t) (200 by default, 1.000 via make chaos) and the F9 full chaos
+// suite runs its own count. The assertions are identical, so both gates judge
+// the same durable-state invariants.
+func chaosKill9Rounds(t *testing.T, rounds int) {
 	e := New(t)
 	tg := NewFakeTG(t, FakeTGOptions{})
 	p := startGatewayServe(t, e, tg)

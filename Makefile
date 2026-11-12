@@ -33,7 +33,7 @@ CORPORA ?= C1 C2 C3 rg
 CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORPUS_C1=$(CORPORA_DIR)/C1 \
 	DAMNBOT_CORPUS_C3=$(CORPORA_DIR)/C3 $(if $(filter C2,$(CORPORA)),DAMNBOT_CORPUS_C2=$(CORPORA_DIR)/C2)
 
-.PHONY: all build build-minimal-all build-matrix lint vet-custom test test-windows-evidence test-timing archtest vet-cross size-check loc loc-ratio chaos \
+.PHONY: all build build-minimal-all build-matrix lint vet-custom test test-windows-evidence test-timing archtest vet-cross size-check loc loc-ratio chaos soak chaos-full \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
 	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker image-test release ci-required ci-required-test deadcode-linux agent-guard-test
@@ -244,6 +244,33 @@ chaos:
 	@ulimit -v 8388608 2>/dev/null || true; \
 	nice -n 19 env GOMAXPROCS=2 DAMNBOT_CHAOS_ROUNDS=$(CHAOS_ROUNDS) \
 		go test $(GOTAGS) -count=1 -timeout $(CHAOS_TIMEOUT) -run '^TestChaosF4$$' -v ./internal/e2e
+
+# F9 soak (ROADMAP F9, SPEC §22.1:2747, P18): the real serve binary against
+# three fake platform surfaces (Telegram polling, signed generic webhook and the
+# api-server child), 1.000 turns over SOAK_HOURS, then 0 goroutine/FD leak,
+# RSS growth < 20 %, exactly-once transcript and integrity_check = ok. The
+# nightly profile is 1 h / 1.000 turns; the release acceptance run is
+# `make soak SOAK_HOURS=24` on the dedicated host. For the one-minute CI smoke
+# run `DAMNBOT_SOAK=1 go test -run '^TestF9Soak24h$$' ./internal/e2e` without
+# the make target. Artefact: bench/f9/results/soak-*.json.
+SOAK_HOURS ?= 1
+SOAK_TURNS ?= 1000
+SOAK_TIMEOUT ?= 150m
+soak:
+	@ulimit -v 8388608 2>/dev/null || true; \
+	nice -n 19 env GOMAXPROCS=2 DAMNBOT_SOAK=1 DAMNBOT_SOAK_HOURS=$(SOAK_HOURS) DAMNBOT_SOAK_TURNS=$(SOAK_TURNS) \
+		go test $(GOTAGS) -count=1 -timeout $(SOAK_TIMEOUT) -run '^TestF9Soak24h$$' -v ./internal/e2e
+
+# F9 full chaos (SPEC §22.1:2746, P19/P22): kill -9 x CHAOS_KILLS, network cut,
+# full tmpfs, corrupt config/DB, reboot, clean gateway restart and the 50-client
+# multi-process window. `make chaos-full CHAOS_KILLS=1000` is the acceptance
+# count; the default 50 is the CI profile. Artefact: bench/f9/results/chaos-*.json.
+CHAOS_KILLS ?= 50
+CHAOS_FULL_TIMEOUT ?= 60m
+chaos-full:
+	@ulimit -v 8388608 2>/dev/null || true; \
+	nice -n 19 env GOMAXPROCS=2 DAMNBOT_CHAOS_KILLS=$(CHAOS_KILLS) \
+		go test $(GOTAGS) -count=1 -timeout $(CHAOS_FULL_TIMEOUT) -run '^TestF9ChaosFull$$' -v ./internal/e2e
 
 # GAP-REL-03: 50-client chaos untuk window nightly penuh (PR memakai default singkat).
 # `-timeout 40m` wajib: sebelum PR ini target memakai window 30 m dengan batas default

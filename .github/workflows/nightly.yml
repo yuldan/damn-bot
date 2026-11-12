@@ -87,6 +87,29 @@ jobs:
           go-version-file: go.mod
       - run: make chaos-nightly
 
+  # F9 soak (SPEC §22.1:2747, P18): profil nightly 1 jam / 1.000 turn terhadap
+  # tiga fake platform, dengan artefak bench/f9/results/soak-*.json. Profil
+  # acceptance 24 jam TIDAK dijalankan di runner hosted (batas 6 jam): rilis
+  # menjalankan `make soak SOAK_HOURS=24` di host khusus, dan baris agregat §1
+  # baru boleh LULUS setelah artefak run tersebut ada.
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make soak
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: f9-soak
+          path: bench/f9/results/
+          retention-days: 14
+
   ct09:
     runs-on: ubuntu-latest
     timeout-minutes: 15
