@@ -65,7 +65,7 @@ func TestF7PLAT007Feishu(t *testing.T) {
 	}
 	a, err := New(t.Context(), &Config{Enabled: true, API: srv.URL}, &desc,
 		secrets{"feishu_app_id": "app", "feishu_app_secret": "secret", "feishu_verification_token": "verify"},
-		newOutbox(t, "feishu"), gwplat.HandlerFunc(func(_ context.Context, in *gateway.Inbound) error {
+		newOutbox(t), gwplat.HandlerFunc(func(_ context.Context, in *gateway.Inbound) error {
 			got = append(got, *in)
 			return nil
 		}))
@@ -120,7 +120,7 @@ func feishuWS(t *testing.T, desc *gwplat.Descriptor, api string) {
 	defer wsSrv.Close()
 	wa, err := New(t.Context(), &Config{Enabled: true, API: api, WSURL: "ws" + strings.TrimPrefix(wsSrv.URL, "http")}, desc,
 		secrets{"feishu_app_id": "app", "feishu_app_secret": "secret", "feishu_verification_token": "verify"},
-		newOutbox(t, "feishu"), gwplat.HandlerFunc(func(_ context.Context, in *gateway.Inbound) error { ch <- *in; return nil }))
+		newOutbox(t), gwplat.HandlerFunc(func(_ context.Context, in *gateway.Inbound) error { ch <- *in; return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
