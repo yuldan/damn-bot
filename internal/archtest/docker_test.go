@@ -151,15 +151,20 @@ func checkDockerIdentity(t *testing.T, final dockerStage) {
 	if user == nil || len(user.Arg) != 1 || user.Arg[0] != "65532:65532" {
 		t.Fatalf("USER runtime = %v, want 65532:65532 (distroless nonroot)", user)
 	}
+	checkDockerHealthcheck(t, final)
+	entry := stageInstruction(final, "ENTRYPOINT")
+	if entry == nil || !strings.Contains(entry.Raw, `["/damnbot"]`) {
+		t.Fatalf("ENTRYPOINT = %v, want [\"/damnbot\"]", entry)
+	}
+}
+
+func checkDockerHealthcheck(t *testing.T, final dockerStage) {
+	t.Helper()
 	health := stageInstruction(final, "HEALTHCHECK")
 	if health == nil || !strings.Contains(health.Raw, `["/damnbot"`) ||
 		!strings.Contains(health.Raw, `"doctor"`) || !strings.Contains(health.Raw, `"health"`) ||
 		!strings.Contains(health.Raw, `"--ready"`) {
 		t.Fatalf("HEALTHCHECK = %v, want exec-form /damnbot doctor health --ready (REL-17)", health)
-	}
-	entry := stageInstruction(final, "ENTRYPOINT")
-	if entry == nil || !strings.Contains(entry.Raw, `["/damnbot"]`) {
-		t.Fatalf("ENTRYPOINT = %v, want [\"/damnbot\"]", entry)
 	}
 }
 
@@ -188,7 +193,11 @@ func checkDockerBuildStage(t *testing.T, build dockerStage) {
 // only the documented opt-in outside this file.
 func TestDockerNoSocketMount(t *testing.T) {
 	t.Parallel()
-	raw := readRepoFile(t, "docker-compose.yml")
+	checkCompose(t, readRepoFile(t, "docker-compose.yml"))
+}
+
+func checkCompose(t *testing.T, raw string) {
+	t.Helper()
 	var doc map[string]any
 	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
 		t.Fatalf("docker-compose.yml tidak valid: %v", err)
