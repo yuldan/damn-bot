@@ -692,6 +692,13 @@ jobs:
   # `full` (merge_group/nightly via workflow_call/workflow_dispatch) karena
   # emulasi lebih lambat dari runner native; wiring ini dijaga
   # TestF9OSMatrix + TestNightlyOSMatrixWired dan wajib di ci-required.
+  # Tiga tes multi-proses/chaos ctxdb di-skip HANYA di QEMU (lihat
+  # scripts/os-matrix-qemu.sh): TestMultiProcess, TestConcurrencyF2, dan
+  # TestSharedLeaseWaitDetectsUnreleasedOwner memakai heartbeat lease 1 s
+  # terhadap TTL 10 s sehingga mengasumsikan penjadwalan native. Ketiganya
+  # berjalan tanpa skip di job `test` run yang sama (ubuntu-latest,
+  # ubuntu-24.04-arm, windows-latest, windows-11-arm) dan di chaos nightly
+  # (-count=20); emulasi tetap menjalankan sisa suite inti.
   os-matrix-qemu:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier == 'full'
