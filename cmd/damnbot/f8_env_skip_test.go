@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"testing"
@@ -22,4 +23,19 @@ func f8RunnerEnvironmentSkip(t *testing.T, format string, args ...any) {
 // artifact-path mismatch was observed (macos-15-intel passes).
 func f8DarwinArmRunner() bool {
 	return runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" && os.Getenv("CI") != ""
+}
+
+// f8ReadDebugArtifact reads the path printed by /debug share; on the known
+// macOS arm64 runner-image mismatch it records the environment skip instead of
+// a bare test failure.
+func f8ReadDebugArtifact(t *testing.T, path string) ([]byte, error) {
+	t.Helper()
+	body, err := os.ReadFile(path) // #nosec G304 -- fixture path printed by the command
+	if err != nil && f8DarwinArmRunner() {
+		f8RunnerEnvironmentSkip(t, "artifact %s not visible: %v", path, err)
+	}
+	if err != nil {
+		return body, fmt.Errorf("read debug artifact %s: %w", path, err)
+	}
+	return body, nil
 }

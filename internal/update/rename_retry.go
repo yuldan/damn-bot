@@ -13,7 +13,8 @@ func retryRename(attempts int, delay time.Duration, op func() error, retryable f
 			return err
 		}
 		if i+1 < attempts {
-			time.Sleep(delay)
+			timer := time.NewTimer(delay)
+			<-timer.C
 		}
 	}
 	return err
