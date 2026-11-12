@@ -8,17 +8,18 @@ import (
 
 // f9DeferredMarker adalah satu-satunya penanda ADR yang mengizinkan baris
 // deferred berubah status/fase. ADR owner menulis satu baris
-// `F9-DEFERRED-121: <ID>` (beberapa ID boleh dalam satu baris) di
+// `F9-DEFERRED-184: <ID>` (beberapa ID boleh dalam satu baris) di
 // docs/DECISIONS.md.
-const f9DeferredMarker = "F9-DEFERRED-121:"
+const f9DeferredMarker = "F9-DEFERRED-184:"
 
-// f9ParityDeferred121 mengembalikan 121 baris parity F1–F5 yang fiturnya belum
-// ada saat PHASE=F9 (laporan backfill F1–F5, 2026-11-12). Daftar ini SENGAJA
-// literal: baris-baris ini tidak boleh berubah status/fase diam-diam oleh
-// backfill atau PR lain. Satu-satunya cara mengubahnya adalah ADR owner yang
-// menulis penanda `F9-DEFERRED-121: <ID>` di docs/DECISIONS.md; ADR itu juga
-// wajib memperbarui daftar ini (test menghitung tepat 121 ID, tanpa duplikat).
-func f9ParityDeferred121() []string {
+// f9ParityDeferred184 mengembalikan 184 baris parity F1–F5 yang fiturnya belum
+// ada saat PHASE=F9 (ADR-350: 121 deferred ADR-349 + 63 residual). Daftar ini
+// SENGAJA literal: baris-baris ini tidak boleh berubah status/fase diam-diam
+// oleh backfill atau PR lain. Satu-satunya cara mengubahnya adalah ADR owner
+// yang menulis penanda `F9-DEFERRED-184: <ID>` di docs/DECISIONS.md; ADR itu
+// juga wajib memperbarui daftar ini (test menghitung tepat 184 ID, tanpa
+// duplikat).
+func f9ParityDeferred184() []string {
 	return []string{
 		"AUTO-021", "AUTO-022", "AUTO-024", "CLI-003", "CLI-004", "CLI-005",
 		"CLI-007", "CLI-008", "CLI-010", "CLI-013", "CLI-020", "CLI-021",
@@ -41,29 +42,48 @@ func f9ParityDeferred121() []string {
 		"SLASH-087", "SLASH-088", "SLASH-097", "SLASH-100", "SLASH-101", "SLASH-103",
 		"TSET-008", "TSET-013", "UI-009", "UI-013", "UI-025", "UI-027",
 		"UI-028",
+		"CLI-002", "CLI-011", "CLI-031", "CLI-042", "CLI-046", "CLI-048",
+		"CLI-057", "CLI-059", "CLI-061", "CLI-066", "SLASH-010", "SLASH-018",
+		"SLASH-020", "SLASH-029", "SLASH-038", "SLASH-047", "SLASH-053", "SLASH-065",
+		"SLASH-081", "TOOL-021", "TSET-007", "TSET-012", "TSET-044", "TSET-045",
+		"TSET-062", "PROV-012", "PROV-015", "PROV-016", "PROV-031", "PROV-033",
+		"PROV-037", "PROV-041", "PROV-047", "PROV-063", "PROV-064", "PROV-065",
+		"PROV-066", "PROV-067", "PROV-068", "PROV-069", "PROV-070", "PROV-071",
+		"PROV-072", "PROV-076", "MEM-020", "SKILL-008", "AUTO-023", "UI-001",
+		"PLUG-010", "PLUG-032", "EXEC-013", "EXEC-015", "EXEC-019", "EXEC-022",
+		"EXEC-024", "EXEC-035", "EXEC-043", "OPS-013", "GW-024", "CORE-009",
+		"CORE-012", "CORE-015", "CORE-019",
 	}
 }
 
-// TestF9ParityDeferred121 mem-pin 121 baris F1–F5 yang belum punya fitur.
-// Test gagal bila satu baris hilang, berubah fase, atau berubah status tanpa
-// ADR bermarker; gate 837/837 dan denominator 854 tidak disentuh.
-func TestF9ParityDeferred121(t *testing.T) {
+// TestF9ParityDeferred184 mem-pin 184 baris F1–F5 yang belum punya fitur dan
+// dire-fase ke F10 oleh ADR-350. Test gagal bila satu baris hilang, berubah
+// fase, atau berubah status tanpa ADR bermarker; gate 837/837 dan denominator
+// 854 tidak disentuh.
+func TestF9ParityDeferred184(t *testing.T) {
 	t.Parallel()
 
-	ids := f9ParityDeferred121()
-	if len(ids) != 121 {
-		t.Fatalf("daftar deferred = %d ID, want 121", len(ids))
+	ids := f9ParityDeferred184()
+	if len(ids) != 184 {
+		t.Fatalf("daftar deferred = %d ID, want 184", len(ids))
 	}
 	checkDeferredList(t, ids)
 
 	phase, status := f9ParityRowState(t, readRepoFile(t, "docs/FEATURE-PARITY.md"))
 	decisions := readRepoFile(t, "docs/DECISIONS.md")
 	for _, id := range ids {
-		if f9DeferredUnchanged(id, phase, status) || f9DeferredApproved(decisions, id) {
+		if f9DeferredUnchanged(id, phase, status) {
 			continue
 		}
-		t.Errorf("%s: deferred F9 berubah tanpa ADR %q (fase=%s status=%s)",
-			id, f9DeferredMarker, phase[id], status[id])
+		if !f9DeferredApproved(decisions, id) {
+			t.Errorf("%s: deferred F9 berubah tanpa ADR %q (fase=%s status=%s)",
+				id, f9DeferredMarker, phase[id], status[id])
+			continue
+		}
+		if !strings.HasPrefix(status[id], "N/A — ") {
+			t.Errorf("%s: disetujui ADR %q tetapi status bukan `N/A — …` (status=%s)",
+				id, f9DeferredMarker, status[id])
+		}
 	}
 }
 
