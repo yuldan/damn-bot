@@ -455,8 +455,13 @@ func sessionsBackupCreate(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	out := fs.String("out", "", "archive path (default <data_dir>/backups/)")
 	secrets := fs.Bool("include-secrets", false, "include <config_dir>/secrets.enc")
+	portable := fs.Bool("portable", false, "write a portable config+skills+approved-memory archive (no secrets)")
 	dataDir := fs.String("data-dir", "", "override the data directory")
 	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *portable && *secrets {
+		writeln(stderr, "sessions backup create: --portable does not include secrets")
 		return 2
 	}
 	p, err := sessionPaths(*dataDir)
@@ -477,6 +482,16 @@ func sessionsBackupCreate(args []string, stdout, stderr io.Writer) int {
 	if cerr != nil {
 		key.Zero()
 		return fail(stderr, "sessions backup create", cerr)
+	}
+	if *portable {
+		counts, written, perr := exportPortable(ctx, p, *out, key, codec)
+		if perr != nil {
+			return fail(stderr, "sessions backup create", perr)
+		}
+		if _, werr := fmt.Fprintf(stdout, "%s\nkey %s\narchive: %s\n", safe(written), safe(key.ID), portableReportLine(counts, false)); werr != nil {
+			return 1
+		}
+		return 0
 	}
 	res, err := backup.Create(ctx, &backup.CreateOptions{
 		DataDir: p.DataDir, ConfigDir: p.ConfigDir, Out: *out, App: version,
