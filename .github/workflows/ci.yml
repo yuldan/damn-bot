@@ -24,7 +24,8 @@
 # 2026-11-09) menjadi 6 saat kode berubah — bukan tier penuh, karena run main tidak bisa dibatalkan dan
 # tidak boleh menyerap biaya gate PR. `merge_group`, nightly (`workflow_call`), dan `workflow_dispatch` = tier
 # `full`: matrix enam target + seluruh gate berat (`test-timing`, `deadcode`, `portability` =
-# vet-cross + build-matrix, `fuzz`, `perf`, `coverage`, `bench-parity`). Merge queue menjalankan tier
+# vet-cross + build-matrix, `fuzz`, `perf`, `coverage`, `bench-parity`) + `os-matrix-qemu`
+# (linux/arm & android/arm64 menjalankan suite inti di QEMU, F9/ADR-073). Merge queue menjalankan tier
 # penuh SEBELUM merge; selama queue belum aktif (repo user-owned), regresi OS-spesifik/gate berat
 # terdeteksi di nightly + `workflow_dispatch`, dan `push main` boleh dinaikkan ke tier penuh saat queue
 # diaktifkan. `ci-required` memeriksa himpunan gate yang WAJIB per konteks (`pr`/`smoke`/`full`): gate
@@ -646,8 +647,9 @@ jobs:
 
   # GAP-REL-04 (ADR-132/ADR-187): the embedded SQLite engine must satisfy
   # REL-04 (>= 3.51.3 + FTS5/trigram/json_valid) on all 8 canonical E-39
-  # targets. Enam target punya hosted runner; linux/arm dan android/arm64
-  # memakai cross-compile sampai QEMU (F9, ADR-073). ADR-324 amandemen: tier
+  # targets. Enam target punya hosted runner; linux/arm dan android/arm64 tetap
+  # cross-compile di sini, sedangkan suite inti kedua target itu benar-benar
+  # dieksekusi di QEMU oleh job `os-matrix-qemu` (F9, ADR-073). ADR-324 amandemen: tier
   # `pr` hanya tiga target Linux (linux/amd64 run + linux/arm & android/arm64
   # cross); lima leg berrunner mahal (arm64 Linux, dua macOS, dua Windows) ikut
   # tier `full` karena matrix ini bukan lagi gate murah. Job dan nama gate tidak
@@ -672,12 +674,83 @@ jobs:
       - name: Engine probe (${{ matrix.target }})
         if: matrix.mode == 'run'
         run: make sqlite-engine
-      - name: Cross-compile (${{ matrix.target }}, no runner; QEMU at F9)
+      - name: Cross-compile engine (${{ matrix.target }}, no runner; core suite in os-matrix-qemu)
         if: matrix.mode == 'cross'
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
         run: make sqlite-engine-cross GOOS="${TARGET%/*}" GOARCH="${TARGET#*/}"
+
+  # ROADMAP F9 (OS matrix) + ADR-073: dua target E-39 tanpa runner hosted
+  # benar-benar MENJALANKAN suite inti di QEMU user-static, bukan hanya
+  # cross-compile. Test binary dikompilasi di host (`go test -c`,
+  # scripts/os-matrix-qemu.sh) lalu dieksekusi di userspace arch target:
+  #   linux/arm     → image Go resmi arm/v7 (golang:1.26.11-bookworm)
+  #   android/arm64 → termux-docker arm64 (bionic linker /system/bin/linker64,
+  #                   tanpa itu binary GOOS=android tidak bisa start)
+  # `docker/setup-qemu-action` mendaftarkan binfmt untuk kedua arch. Hanya tier
+  # `full` (merge_group/nightly via workflow_call/workflow_dispatch) karena
+  # emulasi lebih lambat dari runner native; wiring ini dijaga
+  # TestF9OSMatrix + TestNightlyOSMatrixWired dan wajib di ci-required.
+  os-matrix-qemu:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier == 'full'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux/arm
+            platform: linux/arm/v7
+            qemu: arm
+            image: golang:1.26.11-bookworm@sha256:4bb2ad2f81f27ede1543b848fb2c0792979d84341c74825b5e997b0cc3c6aedb
+          - target: android/arm64
+            platform: linux/arm64
+            qemu: arm64
+            image: termux/termux-docker:arm64@sha256:d0415618cbbf8433a23cf5bddb198eeb62bcba1243ccfc1d015b2f464bd609d5
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        with:
+          platforms: ${{ matrix.qemu }}
+      - name: Kompilasi test binary inti (${{ matrix.target }})
+        run: scripts/os-matrix-qemu.sh build "${{ matrix.target }}"
+      - name: Jalankan suite inti di QEMU (${{ matrix.target }})
+        env:
+          TARGET: ${{ matrix.target }}
+          PLATFORM: ${{ matrix.platform }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          # linux/arm: binary GOOS=linux statis langsung dieksekusi di image Go arm/v7.
+          # android/arm64: binary GOOS=android butuh bionic linker (/system/bin/linker64,
+          # dibawa termux-docker) dan test inti memakai path Linux desktop (/bin/sh, /tmp),
+          # jadi rootfs container disiapkan dulu sebagai root lewat entrypoint_root.sh.
+          if [ "$TARGET" = android/arm64 ]; then
+            docker run --rm --platform "$PLATFORM" --entrypoint /entrypoint_root.sh \
+              -v "$GITHUB_WORKSPACE:/src" -w /src \
+              -e TARGET="$TARGET" \
+              "$IMAGE" sh -c '
+                set -e
+                if [ ! -e /bin ] && [ ! -L /bin ]; then ln -s "$PREFIX/bin" /bin; fi
+                [ -e /bin/sh ] || ln -s "$PREFIX/bin/sh" /bin/sh
+                mkdir -p /usr
+                if [ ! -e /usr/bin ] && [ ! -L /usr/bin ]; then ln -s "$PREFIX/bin" /usr/bin; fi
+                if [ ! -e /tmp ] && [ ! -L /tmp ]; then ln -s "$PREFIX/tmp" /tmp; fi
+                cd /src && exec sh scripts/os-matrix-qemu.sh run "$TARGET"'
+          else
+            docker run --rm --platform "$PLATFORM" \
+              -v "$GITHUB_WORKSPACE:/src" -w /src \
+              -e TARGET="$TARGET" \
+              "$IMAGE" sh -c 'cd /src && sh scripts/os-matrix-qemu.sh run "$TARGET"'
+          fi
 
   # ADR-135 butir 2 + ADR-324: satu-satunya status `ci` yang wajib di branch protection. Selalu
   # berjalan (termasuk docs-only) dan lulus hanya bila gate yang WAJIB untuk konteks ini `success`
@@ -705,6 +778,7 @@ jobs:
       - supply
       - skill-refs
       - sqlite-engine
+      - os-matrix-qemu
       - smoke
     runs-on: ubuntu-latest
     timeout-minutes: 5

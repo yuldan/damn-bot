@@ -17,3 +17,6 @@ bench/h2h/results/.ledger-*
 
 # State per task eval F2 (SQLite; artefak yang di-commit hanya summary.json).
 bench/h2h/results/*/data/
+
+# Test binary QEMU OS matrix (scripts/os-matrix-qemu.sh; CI-only).
+/.qemu-tests/

@@ -20,7 +20,7 @@ Aturan gate:
 | Gate parity 837/837 | seluruh 837 baris penyebut gate (854 baris − 17 `dropped-with-approval`) berstatus `LULUS`; backfill F1–F5 (493 baris yang masih `planned`) ditutup oleh PR backfill terpisah; `TestParityPhaseColumn` tetap hijau | `TestParityPhaseColumn` (`internal/archtest/parity_phase_test.go:86`) + `docs/FEATURE-PARITY.md` audit 837/837 | BELUM |
 | GAP-SWEEP 118/118 | 118/118 requirement SPEC §22.1 terverifikasi dengan resolusi ADR-033/ADR-034; tabel SPEC §22.1 ≡ MITIGATION-MATRIX §10 | `TestF9GapSweep118` (`internal/archtest/gap_sweep_test.go`) | BELUM |
 | EDGE-CASES 166/166 | 166/166 entri EDGE-CASES `covered` atau `n/a` beralasan; tidak ada `pending:F9` | `TestF9EdgeCases166` (`internal/testutil/phase/f9_edgecases_test.go`), `TestEdgeCaseCatalogSync` (`internal/testutil/phase/acceptance_test.go:37`) | BELUM |
-| OS matrix lengkap | 8 target rilis kanonik (E-39) build/test/runner sesuai CROSS-CUTTING §7; linux/arm dan android/arm64 menjalankan suite di QEMU | `TestF9OSMatrix` (`internal/archtest/osmatrix_test.go`), `make build-matrix`, job `test`/`sqlite-engine` tier `full` | BELUM |
+| OS matrix lengkap | 8 target rilis kanonik (E-39) build/test/runner sesuai CROSS-CUTTING §7; linux/arm dan android/arm64 menjalankan suite inti (ctxdb/exec/acp/headless) di QEMU, bukan hanya cross-compile | `TestF9OSMatrix` + `TestNightlyOSMatrixWired` (`internal/archtest/osmatrix_test.go`), `make build-matrix`, job `os-matrix-qemu` tier `full` (nightly via `ci-full`) dengan `scripts/os-matrix-qemu.sh`, job `test`/`sqlite-engine` tier `full` | BELUM |
 | Soak 24 jam + 1.000 turn + chaos penuh | soak 24 jam stabil (0 leak/0 crash), 1.000 turn, chaos penuh (kill -9, 50 klien, restart gateway) hijau | `TestF9Soak24h`, `TestF9ChaosFull`, `TestNightlyChaosWired` (`internal/archtest/repometa_test.go:307`) | BELUM |
 | Artefak rilis & scorecard | `TestScorecardGate` semua dimensi ≥ hermes dan dimensi inti menang; speed parity (a)/(b) P28; baseline hermes dimensi ADR-065/083 diukur dengan harness sama; artefak scorecard RC dipublikasikan; invariant P1–P29 hijau; `TestChangelogPerTag` | `TestScorecardGate`, `TestF9SpeedParity` (`bench/speed/f9_test.go`), `BenchmarkSpeedParity/<ID>`, invariant P1–P29, artefak `bench/speed/results/` + `bench/h2h/results/` | BELUM |
 
@@ -73,8 +73,12 @@ DAMNBOT_PHASE_ACCEPTANCE=1 go test -tags goolm -count=1 ./internal/testutil/phas
 DAMNBOT_RELEASE=1 go test -count=1 -run 'TestF9LedgerClosed|TestParityPhaseColumn|TestF9LedgerGateRules' ./internal/archtest
 
 # Kerangka agregat (skip selama DAMNBOT_RELEASE belum diset).
-go test -count=1 -run 'TestF9GapSweep118|TestF9OSMatrix' ./internal/archtest
+go test -count=1 -run 'TestF9GapSweep118|TestF9OSMatrix|TestNightlyOSMatrixWired' ./internal/archtest
 cd bench && go test -count=1 ./speed
+
+# OS matrix QEMU: hanya CI tier full/nightly (butuh docker + binfmt qemu-user-static).
+# Job `os-matrix-qemu` menjalankan scripts/os-matrix-qemu.sh build <target> lalu run <target>.
+# build <linux/arm|android/arm64>|run <linux/arm|android/arm64>
 
 # Gerbang arsitektur/ukuran yang tetap berlaku.
 make lint
