@@ -35,10 +35,11 @@ Di luar lingkup: HA multi-host (satu host, satu `data_dir`; P19 menolak network 
 ### 1.1 Perintah
 
 ```text
-damnbot service install [--system --user <name>] [--no-linger-check] [--dry-run]
+damnbot service install [--bind ADDR] [--data-dir DIR] [--unit-dir DIR] [--enable] [--dry-run]
 damnbot service uninstall
 damnbot service status     # state unit, PID, uptime, mode (normal|safe|degraded), 10 entri crash ledger terakhir
-damnbot service resume     # keluar dari SAFE MODE, reset counter crash-loop
+damnbot service resume     # keluar dari SAFE MODE, reset counter crash-loop (tidak didukung di Windows)
+damnbot service logs       # journalctl --user -u damnbot.service (Linux)
 ```
 
 `install` menulis file unit, menjalankan enable + start, lalu menunggu `ready` ≤ 10 s (gagal → cetak 30 baris log terakhir, exit 1). `uninstall` stop + disable + hapus file; data tidak disentuh. Semua path di unit absolut (hasil `os.Executable()` + `EvalSymlinks`).
@@ -184,36 +185,15 @@ WantedBy=multi-user.target
 
 ### 1.7 Windows — Service (admin) / Task Scheduler (non-admin)
 
-Service via `golang.org/x/sys/windows/svc` (+ `svc/mgr`, `svc/eventlog`; modul `golang.org/x/sys` sudah dipakai ADR-016, tidak menambah dependency langsung P21). Service berjalan sebagai akun user (bukan LocalSystem) agar `%LOCALAPPDATA%` dan kredensial benar; `install` meminta password akun sekali dan menyerahkannya ke SCM (tidak disimpan Damn-Bot).
+Backend Windows saat ini adalah Task Scheduler per profil (`cmd/damnbot/service_schtasks.go`, ADR-251); belum ada backend SCM (`golang.org/x/sys/windows/svc`). `damnbot service install` menulis task dengan `LogonTrigger` milik user, tanpa `Environment` (jadi tidak ada secret di XML), dan aksi langsung `<exe> serve --bind … [--data-dir …]` — bukan proses parent terpisah. Gate start §1.3 berjalan di dalam binary yang sama.
 
-```go
-// Konfigurasi yang dibuat `damnbot service install` (internal/supervise/windows.go)
-cfg := mgr.Config{
-    DisplayName:      "Damn-Bot",
-    Description:      "Damn-Bot daemon (damnbot serve)",
-    StartType:        mgr.StartAutomatic,
-    DelayedAutoStart: true,                 // tunggu jaringan & profil user siap
-    ServiceStartName: `.\alice`,            // akun user, bukan LocalSystem
-    Password:         password,             // diteruskan ke SCM, tidak dipersist
-}
-s, err := m.CreateService("damnbot", exePath, cfg, "serve", "--supervisor=windows-service")
-// Recovery: restart 1 s untuk 3 kegagalan pertama; counter SCM reset tiap 600 s.
-// Backoff eksponensial + breaker tetap ditangani gate §1.3.
-err = s.SetRecoveryActions([]mgr.RecoveryAction{
-    {Type: mgr.ServiceRestart, Delay: 1 * time.Second},
-    {Type: mgr.ServiceRestart, Delay: 1 * time.Second},
-    {Type: mgr.ServiceRestart, Delay: 1 * time.Second},
-}, 600)
-err = s.SetRecoveryActionsOnNonCrashFailures(true) // exit code ≠ 0 dihitung gagal
-```
-
-**Fallback tanpa admin**: Task Scheduler, trigger logon user (padanan `sc.exe` dari konfigurasi service di atas dicetak `damnbot service install --dry-run`). Task Scheduler tidak andal me-restart task berdasarkan exit code (interval minimum `RestartOnFailure` 1 menit [tidak terverifikasi untuk semantik exit code]), maka task menjalankan `damnbot supervise`: parent tipis (tanpa modul, tanpa DB) yang menjalankan child `damnbot serve`, menerapkan §1.2–§1.4, dan meneruskan Ctrl-Break untuk stop. Task Scheduler hanya me-restart parent bila parent mati. Keterbatasan (ditampilkan `service status`): berjalan hanya selama user login; tidak ada watchdog SCM.
+`RestartOnFailure` memakai interval minimum 1 menit dan `Count=999`; Task Scheduler tidak me-restart task yang berhenti bersih, sedangkan exit ≠ 0 memicu restart. Keterbatasan (ditampilkan `service status`): berjalan hanya selama user login; tidak ada watchdog SCM; `service resume` belum didukung di Windows.
 
 ```xml
 <?xml version="1.0" encoding="UTF-16"?>
 <!-- schtasks /Create /TN "Damn-Bot" /XML damnbot-task.xml — dibangkitkan `damnbot service install` -->
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>Damn-Bot daemon (damnbot supervise)</Description></RegistrationInfo>
+  <RegistrationInfo><Description>Damn-Bot daemon (damnbot serve)</Description></RegistrationInfo>
   <Triggers>
     <LogonTrigger><Enabled>true</Enabled><UserId>DESKTOP-01\alice</UserId></LogonTrigger>
   </Triggers>
@@ -236,7 +216,7 @@ err = s.SetRecoveryActionsOnNonCrashFailures(true) // exit code ≠ 0 dihitung g
   <Actions Context="Author">
     <Exec>
       <Command>C:\Users\alice\AppData\Local\Programs\damnbot\damnbot.exe</Command>
-      <Arguments>supervise --supervisor=task-scheduler</Arguments>
+      <Arguments>serve --bind 127.0.0.1:7879</Arguments>
     </Exec>
   </Actions>
 </Task>

@@ -1,7 +1,7 @@
 # F4 acceptance ledger
 
 Acceptance F4 didefinisikan di [ROADMAP.md](ROADMAP.md) §F4
-(`ROADMAP.md:156-168`), [SPEC.md](SPEC.md) §22.1 (`SPEC.md:2907-3030`),
+(`ROADMAP.md:156-168`), [SPEC.md](../SPEC.md) §22.1 (`SPEC.md:2907-3030`),
 [EDGE-CASES-hermes.md](EDGE-CASES-hermes.md), dan
 [FEATURE-PARITY.md](FEATURE-PARITY.md). Keputusan artefak: ADR-244/ADR-245
 (`loc.budget`), ADR-250/ADR-251/ADR-256 (`service`), ADR-252 (cap USD

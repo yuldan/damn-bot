@@ -1,7 +1,7 @@
 # F3 acceptance ledger
 
 Acceptance F3 didefinisikan di [ROADMAP.md](ROADMAP.md) §F3 (`ROADMAP.md:143-154`),
-[SPEC.md](SPEC.md) P12/P13/P17 (`SPEC.md:110-115`), §9.15 (`SPEC.md:982`),
+[SPEC.md](../SPEC.md) P12/P13/P17 (`SPEC.md:110-115`), §9.15 (`SPEC.md:982`),
 §10 (`SPEC.md:1008`), §12 (`SPEC.md:2421`), §13.1 (`SPEC.md:2533`),
 §13.3 (`SPEC.md:2567`), §18.2/§18.3 (`SPEC.md:2794-2817`), §22
 (`SPEC.md:2881`), [EDGE-CASES-hermes.md](EDGE-CASES-hermes.md), dan
