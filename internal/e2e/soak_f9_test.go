@@ -46,6 +46,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
@@ -225,7 +226,9 @@ func startF9Soak(t *testing.T) *f9SoakRuntime {
 	)
 	p := startServe(t, e, binPaths.main, env)
 	p.awaitLog(p.stderr, "gateway: webhook listening on", 15*time.Second)
-	rt := &f9SoakRuntime{e: e, p: p, tg: tg, webhookURL: soakWebhookURL(t, p), client: &http.Client{Timeout: 60 * time.Second}}
+	client := netx.LoopbackClient()
+	client.Timeout = 60 * time.Second
+	rt := &f9SoakRuntime{e: e, p: p, tg: tg, webhookURL: soakWebhookURL(t, p), client: client}
 	rt.api = startSoakAPIServer(t, e)
 	soakWaitReady(t, rt)
 	t.Cleanup(func() {
@@ -260,7 +263,10 @@ func seedSoakWebhookOwner(t *testing.T, dir string) {
 			VALUES (?1, ?2, ?2, 'owner', 'allowlisted', 'platform_authenticated', ?3)
 			ON CONFLICT(platform, external_id) DO NOTHING`,
 			"webhook", "e2e", time.Now().UnixMilli())
-		return xerr
+		if xerr != nil {
+			return fmt.Errorf("insert gateway identity: %w", xerr)
+		}
+		return nil
 	})
 	if err != nil {
 		t.Fatalf("seed webhook owner: %v", err)
