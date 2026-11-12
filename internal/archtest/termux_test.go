@@ -21,6 +21,12 @@ var mdLink = regexp.MustCompile(`\]\(([^)\s]+)\)`)
 // root, static android/arm64 build, and no privileged/container escape hatch.
 func TestTermuxScriptSyntax(t *testing.T) {
 	t.Parallel()
+	checkTermuxScript(t)
+}
+
+// checkTermuxScript is the shared contract used by the ledger-named OPS-031 test.
+func checkTermuxScript(t *testing.T) {
+	t.Helper()
 	const name = "scripts/termux-smoke.sh"
 	script := readRepoFile(t, name)
 	if _, err := syntax.NewParser(syntax.Variant(syntax.LangBash)).Parse(strings.NewReader(script), name); err != nil {
@@ -137,4 +143,18 @@ func headingSlug(line string) string {
 		}
 	}
 	return b.String()
+}
+
+// TestF9OPS031Termux (F9 ledger OPS-031, ADR-347/ADR-348) proves the Android
+// contract without a device: the smoke script is opt-in/no-root with the exact
+// android/arm64 CGO=0 recipe, the guide passes the offline link check, and the
+// release matrix carries android/arm64 (the actual cross-build runs in
+// `make build-matrix`, E-39, job portability).
+func TestF9OPS031Termux(t *testing.T) {
+	t.Parallel()
+	checkTermuxScript(t)
+	checkDocLinksOffline(t, "docs/TERMUX.md")
+	if !strings.Contains(readRepoFile(t, "Makefile"), "android/arm64") {
+		t.Fatal("Makefile TARGETS tidak memuat android/arm64 (E-39)")
+	}
 }
