@@ -1,0 +1,37 @@
+# Official single-container compose file (GAP-INF-03, GAP-SEC-22): one writer
+# per data volume (SPEC §3.3), non-root distroless image, read-only root
+# filesystem, no host docker socket. Remote access is opt-in through the web
+# UI (SPEC §13.2); never bind 0.0.0.0 by default.
+name: damnbot
+
+services:
+  damnbot:
+    image: ghcr.io/damnbot/damnbot:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: "65532:65532"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      HOME: /data
+      XDG_CONFIG_HOME: /data/.config
+      XDG_DATA_HOME: /data/.local/share
+      XDG_CACHE_HOME: /data/.cache
+    volumes:
+      - damnbot-data:/data
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/damnbot", "doctor", "health", "--ready"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  damnbot-data:

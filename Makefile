@@ -36,7 +36,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 .PHONY: all build build-minimal-all build-matrix lint vet-custom test test-windows-evidence test-timing archtest vet-cross size-check loc loc-ratio chaos \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
-	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker release ci-required ci-required-test deadcode-linux agent-guard-test
+	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker image-test release ci-required ci-required-test deadcode-linux agent-guard-test
 
 all: check
 
@@ -82,6 +82,12 @@ prices-gate:
 # only under e2e_docker and stays skipOrFail-hard when CI has the image.
 e2e-docker:
 	go test -tags "$(TAGSCSV),e2e_docker" -count=1 -timeout 10m -run '^TestExecuteCodeDockerPositive$$' ./internal/e2e
+
+# GAP-INF-03/GAP-SEC-22 (ADR-033 Q35/Q49): build the shipped Dockerfile and measure the image
+# (size ≤ binary + 2 MB, UID 65532, no shell/compiler, healthcheck). Requires a Docker daemon;
+# DAMNBOT_REQUIRE_DOCKER=1 makes a missing daemon fail instead of skip, so the CI job is a gate.
+image-test:
+	DAMNBOT_REQUIRE_DOCKER=1 go test -tags "$(TAGSCSV),e2e_docker" -count=1 -timeout 15m -run '^TestDockerImageSize$$' ./internal/archtest
 
 lint:
 	$(GOTOOL) golangci-lint run --build-tags "$(TAGSCSV)" ./...
