@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -64,9 +65,40 @@ func TestRunHealthy(t *testing.T) {
 	if rep.Exit != 0 {
 		t.Fatalf("exit = %d, want 0\n%+v", rep.Exit, rep)
 	}
-	if len(rep.Checks) != 12 || rep.Summary.OK != 12 {
+	if len(rep.Checks) != 13 || rep.Summary.OK != 13 {
 		t.Fatalf("checks = %d, ok = %d\n%+v", len(rep.Checks), rep.Summary.OK, rep)
 	}
+}
+
+func TestRunFTSPartialWarns(t *testing.T) {
+	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	healthyDB(t, dataDir)
+	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: dataDir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		if _, xerr := tx.Exec(`UPDATE fts_meta SET status='partial', reindexed_to=2, total=5 WHERE name='events_fts'`); xerr != nil {
+			return fmt.Errorf("mark fts partial: %w", xerr)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rep := run(t, &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"})
+	for _, c := range rep.Checks {
+		if c.ID != "DOC-014" {
+			continue
+		}
+		if c.Status != StatusWarn || !strings.Contains(c.Message, "events_fts") || !strings.Contains(c.Message, "2/5") {
+			t.Fatalf("DOC-014 = %+v, want partial warning", c)
+		}
+		return
+	}
+	t.Fatal("DOC-014 missing")
 }
 
 func TestRunInvalidConfig(t *testing.T) {
@@ -140,7 +172,7 @@ func TestReportJSON(t *testing.T) {
 		t.Fatalf("version = %v", got["version"])
 	}
 	checks, ok := got["checks"].([]any)
-	if !ok || len(checks) != 12 {
+	if !ok || len(checks) != 13 {
 		t.Fatalf("checks = %T %v", got["checks"], got["checks"])
 	}
 	first, ok := checks[0].(map[string]any)
@@ -200,7 +232,7 @@ func TestRunSecretBackend(t *testing.T) {
 			o := &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"}
 			o.Keyring = func(context.Context) (bool, error) { return tc.ok, tc.err }
 			rep := Run(t.Context(), o)
-			if got := rep.Checks[7]; got.ID != "DOC-008" || got.Status != StatusOK || !strings.Contains(got.Message, tc.want) {
+			if got := rep.Checks[8]; got.ID != "DOC-008" || got.Status != StatusOK || !strings.Contains(got.Message, tc.want) {
 				t.Fatalf("secret check = %+v", got)
 			}
 		})

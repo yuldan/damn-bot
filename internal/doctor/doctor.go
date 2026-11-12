@@ -96,6 +96,7 @@ func Run(ctx context.Context, o *Options) Report {
 		checkPath("DOC-004", "config file", o.ConfigFile, false, o.Fix),
 		checkPath("DOC-005", "secrets file", o.ConfigDir+"/secrets.enc", false, o.Fix),
 		checkDatabase(ctx, o),
+		checkFTS(ctx, o),
 		checkEngine(ctx),
 		checkSecret(ctx, o),
 		checkProvider(o),

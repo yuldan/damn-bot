@@ -139,6 +139,7 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 		merged = merged[:k]
 	}
 	ids = merged
+	s.refreshFTSPartial(ctx)
 	return s.recallHits(ctx, ids)
 }
 
