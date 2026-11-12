@@ -77,6 +77,13 @@ skill-refs:
 prices-gate:
 	go test $(GOTAGS) -count=1 -run '^TestPricingTableNotExpired$$' ./internal/provider/registry
 
+# GAP-INF-03/OPS-030 (ADR-033 Q49): flake Nix untuk paket default (CGO=0, `go build -tags goolm`)
+# dan devShell. Parse statis tidak membutuhkan Nix; `nix flake check` dijalankan sebagai bukti bila
+# binary Nix tersedia (job CI `nix`). Target ini tidak menambah dependency Go.
+nix-check:
+	go test $(GOTAGS) -count=1 -run '^TestNixFlakeParse$$' ./internal/archtest
+	@if command -v nix >/dev/null 2>&1; then nix flake check; else echo "nix-check: nix tidak tersedia; parse statis lulus"; fi
+
 # Docker-positive execute_code e2e (F5 slice 5). The workflow builds the
 # fixture image and exports DAMNBOT_E2E_DOCKER_IMAGE; the test is compiled
 # only under e2e_docker and stays skipOrFail-hard when CI has the image.
