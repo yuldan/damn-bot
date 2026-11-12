@@ -100,7 +100,11 @@ func TestSweepKeepsLiveMarked(t *testing.T) {
 	if lerr := live.Start(); lerr != nil {
 		t.Fatal(lerr)
 	}
+	reaped := false
 	t.Cleanup(func() {
+		if reaped {
+			return
+		}
 		if kerr := live.Process.Kill(); kerr != nil && !errors.Is(kerr, os.ErrProcessDone) {
 			t.Errorf("cleanup kill: %v", kerr)
 		}
@@ -109,17 +113,82 @@ func TestSweepKeepsLiveMarked(t *testing.T) {
 			t.Errorf("cleanup wait: %v", werr)
 		}
 	})
-	waitMarked(t, id)
-	pids, merr := markerPids(func(v []byte) bool { return string(v) == id })
-	if merr != nil {
-		t.Fatal(merr)
-	}
-	if !slices.Contains(pids, live.Process.Pid) {
-		t.Fatalf("live marked process %d not found: %v", live.Process.Pid, pids)
-	}
+	waitMarkedPid(t, id, live.Process.Pid)
 	left, killed, serr := killMarked(func(v []byte) bool { return string(v) == id }, false)
 	if serr != nil || len(left) > 0 || killed == 0 {
 		t.Fatalf("live marked process not swept: left %v, killed %d, err %v", left, killed, serr)
+	}
+}
+
+// waitMarkedPid waits until a scan sees pid carrying marker id. One scan can
+// miss the marker while the child execs (the environment is torn down and
+// rebuilt); the assertion retries but still requires the exact pid.
+func waitMarkedPid(t *testing.T, id string, pid int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		pids, err := markerPids(func(v []byte) bool { return string(v) == id })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if slices.Contains(pids, pid) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("live marked process %d not found: %v", pid, pids)
+		}
+		pause := time.NewTimer(5 * time.Millisecond)
+		<-pause.C
+	}
+}
+
+// TestSweepMarkerLifecycle pins both sides of the marker scan: a live marked
+// process is found, and the same pid disappears from the scan after it exits
+// and is reaped (negative control for a dead marker).
+func TestSweepMarkerLifecycle(t *testing.T) {
+	t.Parallel()
+	id := newExecID()
+	live := exec.CommandContext(context.Background(), "/bin/sh", "-c", "exec sleep 30")
+	live.Env = append(os.Environ(), MarkerEnv+"="+id)
+	if err := live.Start(); err != nil {
+		t.Fatal(err)
+	}
+	reaped := false
+	t.Cleanup(func() {
+		if reaped {
+			return
+		}
+		if kerr := live.Process.Kill(); kerr != nil && !errors.Is(kerr, os.ErrProcessDone) {
+			t.Errorf("cleanup kill: %v", kerr)
+		}
+		var ee *exec.ExitError
+		if _, werr := live.Process.Wait(); werr != nil && !errors.As(werr, &ee) {
+			t.Errorf("cleanup wait: %v", werr)
+		}
+	})
+	waitMarkedPid(t, id, live.Process.Pid)
+	if err := live.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	var ee *exec.ExitError
+	if _, err := live.Process.Wait(); err != nil && !errors.As(err, &ee) {
+		t.Fatalf("reap: %v", err)
+	}
+	reaped = true
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		pids, err := markerPids(func(v []byte) bool { return string(v) == id })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(pids, live.Process.Pid) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dead marked pid %d still scanned: %v", live.Process.Pid, pids)
+		}
+		pause := time.NewTimer(5 * time.Millisecond)
+		<-pause.C
 	}
 }
 
