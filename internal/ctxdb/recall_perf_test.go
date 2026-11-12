@@ -283,21 +283,22 @@ func BenchmarkRecallCJK(b *testing.B) {
 	}
 }
 
-// BenchmarkRecallToolOutput (GAP-INF-02): tool-result recall on 100k rows.
-func BenchmarkRecallToolOutput(b *testing.B) {
-	const n = 100_000
-	s, err := Open(context.Background(), &Options{Dir: b.TempDir(), Kind: "run"})
+// toolOutputCorpus builds the GAP-INF-02 corpus: n tool_result rows in one
+// session, batch-inserted so setup is not 100k round trips.
+func toolOutputCorpus(tb testing.TB, n int) *Store {
+	tb.Helper()
+	s, err := Open(context.Background(), &Options{Dir: tb.TempDir(), Kind: "run"})
 	if err != nil {
-		b.Fatal(err)
+		tb.Fatal(err)
 	}
-	b.Cleanup(func() {
+	tb.Cleanup(func() {
 		if cerr := s.Close(); cerr != nil {
-			b.Error(cerr)
+			tb.Error(cerr)
 		}
 	})
 	ctx := context.Background()
 	if _, err := s.CreateSession(ctx, Session{ID: "S", Origin: "headless", Cwd: "/"}); err != nil {
-		b.Fatal(err)
+		tb.Fatal(err)
 	}
 	const batch = 50_000
 	for start := 1; start <= n; start += batch {
@@ -309,13 +310,52 @@ func BenchmarkRecallToolOutput(b *testing.B) {
 			return xerr
 		})
 		if err != nil {
-			b.Fatal(err)
+			tb.Fatal(err)
 		}
 	}
-	b.ResetTimer()
-	for range b.N {
+	return s
+}
+
+// BenchmarkRecallToolOutput (GAP-INF-02): tool-result recall on 100k rows,
+// with the p95 metric reported so the 100 ms target is visible per run.
+func BenchmarkRecallToolOutput(b *testing.B) {
+	s := toolOutputCorpus(b, 100_000)
+	ctx := context.Background()
+	lat := make([]time.Duration, 0, 1000)
+	for i := 0; b.Loop(); i++ {
+		start := time.Now()
 		if _, err := s.Recall(ctx, "tool output", 10); err != nil {
 			b.Fatal(err)
 		}
+		if len(lat) < cap(lat) {
+			lat = append(lat, time.Since(start))
+		} else {
+			lat[i%len(lat)] = time.Since(start)
+		}
+	}
+	b.StopTimer()
+	b.ReportMetric(float64(percentile(lat, 50))/float64(time.Millisecond), "p50-ms")
+	b.ReportMetric(float64(percentile(lat, 95))/float64(time.Millisecond), "p95-ms")
+}
+
+// TestRecallToolOutputP95 enforces the GAP-INF-02 target: 200 recalls over
+// 100.000 tool rows, p95 < 100 ms (SPEC §22.1). The benchmark above reports
+// the same metric; this test is the gate.
+func TestRecallToolOutputP95(t *testing.T) {
+	const n = 100_000
+	s := toolOutputCorpus(t, n)
+	ctx := context.Background()
+	lat := make([]time.Duration, 0, 200)
+	for i := 0; i < 200; i++ {
+		start := time.Now()
+		if _, err := s.Recall(ctx, "tool output", 10); err != nil {
+			t.Fatal(err)
+		}
+		lat = append(lat, time.Since(start))
+	}
+	p95 := percentile(lat, 95)
+	t.Logf("tool output recall @%d rows: p95=%s", n, p95)
+	if p95 > 100*time.Millisecond {
+		t.Fatalf("tool output p95 = %s > 100 ms (GAP-INF-02)", p95)
 	}
 }

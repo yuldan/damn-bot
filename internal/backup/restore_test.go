@@ -389,6 +389,9 @@ func verifyMigrated(t *testing.T, dst string, st *secret.Store, sha string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if aerr := edb.AwaitFTS(context.Background()); aerr != nil {
+		t.Fatalf("await FTS reindex: %v", aerr)
+	}
 	defer func() {
 		if cerr := edb.Close(); cerr != nil {
 			t.Error(cerr)

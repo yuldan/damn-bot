@@ -41,6 +41,15 @@ func userVersion(t *testing.T, db *ctxdb.Store) int {
 	return query1[int](t, db, `PRAGMA user_version`)
 }
 
+func latestSchema(t *testing.T) int {
+	t.Helper()
+	_, v, err := ctxdb.MigrationLadder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
 func tableExists(t *testing.T, db *ctxdb.Store, name string) bool {
 	t.Helper()
 	return query1[int](t, db, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?1`, name) == 1
@@ -60,8 +69,8 @@ func schemaDump(t *testing.T, db *ctxdb.Store) string {
 // (0017) and the 0015 wiring columns/tables exist.
 func TestMigration0015FromEmptyDB(t *testing.T) {
 	db := open(t)
-	if v := userVersion(t, db); v != 17 {
-		t.Fatalf("user_version = %d, want 17", v)
+	if v, want := userVersion(t, db), latestSchema(t); v != want {
+		t.Fatalf("user_version = %d, want %d", v, want)
 	}
 	for _, tbl := range []string{"gateway_message_ids", "gateway_callbacks"} {
 		if !tableExists(t, db, tbl) {
@@ -102,8 +111,8 @@ func TestMigration0015From0014(t *testing.T) {
 	closeStore(t, old)
 
 	db := openDir(t, dir, 0)
-	if v := userVersion(t, db); v != 17 {
-		t.Fatalf("migrated user_version = %d, want 17", v)
+	if v, want := userVersion(t, db), latestSchema(t); v != want {
+		t.Fatalf("migrated user_version = %d, want %d", v, want)
 	}
 	if !columnExists(t, db, "gateway_inbound", "thread_id") || !tableExists(t, db, "gateway_message_ids") {
 		t.Fatal("0015 objects missing after the upgrade")
@@ -121,7 +130,7 @@ func TestMigration0015From0014(t *testing.T) {
 
 	again := openDir(t, dir, 0)
 	defer closeStore(t, again)
-	if v := userVersion(t, again); v != 17 || schemaDump(t, again) != dump {
+	if v, want := userVersion(t, again), latestSchema(t); v != want || schemaDump(t, again) != dump {
 		t.Fatalf("re-run changed the schema: version %d", v)
 	}
 	if n := count(t, again, `SELECT count(*) FROM gateway_inbound`); n != 1 {

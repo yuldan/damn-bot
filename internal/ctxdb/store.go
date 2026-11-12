@@ -47,6 +47,12 @@ type Options struct {
 	// OnBusyRetry observes a BEGIN/COMMIT retry after SQLITE_BUSY (nil = off);
 	// the running total is also available as Store.BusyRetries (GAP-REL-03).
 	OnBusyRetry func(phase string, attempt int)
+	// OnFTSProgress observes every committed re-index batch (GAP-INF-02).
+	// It runs on the re-index goroutine; blocking it delays the upgrade only.
+	OnFTSProgress func(FTSProgress)
+	// FTSBatch overrides the 5.000-row re-index batch (0 = default). Tests
+	// lower it to observe partial state and resume without a 10k-row corpus.
+	FTSBatch int
 }
 
 // Store is one process's handle on the data dir: one writer connection
@@ -81,6 +87,12 @@ type Store struct {
 	barrierOwner atomic.Bool
 	blobOnce     sync.Once
 	hasBlobFTS   atomic.Bool
+	ftsMu        sync.Mutex // one re-index writer at a time
+	ftsStop      context.CancelFunc
+	ftsDone      chan struct{}       // closed when the background upgrade exits
+	ftsLock      *os.File            // run/fts.lock: one re-indexer across processes
+	ftsErr       error               // first re-index error (mu)
+	ftsPartial   atomic.Bool         // an upgrade is running
 	purgeOrder   map[string][]string // txid → labelled sessions, descendants first (mu)
 	chunkCap     int                 // upper bound of chunk (eventBatch; tests lower it)
 	budget       time.Duration       // per-transaction work budget (unitBudget; tests lower it)
@@ -531,6 +543,10 @@ func (s *Store) Close() error { return s.close(context.Background()) }
 func (s *Store) CloseContext(ctx context.Context) error { return s.close(ctx) }
 
 func (s *Store) close(ctx context.Context) error {
+	if s.ftsStop != nil {
+		s.ftsStop()
+		<-s.ftsDone
+	}
 	if s.stop != nil {
 		s.stop()
 		<-s.done
@@ -542,6 +558,10 @@ func (s *Store) close(ctx context.Context) error {
 	}
 	s.closed = true
 	err := s.bgErr
+	if s.ftsLock != nil {
+		err = errors.Join(err, unlockFile(s.ftsLock))
+		s.ftsLock = nil
+	}
 	if s.r != nil {
 		err = errors.Join(err, wrap(s.r.Close()))
 	}

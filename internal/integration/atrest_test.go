@@ -742,6 +742,9 @@ func TestEncryptedFTSLayoutUpgradeReindexes(t *testing.T) {
 	closeStore(t, s)
 	s = openEncrypted(t, dir)
 	defer closeStore(t, s)
+	if err := s.AwaitFTS(ctx); err != nil {
+		t.Fatalf("await FTS upgrade: %v", err)
+	}
 	if hits, err := s.Search(ctx, ctxdb.Query{Text: "layout upgrade", Limit: 5}); err != nil || len(hits) == 0 {
 		t.Fatalf("reindex after layout bump = %+v, %v", hits, err)
 	}
@@ -791,6 +794,9 @@ func TestEncryptedFTSLayoutDerivedFromSchema(t *testing.T) {
 	closeStore(t, s)
 	s = openEncrypted(t, dir)
 	defer closeStore(t, s)
+	if err := s.AwaitFTS(ctx); err != nil {
+		t.Fatalf("await FTS upgrade: %v", err)
+	}
 	var schema string
 	if err := s.Write(ctx, func(tx *ctxdb.Tx) error {
 		sqls, xerr := tx.Strings(`SELECT sql FROM sqlite_master WHERE name='events_fts'`)

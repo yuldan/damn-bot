@@ -37,6 +37,7 @@ func (s *Store) ListSessions(ctx context.Context) ([]string, error) {
 type RecallHit struct {
 	SessionID string
 	EventID   int64
+	Partial   bool `json:"partial,omitempty"`
 }
 
 // ftsQuery turns free text into a conservative FTS5 expression: runs of
@@ -121,10 +122,7 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 	// in events_fts; recall searches it through the same keyed expression.
 	var blobIDs []int64
 	if s.blobFTSAvailable(ctx) {
-		blobIDs, err = s.ints(ctx, `SELECT f.rowid FROM blob_fts f JOIN events e ON e.id = f.rowid
-			WHERE blob_fts MATCH dmb_fts_norm(?, 'blob_fts.content', '')
-			AND e.kind = 'tool_result' AND `+notPurging("e.session_id")+`
-			ORDER BY bm25(blob_fts) LIMIT ?`, q, k)
+		blobIDs, err = s.ints(ctx, recallBlobSQL(), q, k)
 		if err != nil {
 			return nil, fmt.Errorf("ctxdb: recall blob query: %w", err)
 		}
@@ -142,6 +140,13 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 	}
 	ids = merged
 	return s.recallHits(ctx, ids)
+}
+
+func recallBlobSQL() string {
+	return `SELECT f.rowid FROM blob_fts f JOIN events e ON e.id = f.rowid
+		WHERE blob_fts MATCH dmb_fts_norm(?, 'blob_fts.content', '')
+		AND e.kind = 'tool_result' AND ` + notPurging("e.session_id") + `
+		ORDER BY bm25(blob_fts) LIMIT ?`
 }
 
 func (s *Store) recallHits(ctx context.Context, ids []int64) ([]RecallHit, error) {
@@ -168,9 +173,10 @@ func (s *Store) recallHits(ctx context.Context, ids []int64) ([]RecallHit, error
 		return nil, fmt.Errorf("ctxdb: recall hit: %w", err)
 	}
 	out := make([]RecallHit, 0, len(ids))
+	partial := s.ftsPartial.Load()
 	for _, id := range ids {
 		if sid, ok := byID[id]; ok {
-			out = append(out, RecallHit{EventID: id, SessionID: sid})
+			out = append(out, RecallHit{EventID: id, SessionID: sid, Partial: partial})
 		}
 	}
 	return out, nil

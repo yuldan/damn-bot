@@ -135,7 +135,9 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 			sessionsPrintf(stderr, "serve: release data-dir lease: %s\n", cleanLine(rerr.Error()))
 		}
 	}()
-	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "serve"})
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "serve", OnFTSProgress: func(p ctxdb.FTSProgress) {
+		sessionsPrintf(stderr, "serve: fts %s cursor %d/%d rows (%s)\n", p.Name, p.Cursor, p.Total, p.Status)
+	}})
 	if err != nil {
 		if errors.Is(err, ctxdb.ErrSchemaNewer) {
 			return serveExitPlanned, fmt.Errorf("open ctxdb: %w", err)
