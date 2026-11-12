@@ -411,3 +411,27 @@ func TestArchiveSkillSemanticIdempotent(t *testing.T) {
 		t.Fatalf("semantically identical CRLF skill not idempotent: %+v", counts)
 	}
 }
+
+func TestArchiveConfigSemanticIdempotent(t *testing.T) {
+	ctx := context.Background()
+	src := portableTestPaths(t)
+	if err := os.WriteFile(src.ConfigFile(), []byte("[ui]\nreply_language = \"auto\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	key := portableTestKey(t)
+	out := filepath.Join(t.TempDir(), "config-eq.dmbk")
+	if _, _, err := exportPortable(ctx, src, out, key, nil); err != nil {
+		t.Fatal(err)
+	}
+	dst := portableTestPaths(t)
+	if err := os.WriteFile(dst.ConfigFile(), []byte("# local comment\n[ui]\nreply_language = \"auto\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	counts, err := importPortable(ctx, dst, out, keepLocal, false, key, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Changed != 0 {
+		t.Fatalf("semantically equal config not idempotent: %+v", counts)
+	}
+}

@@ -91,10 +91,10 @@ func importPortable(ctx context.Context, p config.Paths, path string, mode confl
 		data := blobs[i]
 		switch it.Kind {
 		case portableConfig:
-			changed, conflict, cerr := importPortableConfig(p, data, mode, dry, red)
+			changed, conflict, detail, cerr := importPortableConfig(p, data, mode, dry, red)
 			c.add(portableConfig, changed)
 			if changed {
-				c.ChangedItems = append(c.ChangedItems, "config")
+				c.ChangedItems = append(c.ChangedItems, detail)
 			}
 			if conflict {
 				c.Conflicts++
@@ -140,53 +140,54 @@ func importPortable(ctx context.Context, p config.Paths, path string, mode confl
 	return c, nil
 }
 
-func importPortableConfig(p config.Paths, data []byte, mode conflictMode, dry bool, red *redact.Redactor) (bool, bool, error) { //nolint:gocyclo // three explicit conflict modes
+func importPortableConfig(p config.Paths, data []byte, mode conflictMode, dry bool, red *redact.Redactor) (bool, bool, string, error) { //nolint:gocyclo // three explicit conflict modes
 	clean, err := portableConfigBytes(normalizePortableText(data), red)
 	if err != nil {
-		return false, false, fmt.Errorf("import config: %w", err)
+		return false, false, "", fmt.Errorf("import config: %w", err)
 	}
 	local, err := os.ReadFile(p.ConfigFile())
 	if errors.Is(err, fs.ErrNotExist) {
 		if dry {
-			return true, false, nil
+			return true, false, "config", nil
 		}
 		if derr := os.MkdirAll(p.ConfigDir, 0o700); derr != nil {
-			return false, false, fmt.Errorf("create config dir: %w", derr)
+			return false, false, "", fmt.Errorf("create config dir: %w", derr)
 		}
-		return true, false, writeAtomicFile(p.ConfigFile(), ".config.toml.portable-*", clean)
+		return true, false, "config", writeAtomicFile(p.ConfigFile(), ".config.toml.portable-*", clean)
 	}
 	if err != nil {
-		return false, false, fmt.Errorf("read %s: %w", p.ConfigFile(), err)
+		return false, false, "", fmt.Errorf("read %s: %w", p.ConfigFile(), err)
 	}
 	local = normalizePortableText(local)
-	if bytes.Equal(local, clean) {
-		return false, false, nil
+	if portableConfigEqual(local, clean) {
+		return false, false, "", nil
 	}
+	detail := fmt.Sprintf("config local=%s remote=%s", sha256Hex(local)[:8], sha256Hex(clean)[:8])
 	switch mode {
 	case keepLocal:
-		return false, true, nil
+		return false, true, detail, nil
 	case takeRemote:
 		if dry {
-			return true, true, nil
+			return true, true, detail, nil
 		}
 		if derr := os.MkdirAll(p.ConfigDir, 0o700); derr != nil {
-			return false, false, fmt.Errorf("create config dir: %w", derr)
+			return false, false, "", fmt.Errorf("create config dir: %w", derr)
 		}
-		return true, true, writeAtomicFile(p.ConfigFile(), ".config.toml.portable-*", clean)
+		return true, true, detail, writeAtomicFile(p.ConfigFile(), ".config.toml.portable-*", clean)
 	case bothItems:
 		remote := p.ConfigFile() + ".imported"
-		if old, rerr := os.ReadFile(remote); rerr == nil && bytes.Equal(old, clean) { //nolint:gosec // explicit profile config path
-			return false, true, nil
+		if old, rerr := os.ReadFile(remote); rerr == nil && portableConfigEqual(normalizePortableText(old), clean) { //nolint:gosec // explicit profile config path
+			return false, true, "", nil
 		}
 		if dry {
-			return true, true, nil
+			return true, true, detail, nil
 		}
 		if derr := os.MkdirAll(p.ConfigDir, 0o700); derr != nil {
-			return false, false, fmt.Errorf("create config dir: %w", derr)
+			return false, false, "", fmt.Errorf("create config dir: %w", derr)
 		}
-		return true, true, writeAtomicFile(remote, ".config.toml.imported-*", clean)
+		return true, true, detail, writeAtomicFile(remote, ".config.toml.imported-*", clean)
 	default:
-		return false, false, fmt.Errorf("unknown conflict mode %q", mode)
+		return false, false, "", fmt.Errorf("unknown conflict mode %q", mode)
 	}
 }
 
