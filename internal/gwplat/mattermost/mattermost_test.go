@@ -84,7 +84,7 @@ func TestF7PLAT012Mattermost(t *testing.T) {
 		Enabled: true, BaseURL: srv.URL,
 		WSURL: "ws" + strings.TrimPrefix(wsSrv.URL, "http"),
 	}, &desc,
-		secrets{"mattermost_token": "secret"}, newOutbox(t, "mattermost"),
+		secrets{"mattermost_token": "secret"}, newOutbox(t),
 		gwplat.HandlerFunc(func(_ context.Context, in *gateway.Inbound) error { got <- *in; return nil }))
 	if err != nil {
 		t.Fatal(err)
