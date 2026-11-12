@@ -6984,3 +6984,17 @@ F9-DEFERRED-184: UI-009 UI-013 UI-025 UI-027 UI-028 UI-001
 ```
 
 - Amandemen (ADR-350, 2026-11-12): agregat §1 "Gate parity 837/837" di `docs/F9-ACCEPTANCE.md` ditutup menjadi `LULUS` setelah #917 (re-fase) bersama #910/#911 (installer) dan #913/#914/#915 (backfill) bergabung di main `4aad646f`. Bukti: `go test ./internal/archtest -run 'TestParityPhaseColumn|TestF9ParityDeferred184' -count=1` ok dan `scripts/parity-audit.sh` melaporkan total=854, planned=0, LULUS=653, N/A=184, dropped=17, `Deferred184` n/a=184. Tidak ada angka gate yang berubah.
+
+## ADR-351 — Scorecard RC F9: gate P20, artefak terpublikasi, dan blocker yang jujur
+
+**Status:** Accepted 2026-11-12 (F9; melanjutkan ADR-347/ADR-054). Baris agregat F9 "Artefak rilis & scorecard" **tetap `BELUM`**; ADR ini tidak menurunkan target dan tidak mengubah P20.
+
+**Konteks.** Baris agregat F9 menuntut `TestScorecardGate` (semua dimensi ≥ hermes, dimensi inti menang), speed parity P28, baseline hermes F9, artefak scorecard RC, invariant P1–P29, dan `TestChangelogPerTag`. Sebelum PR ini tidak ada `TestScorecardGate` dan tidak ada artefak scorecard RC; `TestF9SpeedParity` hanya kerangka yang skip karena sisi Damn-Bot belum diukur.
+
+**Keputusan.**
+1. **Gate P20.** `TestScorecardGate` (`bench/scorecard/scorecard_test.go:25`) mem-parsing 74 dimensi SCORECARD §1.1–§1.8 sebagai himpunan tertutup, membangun ulang artefak dari sumber (`bench/scorecard/build.go:21`), membandingkan setiap baris dan SHA-256 sumber, lalu menegakkan `Artifact.Gate` (`bench/scorecard/scorecard.go:146`). Dimensi inti tanpa margin eksplisit ditolak; alasan `not_measured` < 8 karakter ditolak; baris di luar SCORECARD ditolak. `TestScorecardGateNegativeControls` (`:87`) menutup baris hilang, inti kalah, baris lambat, alasan pendek, baris asing, inti tanpa margin, dan kontrol positif artefak lengkap.
+2. **Artefak terpublikasi.** `bench/scorecard/results/2026-11-12-aeb4dc65.json` memuat 74 dimensi: 11 terukur, 63 `not_measured` dengan alasan di `bench/scorecard/not_measured.json`. Ringkasan dan sumber ada di `docs/SCORECARD-RC.md`. Angka terukur antara lain Fixed overhead 16.843→2.809 tok, Startup 1.368,273→42,507 ms, Idle RSS 210,4→24,570 MB, CPU idle 1,4→0,233 %, Feature parity 854/837.
+3. **Blocker tidak disembunyikan.** Gate mencatat satu pelanggaran terukur: First token di UI 39,407 ms / 10,032 ms = 3,93×, di bawah syarat ≥5×; nilai absolut ≤30 ms tidak menggantikan aturan margin inti. 63 dimensi belum terukur karena RC head-to-head penuh Q23-RC (model frontier/anggaran) belum dijalankan, soak 24 jam/1.000 turn belum ada, instalasi VM bersih 10 Mbit/s belum tersedia, dan artefak keamanan/kualitas RC belum dipublikasikan. `TestF9SpeedParity` tetap skip: `bench/speed/results/damnbot-*.json` belum ada; baseline hermes mengukur 163 operasi.
+4. **Tanpa pelonggaran.** Penanda rilis tetap `DAMNBOT_RELEASE=1`: tanpa penanda gate skip dengan alasan; dengan penanda gate gagal pada pelanggaran maupun `not_measured`. Tidak ada `t.Skip` liar pada tes baris data.
+
+**Dampak terukur.** 600 baris Go non-test baru di modul `bench` (di luar plafon produk; tidak ada kode `cmd/`/`internal/`, dependency, migrasi, config, atau plafon LOC). `docs/F9-ACCEPTANCE.md:27` mencatat bukti dan blocker; baris §1 tetap `BELUM`. Gate: `cd bench && go test ./scorecard` hijau (skip ber-alasan) dan `DAMNBOT_RELEASE=1 go test -run '^TestScorecardGate$' ./scorecard` gagal dengan 1 pelanggaran + 63 alasan, sesuai status baris.
