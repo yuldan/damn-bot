@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -354,5 +355,39 @@ func TestArchiveImportRejectsSecret(t *testing.T) {
 	if _, err := importPortable(ctx, portableTestPaths(t), bad, keepLocal, false, key, nil); err == nil ||
 		!strings.Contains(err.Error(), "plaintext secrets") {
 		t.Fatalf("tampered config import = %v, want refusal", err)
+	}
+}
+
+func TestArchiveCRLFIdempotent(t *testing.T) {
+	ctx := context.Background()
+	src := portableTestPaths(t)
+	if err := os.WriteFile(src.ConfigFile(), []byte("[ui]\r\nreply_language = \"auto\"\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writePortableSkill(t, src.ConfigDir, "crlf", "CRLF skill", "line one\r\nline two")
+	seedPortableMemory(t, src.DataDir, "memory one\r\nmemory two", "approved")
+	key := portableTestKey(t)
+	out := filepath.Join(t.TempDir(), "crlf.dmbk")
+	if _, _, err := exportPortable(ctx, src, out, key, nil); err != nil {
+		t.Fatal(err)
+	}
+	dst := portableTestPaths(t)
+	first, err := importPortable(ctx, dst, out, keepLocal, false, key, nil)
+	if err != nil || first.Changed != 3 {
+		t.Fatalf("first import = %+v, %v", first, err)
+	}
+	second, err := importPortable(ctx, dst, out, keepLocal, false, key, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Changed != 0 {
+		t.Fatalf("CRLF re-import not idempotent: %+v", second)
+	}
+	cfg, err := os.ReadFile(dst.ConfigFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(cfg, []byte("\r\n")) {
+		t.Fatalf("imported config was not normalized to LF: %q", cfg)
 	}
 }

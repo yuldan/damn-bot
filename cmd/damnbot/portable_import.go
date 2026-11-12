@@ -42,7 +42,13 @@ func parseConflictMode(s string) (conflictMode, error) {
 	}
 }
 
-func importPortable(ctx context.Context, p config.Paths, path string, mode conflictMode, dry bool, key secret.BackupKey, codec ctxdb.Codec) (portableCounts, error) { //nolint:gocognit,gocyclo // one switch over the three closed item kinds
+// normalizePortableText makes Windows (CRLF) and Unix (LF) archives compare
+// and install identically, so a re-import is idempotent on every OS.
+func normalizePortableText(data []byte) []byte {
+	return bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+}
+
+func importPortable(ctx context.Context, p config.Paths, path string, mode conflictMode, dry bool, key secret.BackupKey, codec ctxdb.Codec) (portableCounts, error) { //nolint:gocognit,gocyclo,funlen // one switch over the three closed item kinds
 	var c portableCounts
 	m, blobs, err := openPortableArchive(path, key)
 	if err != nil {
@@ -87,6 +93,9 @@ func importPortable(ctx context.Context, p config.Paths, path string, mode confl
 		case portableConfig:
 			changed, conflict, cerr := importPortableConfig(p, data, mode, dry, red)
 			c.add(portableConfig, changed)
+			if changed {
+				c.ChangedItems = append(c.ChangedItems, "config")
+			}
 			if conflict {
 				c.Conflicts++
 			}
@@ -96,6 +105,9 @@ func importPortable(ctx context.Context, p config.Paths, path string, mode confl
 		case portableSkill:
 			changed, conflict, protected, rejected, serr := importPortableSkill(ctx, db, svc, p.ConfigDir, it, data, mode, dry)
 			c.add(portableSkill, changed)
+			if changed {
+				c.ChangedItems = append(c.ChangedItems, "skill:"+it.Name)
+			}
 			if conflict {
 				c.Conflicts++
 			}
@@ -114,6 +126,9 @@ func importPortable(ctx context.Context, p config.Paths, path string, mode confl
 			}
 			changed, rejected, merr := importPortableMemory(ctx, db, mem, it, data, dry)
 			c.add(portableMemory, changed)
+			if changed {
+				c.ChangedItems = append(c.ChangedItems, "memory:"+it.Scope)
+			}
 			if rejected {
 				c.Rejected++
 			}
@@ -126,7 +141,7 @@ func importPortable(ctx context.Context, p config.Paths, path string, mode confl
 }
 
 func importPortableConfig(p config.Paths, data []byte, mode conflictMode, dry bool, red *redact.Redactor) (bool, bool, error) { //nolint:gocyclo // three explicit conflict modes
-	clean, err := portableConfigBytes(data, red)
+	clean, err := portableConfigBytes(normalizePortableText(data), red)
 	if err != nil {
 		return false, false, fmt.Errorf("import config: %w", err)
 	}
@@ -143,6 +158,7 @@ func importPortableConfig(p config.Paths, data []byte, mode conflictMode, dry bo
 	if err != nil {
 		return false, false, fmt.Errorf("read %s: %w", p.ConfigFile(), err)
 	}
+	local = normalizePortableText(local)
 	if bytes.Equal(local, clean) {
 		return false, false, nil
 	}
@@ -205,12 +221,14 @@ func localPortableSkills(ctx context.Context, db *ctxdb.Store, name string) ([]l
 }
 
 func importPortableSkill(ctx context.Context, db *ctxdb.Store, svc *skills.Service, configDir string, it *portableItem, data []byte, mode conflictMode, dry bool) (changed, conflict, protected, rejected bool, err error) { //nolint:gocognit // closed conflict matrix
+	data = normalizePortableText(data)
+	sha := sha256Hex(data)
 	local, lerr := localPortableSkills(ctx, db, it.Name)
 	if lerr != nil {
 		return false, false, false, false, lerr
 	}
 	for i := range local {
-		if local[i].sha == it.SHA256 {
+		if local[i].sha == sha {
 			return false, false, false, false, nil
 		}
 	}
@@ -232,7 +250,7 @@ func importPortableSkill(ctx context.Context, db *ctxdb.Store, svc *skills.Servi
 				}
 			}
 		case bothItems:
-			target = suffixedPortableName(it.Name, it.SHA256)
+			target = suffixedPortableName(it.Name, sha)
 		default:
 			return false, false, false, false, fmt.Errorf("unknown conflict mode %q", mode)
 		}
@@ -313,7 +331,7 @@ func suffixedPortableName(name, sha string) string {
 }
 
 func importPortableMemory(ctx context.Context, db *ctxdb.Store, svc *memory.Service, it *portableItem, data []byte, dry bool) (bool, bool, error) {
-	content := string(data)
+	content := string(normalizePortableText(data))
 	hits, err := memstore.Search(ctx, db, &memstore.Query{
 		Scopes: []string{it.Scope}, Statuses: []string{"pending", "scanned", "approved", "rejected", "retired", "expired"},
 		Limit: -1, Now: time.Now().UnixMilli(),
