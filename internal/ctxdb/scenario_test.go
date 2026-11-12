@@ -41,6 +41,10 @@ func TestPlatformNAList(t *testing.T) {
 	golden := map[string][]string{
 		"linux":  nil,
 		"darwin": nil,
+		// android matches the `linux` build tag (Go release tags), so it uses the
+		// same /proc + signal helpers and excludes no scenario; without this entry
+		// it fell through to "other" and the list mismatched on the F9 QEMU job.
+		"android": nil,
 		"windows": {
 			"S037_SigstopInsideWriteTx", "S062_CtrlZDuringExecToolGroup", "S063_DbWriteStalledReport",
 			"S074_OrphanStoppedToolGroupKilled", "S085_LeaderDeadNohupChildKilled",

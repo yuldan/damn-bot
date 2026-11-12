@@ -21,6 +21,12 @@ out=${QEMU_TEST_DIR:-$root/.qemu-tests}
 headless_run='^TestRunHeadless'
 # E-39: tag goolm wajib di setiap build/test; tag tambahan boleh lewat QEMU_TEST_TAGS.
 gotags=${QEMU_TEST_TAGS:-goolm}
+# Test multi-proses ctxdb memakai heartbeat 1 s terhadap TTL lease 10 s dan
+# mengasumsikan penjadwalan native; di bawah qemu-user (satu vCPU emulasi)
+# lease bisa tampak fenced walau pemiliknya hidup (bukti run 43156379122).
+# Kelas ini tetap berjalan di runner native (job test enam target + chaos
+# nightly, -count=20); QEMU menjalankan sisa suite paket inti.
+ctxdb_skip='^(TestMultiProcess|TestConcurrencyF2|TestSharedLeaseWaitDetectsUnreleasedOwner)$'
 core_packages='./internal/ctxdb/... ./internal/exec/... ./internal/acp/...'
 
 usage() {
@@ -80,6 +86,8 @@ run() {
 		echo "=== $pkg ($target)"
 		if [ "$pkg" = headless ]; then
 			(cd "$root/$reldir" && "$root/$bin" -test.count=1 -test.run "$headless_run")
+		elif [ "$pkg" = github.com/damnbot/damnbot/internal/ctxdb ]; then
+			(cd "$root/$reldir" && "$root/$bin" -test.count=1 -test.skip "$ctxdb_skip")
 		else
 			(cd "$root/$reldir" && "$root/$bin" -test.count=1)
 		fi
