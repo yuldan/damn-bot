@@ -6918,4 +6918,5 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Dampak terukur.** `docs/FEATURE-PARITY.md` berubah 309 baris status + Catatan; rekap status diselaraskan ke angka aktual. `make loc`/`size-check`/`deadcode` tidak berubah. Gate bukti: 171 tes bernama dari 309 baris lulus `go test -tags goolm -count=1`.
 
 - Amandemen (ADR-349, PR F1–F2): 89 baris F1–F2 menjadi `LULUS`; rekap `planned 406, LULUS 431`. `TestF9ParityDeferred121` dan `scripts/parity-audit.sh` mendarat di PR ini. Tidak ada baris pinned yang di-flip.
+- Amandemen (ADR-349, PR F3): 40 baris F3 menjadi `LULUS`; rekap `planned 366, LULUS 471`. Bukti per baris ada di kolom Catatan (`Test… (path:line)`); tes dijalankan `-count=1`.
 
