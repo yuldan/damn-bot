@@ -1,0 +1,18 @@
+{
+ "commit": "bf6b9c1b",
+ "duration_seconds": 32.969011578,
+ "kills": 50,
+ "pass": true,
+ "phase": "F9",
+ "scenarios": [
+  "Kill9",
+  "NetworkCut",
+  "DiskFullTmpfs",
+  "CorruptConfig",
+  "CorruptDB",
+  "Reboot",
+  "RestartGateway",
+  "Clients50"
+ ],
+ "test": "TestF9ChaosFull"
+}
