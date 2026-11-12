@@ -6901,3 +6901,21 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 **Konsekuensi.** (+) Artefak distribusi F9 dapat dibangun dan diukur di CI tanpa menambah runtime Python/Node; image gagal build/gate bila berat atau identitasnya menyimpang. (−) Varian `damnbot:toolbox` (interpreter `execute_code`, Q35) dan multi-arch manifest registry tidak termasuk slice ini; build image CI hanya platform runner alami, sedangkan Dockerfile siap untuk `buildx --platform linux/amd64,linux/arm64` tanpa emulasi. (−) Lock Nix harus di-`nix flake update` saat toolchain Go bergerak; test parse tidak mengeksekusi Nix sehingga regresi evaluasi hanya tertangkap di job `nix` bila runner menyediakan Nix.
 
+## ADR-349 — Backfill parity F1–F5: 309 baris berbukti, 121 deferred dipin, 63 residual
+
+**Status:** Accepted 2026-11-12 (F9; melanjutkan ADR-347).
+
+**Konteks.** `docs/F9-ACCEPTANCE.md` §1 menagih parity 837/837 dan menyebut 493 baris F1–F5 masih `planned`. Audit ulang atas 493 baris menemukan 309 baris yang kapabilitasnya ada dan punya tes bernama, 121 baris deferred dari laporan sebelumnya, dan 63 baris sisanya belum memenuhi ambang bukti (permukaan parsial, stub penolakan, atau tanpa tes yang menegaskan baris). F9 berbudget 0 LOC produk, jadi PR backfill ini hanya dokumen + tes arsitektur.
+
+**Keputusan.**
+
+1. **Ambang bukti.** Baris hanya menjadi `LULUS` bila ada tes Go bernama yang lulus dengan `-count=1`; `path:line` tes dan catatan ekuivalensi/parsial ditulis di kolom Catatan. Alias hanya dipakai bila kapabilitasnya sama; stub penolakan, permukaan parsial yang kehilangan aksi inti, dan adapter provider yang ditolak `runtimeAuth` tidak di-flip.
+2. **Cakupan tiga PR.** F1–F2: 89 baris; F3: 40 baris; F4–F5: 180 baris. Total 309 baris `planned`→`LULUS`. Tidak ada baris `N/A` atau `dropped-with-approval` baru.
+3. **121 deferred dipin.** `TestF9ParityDeferred121` (`internal/archtest/f9_parity_deferred_test.go`) memuat daftar literal 121 ID dan gagal bila satu baris hilang, berubah fase, atau berubah status tanpa ADR yang menulis `F9-DEFERRED-121: <ID>` di dokumen ini. Daftar tetap 121; tiga baris deferred (`CLI-020`, `CLI-038`, `SLASH-007`) memiliki ekuivalen alias yang ditemukan saat audit tetapi tetap deferred sampai owner memutuskan ambang permukaan.
+4. **63 residual.** Enam puluh tiga baris F1–F5 lain tetap `planned` karena belum lolos ambang butir 1; daftar aktualnya dapat dicetak ulang dengan `scripts/parity-audit.sh`. Baris-baris ini tidak masuk pin 121 dan memerlukan keputusan owner sebelum di-flip atau di-re-fase.
+5. **Gate tidak berubah.** Denominator 854/837, `TestParityPhaseColumn`, `maxModuleLOC`, `maxCoreLOC`, dan `loc.budget` tidak disentuh. Tidak ada kode produk baru; yang ditambah hanya satu file tes arsitektur dan satu skrip audit read-only.
+
+**Dampak terukur.** `docs/FEATURE-PARITY.md` berubah 309 baris status + Catatan; rekap status diselaraskan ke angka aktual. `make loc`/`size-check`/`deadcode` tidak berubah. Gate bukti: 171 tes bernama dari 309 baris lulus `go test -tags goolm -count=1`.
+
+- Amandemen (ADR-349, PR F1–F2): 89 baris F1–F2 menjadi `LULUS`; rekap `planned 406, LULUS 431`. `TestF9ParityDeferred121` dan `scripts/parity-audit.sh` mendarat di PR ini. Tidak ada baris pinned yang di-flip.
+
