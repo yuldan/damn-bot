@@ -26,7 +26,7 @@ assets=$(
 	cd dist
 	for f in damnbot_*; do
 		name=${f#./}
-		case "$name" in *.sbom.txt) continue ;; esac
+		case "$name" in *.sbom.txt | *.tar.gz | *.zip) continue ;; esac
 		if [[ $name =~ ^damnbot_(.+)_(linux|darwin|windows)_(amd64|arm64)(\.exe)?$ ]]; then
 			file_version=${BASH_REMATCH[1]}
 			os=${BASH_REMATCH[2]}

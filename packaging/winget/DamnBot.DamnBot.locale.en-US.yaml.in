@@ -1,0 +1,11 @@
+PackageIdentifier: DamnBot.DamnBot
+PackageVersion: @VERSION@
+PackageLocale: en-US
+Publisher: Damn-Bot contributors
+PackageName: Damn-Bot
+PackageUrl: https://github.com/damnbot/damnbot
+License: MIT
+ShortDescription: Single-binary AI assistant with tools, gateway, and TUI
+Moniker: damnbot
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

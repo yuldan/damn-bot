@@ -47,6 +47,25 @@ if ! cmp -s "$work/$exe.a" "$work/$exe.b"; then
 	exit 1
 fi
 cp "$work/$exe.a" "dist/$name"
+# Arsip installer (GAP-SEC-19): satu binary di root arsip. Metadata stabil agar
+# hash arsip reproducible untuk epoch commit yang sama.
+archive="damnbot_${file_version}_${GOOS}_${GOARCH}.tar.gz"
+mkdir -p "$work/pkg"
+cp "$work/$exe.a" "$work/pkg/$exe"
+if [[ $GOOS == windows ]]; then
+	archive="damnbot_${file_version}_${GOOS}_${GOARCH}.zip"
+	if command -v zip >/dev/null 2>&1; then
+		(cd "$work/pkg" && zip -qX "../$archive" "$exe") && mv "$work/$archive" "dist/$archive"
+	elif command -v 7z >/dev/null 2>&1; then
+		(cd "$work/pkg" && 7z a -tzip -bd -y "$work/$archive" "$exe" >/dev/null) && mv "$work/$archive" "dist/$archive"
+	else
+		echo "REPRODUCIBLE GAGAL: zip/7z dibutuhkan untuk arsip Windows" >&2
+		exit 1
+	fi
+else
+	tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
+		-czf "dist/$archive" -C "$work/pkg" "$exe"
+fi
 if [[ $REQUIRE_VCS == 1 ]]; then
 	if ! go version -m "dist/$name" | grep -Eq 'vcs\.revision=[0-9a-f]{40}'; then
 		echo "REPRODUCIBLE GAGAL: build tanpa stempel vcs.revision" >&2

@@ -1,0 +1,12 @@
+Package: damnbot
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: @ARCH@
+Maintainer: Damn-Bot contributors <maintainers@damnbot.dev>
+Depends: ca-certificates
+Homepage: https://github.com/damnbot/damnbot
+Description: Single-binary AI assistant with tools, gateway, and TUI
+ Damn-Bot ships one binary, local storage, and signed releases. This package
+ installs the official release binary; install.sh verifies checksums and the
+ ed25519 signature before installation.

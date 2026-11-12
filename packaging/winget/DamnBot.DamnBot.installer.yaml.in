@@ -1,0 +1,16 @@
+PackageIdentifier: DamnBot.DamnBot
+PackageVersion: @VERSION@
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: damnbot.exe
+    PortableCommandAlias: damnbot
+Installers:
+  - Architecture: x64
+    InstallerUrl: @BASE@/v@VERSION@/damnbot_@VERSION@_windows_amd64.zip
+    InstallerSha256: @SHA_WINDOWS_AMD64@
+  - Architecture: arm64
+    InstallerUrl: @BASE@/v@VERSION@/damnbot_@VERSION@_windows_arm64.zip
+    InstallerSha256: @SHA_WINDOWS_ARM64@
+ManifestType: installer
+ManifestVersion: 1.10.0

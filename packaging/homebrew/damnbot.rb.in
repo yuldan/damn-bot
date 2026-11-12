@@ -1,0 +1,34 @@
+class Damnbot < Formula
+  desc "Single-binary AI assistant with tools, gateway, and TUI"
+  homepage "https://github.com/damnbot/damnbot"
+  version "@VERSION@"
+  license "MIT"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "@BASE@/v@VERSION@/damnbot_@VERSION@_darwin_arm64.tar.gz"
+      sha256 "@SHA_DARWIN_ARM64@"
+    else
+      url "@BASE@/v@VERSION@/damnbot_@VERSION@_darwin_amd64.tar.gz"
+      sha256 "@SHA_DARWIN_AMD64@"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "@BASE@/v@VERSION@/damnbot_@VERSION@_linux_arm64.tar.gz"
+      sha256 "@SHA_LINUX_ARM64@"
+    else
+      url "@BASE@/v@VERSION@/damnbot_@VERSION@_linux_amd64.tar.gz"
+      sha256 "@SHA_LINUX_AMD64@"
+    end
+  end
+
+  def install
+    bin.install "damnbot"
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/damnbot --version")
+  end
+end
