@@ -122,8 +122,8 @@ func TestApproveConditionalAndIdempotent(t *testing.T) {
 func TestMigration0017FromEmptyDB(t *testing.T) {
 	t.Parallel()
 	db := open(t)
-	if v := count(t, db, `PRAGMA user_version`); v != 17 {
-		t.Fatalf("user_version = %d, want 17", v)
+	if v, want := count(t, db, `PRAGMA user_version`), latestSchema(t); v != want {
+		t.Fatalf("user_version = %d, want %d", v, want)
 	}
 	for _, col := range []string{"server_id", "tool_name", "schema_sha256", "first_seen", "approved_at", "approved_by", "state", "diff_summary"} {
 		if count(t, db, `SELECT count(*) FROM pragma_table_info('mcp_tool_pins') WHERE name = ?`, col) != 1 {
@@ -150,8 +150,8 @@ func TestMigration0017From0016(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := openDir(t, dir, 0)
-	if v := count(t, db, `PRAGMA user_version`); v != 17 {
-		t.Fatalf("upgraded user_version = %d, want 17", v)
+	if v, want := count(t, db, `PRAGMA user_version`), latestSchema(t); v != want {
+		t.Fatalf("upgraded user_version = %d, want %d", v, want)
 	}
 	if count(t, db, `SELECT count(*) FROM mcp_tool_pins`) != 0 {
 		t.Fatal("upgrade invented pin rows")
@@ -166,9 +166,18 @@ func TestMigration0017From0016(t *testing.T) {
 			t.Errorf("close: %v", err)
 		}
 	}()
-	if count(t, again, `PRAGMA user_version`) != 17 || dumpSchema(t, again) != dump {
+	if count(t, again, `PRAGMA user_version`) != latestSchema(t) || dumpSchema(t, again) != dump {
 		t.Fatal("re-running the ladder changed the schema")
 	}
+}
+
+func latestSchema(t *testing.T) int {
+	t.Helper()
+	_, v, err := ctxdb.MigrationLadder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
 }
 
 func count(t *testing.T, db *ctxdb.Store, q string, args ...any) int {
