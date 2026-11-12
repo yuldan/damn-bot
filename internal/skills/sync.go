@@ -3,6 +3,7 @@ package skills
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -274,7 +275,14 @@ func writeBundledFile(root *os.Root, name string, raw []byte) error {
 		return fmt.Errorf("bundled dir %s: %w", dir, err)
 	}
 	dest := filepath.Join(dir, "SKILL.md")
-	tmp := filepath.Join(dir, fmt.Sprintf(".SKILL.md-%d", os.Getpid()))
+	// Unique per call: a single process may sync the same target from two
+	// goroutines (startup + tool path); PID alone made the second O_EXCL open
+	// fail with "file exists" under slow emulation (F9 QEMU android/arm).
+	var nonce [8]byte
+	if _, rerr := rand.Read(nonce[:]); rerr != nil {
+		return fmt.Errorf("bundled temp nonce: %w", rerr)
+	}
+	tmp := filepath.Join(dir, fmt.Sprintf(".SKILL.md-%d-%x", os.Getpid(), nonce))
 	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("bundled temp %s: %w", tmp, err)

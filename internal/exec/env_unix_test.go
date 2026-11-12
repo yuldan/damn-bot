@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -35,10 +36,22 @@ func runEnv(t *testing.T, o *OneShot) (map[string]string, string) {
 	got := map[string]string{}
 	for line := range strings.SplitSeq(strings.ReplaceAll(string(res.Output), "\r", ""), "\n") {
 		if k, v, ok := strings.Cut(line, "="); ok {
-			got[k] = v
+			got[k] = unquoteEnv(v)
 		}
 	}
 	return got, notice
+}
+
+// unquoteEnv decodes the POSIX shell quoting some `env` builds (Termux
+// coreutils on android) apply when stdout is a TTY. The runner passes Env
+// verbatim in both modes (startPTY uses os.ProcAttr.Env), so the pipe and PTY
+// child must carry the same literal value; this only normalises the probe
+// output, it does not weaken the expected value.
+func unquoteEnv(v string) string {
+	if len(v) >= 2 && v[0] == '\'' && v[len(v)-1] == '\'' {
+		return strings.ReplaceAll(v[1:len(v)-1], `'\''`, `'`)
+	}
+	return v
 }
 
 // TestEnvAllowlist (GAP-SEC-02, ADR-071; F1 subset): 50 secret-like and 20
@@ -68,32 +81,55 @@ func TestEnvAllowlist(t *testing.T) {
 		parent = append(parent, k+"=v-"+k)
 	}
 	policy := &EnvPolicy{Allow: []string{"OPENAI_API_KEY"}, Set: map[string]string{"PAGER": "more", "GIT_TERMINAL_PROMPT": "1", "X_SET": "1"}}
+	byPTY := map[bool]map[string]string{}
 	for _, pty := range []bool{false, true} {
 		got, _ := runEnv(t, &OneShot{Direct: []string{"env"}, Dir: t.TempDir(), PTY: pty, Parent: parent, Policy: policy})
-		for _, k := range append(leaks, "GH_AUTH_HOME", "SSH_AUTH_SOCK") {
-			if _, ok := got[k]; ok {
-				t.Errorf("pty=%v: %s leaked", pty, k)
-			}
-		}
-		want := map[string]string{
-			"HOME": "/home/u", "LANG": "C.UTF-8", "LC_ALL": "C", "XDG_CONFIG_HOME": "/x", "CARGO_HOME": "/c",
-			"OPENAI_API_KEY": "sk-allowed-by-name", "PAGER": "more", "X_SET": "1", "GIT_TERMINAL_PROMPT": "0",
-			"HTTPS_PROXY": "http://proxy:3128", "NO_PROXY": "localhost", "EDITOR": "false", "CI": "1",
-			"GIT_SSH_COMMAND": "ssh -o BatchMode=yes", "DAMNBOT": "1",
-		}
-		want["TERM"] = map[bool]string{false: "dumb", true: "xterm-256color"}[pty]
-		for k, v := range want {
-			if got[k] != v {
-				t.Errorf("pty=%v: %s=%q, want %q", pty, k, got[k], v)
-			}
-		}
-		if got[MarkerEnv] == "forged" || got[MarkerEnv] == "" {
-			t.Errorf("marker %q", got[MarkerEnv])
-		}
+		byPTY[pty] = got
+		checkEnvAllowlist(t, pty, got, leaks)
 	}
+	assertEnvParity(t, byPTY[false], byPTY[true])
 	got, _ := runEnv(t, &OneShot{Direct: []string{"env"}, Dir: t.TempDir(), Parent: parent, Policy: &EnvPolicy{PassSSHAgent: true}})
 	if got["SSH_AUTH_SOCK"] != "/tmp/agent" || got["OPENAI_API_KEY"] != "" {
 		t.Errorf("pass_ssh_agent: %v", got)
+	}
+}
+
+// checkEnvAllowlist asserts the deny-by-default policy for one runner mode.
+func checkEnvAllowlist(t *testing.T, pty bool, got map[string]string, leaks []string) {
+	t.Helper()
+	for _, k := range append(slices.Clone(leaks), "GH_AUTH_HOME", "SSH_AUTH_SOCK") {
+		if _, ok := got[k]; ok {
+			t.Errorf("pty=%v: %s leaked", pty, k)
+		}
+	}
+	want := map[string]string{
+		"HOME": "/home/u", "LANG": "C.UTF-8", "LC_ALL": "C", "XDG_CONFIG_HOME": "/x", "CARGO_HOME": "/c",
+		"OPENAI_API_KEY": "sk-allowed-by-name", "PAGER": "more", "X_SET": "1", "GIT_TERMINAL_PROMPT": "0",
+		"HTTPS_PROXY": "http://proxy:3128", "NO_PROXY": "localhost", "EDITOR": "false", "CI": "1",
+		"GIT_SSH_COMMAND": "ssh -o BatchMode=yes", "DAMNBOT": "1",
+	}
+	want["TERM"] = map[bool]string{false: "dumb", true: "xterm-256color"}[pty]
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("pty=%v: %s=%q, want %q", pty, k, got[k], v)
+		}
+	}
+	if got[MarkerEnv] == "forged" || got[MarkerEnv] == "" {
+		t.Errorf("marker %q", got[MarkerEnv])
+	}
+}
+
+// assertEnvParity asserts PTY and pipe carry identical literal values; only
+// TERM (dumb vs xterm-256color) and the per-exec marker may differ.
+func assertEnvParity(t *testing.T, pipe, pty map[string]string) {
+	t.Helper()
+	for k, v := range pipe {
+		if k == "TERM" || k == MarkerEnv {
+			continue
+		}
+		if pty[k] != v {
+			t.Errorf("pty vs pipe: %s=%q, pipe %q", k, pty[k], v)
+		}
 	}
 }
 

@@ -9,7 +9,7 @@
 set -uo pipefail
 
 JOBS=(changes lint test test-timing static deadcode deadcode-linux portability fuzz phase perf coverage e2e
-	image nix bench bench-parity supply skill-refs sqlite-engine smoke)
+	image nix bench bench-parity supply skill-refs sqlite-engine os-matrix-qemu smoke)
 
 check() { # <needs-json> <tier> <code>
 	local needs=$1 tier=$2 code=$3
@@ -30,7 +30,7 @@ check() { # <needs-json> <tier> <code>
 	esac
 
 	local common="lint test static phase e2e image nix bench supply skill-refs sqlite-engine"
-	local deep="test-timing deadcode portability fuzz perf coverage bench-parity"
+	local deep="test-timing deadcode portability fuzz perf coverage bench-parity os-matrix-qemu"
 	local smoke_set="lint static smoke"
 	# ADR-324 amandemen: `deadcode-linux` berjalan di SETIAP tier saat `code=true`.
 	local linux_dead="deadcode-linux"
@@ -66,7 +66,7 @@ fixture() {
 		{changes: {result: "success"}}
 		+ (["lint", "test", "test-timing", "static", "deadcode", "deadcode-linux", "portability", "fuzz", "phase",
 			"perf", "coverage", "e2e", "image", "nix", "bench", "bench-parity", "supply", "skill-refs",
-			"sqlite-engine", "smoke"] | map({key: ., value: {result: "skipped"}}) | from_entries)
+			"sqlite-engine", "os-matrix-qemu", "smoke"] | map({key: ., value: {result: "skipped"}}) | from_entries)
 		+ ($ok | with_entries(.value = {result: .value}))'
 }
 
@@ -88,7 +88,7 @@ self_test() {
 
 	local pr_common deep
 	pr_common='{"lint":"success","test":"success","static":"success","phase":"success","e2e":"success","image":"success","nix":"success","bench":"success","supply":"success","skill-refs":"success","sqlite-engine":"success","deadcode-linux":"success"}'
-	deep=$(printf '%s' "$pr_common" | jq -c '. + {"test-timing":"success","deadcode":"success","portability":"success","fuzz":"success","perf":"success","coverage":"success","bench-parity":"success"}')
+	deep=$(printf '%s' "$pr_common" | jq -c '. + {"test-timing":"success","deadcode":"success","portability":"success","fuzz":"success","perf":"success","coverage":"success","bench-parity":"success","os-matrix-qemu":"success"}')
 
 	run_case "pr hijau" pr true 0 "$(fixture "$pr_common")"
 	# ADR-324 amandemen: deadcode linux wajib di SETIAP tier yang mengubah kode.
@@ -107,6 +107,8 @@ self_test() {
 	run_case "merge_group full hijau" full true 0 "$(fixture "$deep")"
 	run_case "merge_group deadcode-linux skipped" full true 1 "$(fixture "$(printf '%s' "$deep" | jq -c 'del(."deadcode-linux")')")"
 	run_case "merge_group bench-parity skipped" full true 1 "$(fixture "$(printf '%s' "$deep" | jq -c 'del(."bench-parity")')")"
+	run_case "merge_group os-matrix-qemu skipped" full true 1 "$(fixture "$(printf '%s' "$deep" | jq -c 'del(."os-matrix-qemu")')")"
+	run_case "pr os-matrix-qemu jalan (harus skipped)" pr true 1 "$(fixture "$(printf '%s' "$pr_common" | jq -c '. + {"os-matrix-qemu":"success"}')")"
 	run_case "merge_group deadcode cancelled" full true 1 "$(fixture "$(printf '%s' "$deep" | jq -c '. + {"deadcode":"cancelled"}')")"
 	run_case "pr docs-only" pr false 0 "$(fixture '{}')"
 	run_case "push main docs-only" smoke false 0 "$(fixture '{}')"

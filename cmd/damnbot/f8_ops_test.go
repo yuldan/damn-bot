@@ -45,7 +45,7 @@ func TestF8OPS010DebugUpload(t *testing.T) {
 	}
 	token := tokenFromReply(got.Reply)
 	path := strings.Fields(got.Reply)[2]
-	body, err := os.ReadFile(path) // #nosec G304 -- fixture path printed by the command
+	body, err := f8ReadDebugArtifact(t, path)
 	if err != nil || strings.Contains(string(body), "sk-live-ops010") {
 		t.Fatalf("artifact = %q, %v", body, err)
 	}

@@ -139,7 +139,7 @@ func TestF8SLASH102Debug(t *testing.T) {
 		t.Fatalf("no token: %q", got.Reply)
 	}
 	path := strings.Fields(got.Reply)[2]
-	artifact, err := os.ReadFile(path) // #nosec G304 -- fixture path
+	artifact, err := f8ReadDebugArtifact(t, path)
 	if err != nil || !strings.Contains(string(artifact), "damnbot ") {
 		t.Fatalf("artifact = %q, %v", artifact, err)
 	}

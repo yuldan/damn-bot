@@ -57,8 +57,9 @@ build-matrix:
 
 # GAP-REL-04 (ADR-132/ADR-144): the embedded SQLite engine must satisfy REL-04
 # on every E-39 target. Targets with a hosted runner run the probe; the two
-# without one (linux/arm, android/arm64) cross-compile the test binary until
-# QEMU execution lands at F9 (ADR-073).
+# without one (linux/arm, android/arm64) cross-compile the test binary here,
+# while the F9 core suite for both targets executes under QEMU in the CI job
+# `os-matrix-qemu` (ADR-073, scripts/os-matrix-qemu.sh).
 sqlite-engine:
 	CGO_ENABLED=0 go test $(GOTAGS) -count=1 -run '^TestSQLiteEngineVersion$$' ./internal/ctxdb
 

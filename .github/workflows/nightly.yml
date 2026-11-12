@@ -22,7 +22,9 @@ env:
 
 jobs:
   # ADR-135 butir 3: seluruh gate `ci` dengan matrix penuh (6 target `test`, coverage, perf, fuzz, …)
-  # dijalankan terhadap main setiap hari, bukan hanya tier PR yang diperkecil.
+  # dijalankan terhadap main setiap hari, bukan hanya tier PR yang diperkecil. Job `os-matrix-qemu`
+  # (tier `full`) ikut di sini: linux/arm dan android/arm64 benar-benar menjalankan suite inti di QEMU
+  # (F9/ADR-073); wiring-nya dijaga TestNightlyOSMatrixWired.
   ci-full:
     uses: ./.github/workflows/ci.yml
 
