@@ -6931,7 +6931,7 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 **Status:** Accepted 2026-11-12 (F9; melanjutkan ADR-349). Disetujui owner pada 2026-11-12: 121 baris `TestF9ParityDeferred121` dan 63 baris residual ADR-349 dire-fase ke F10, bukan dikejar di F9.
 
-**Konteks.** ADR-349 memisahkan 493 baris F1–F5 yang masih `planned` menjadi 309 baris berbukti, 121 deferred yang dipin, dan 63 residual yang belum lolos ambang bukti. Setelah PR backfill F1–F2/F3/F4–F5, tinggal 184 baris F1–F5 yang `planned`: 121 deferred (fitur belum dibangun) dan 63 residual (permukaan parsial, stub penolakan, adapter provider yang ditolak `runtimeAuth`, atau tanpa tes yang menegaskan baris). F9 berbudget 0 LOC Go produk dan tidak boleh memperbesar cakupan produk; owner memutuskan kedelapan belas puluh empat baris itu dire-fase ke F10 alih-alih dipaksakan menjadi `LULUS` pada F9.
+**Konteks.** ADR-349 memisahkan 493 baris F1–F5 yang masih `planned` menjadi 309 baris berbukti, 121 deferred yang dipin, dan 63 residual yang belum lolos ambang bukti. Setelah PR backfill F1–F2/F3/F4–F5, tinggal 184 baris F1–F5 yang `planned`: 121 deferred (fitur belum dibangun) dan 63 residual (permukaan parsial, stub penolakan, adapter provider yang ditolak `runtimeAuth`, atau tanpa tes yang menegaskan baris). F9 berbudget 0 LOC Go produk dan tidak boleh memperbesar cakupan produk; owner memutuskan seratus delapan puluh empat baris itu dire-fase ke F10 alih-alih dipaksakan menjadi `LULUS` pada F9.
 
 **Keputusan.**
 
@@ -6973,3 +6973,5 @@ F9-DEFERRED-184: TOOL-021
 F9-DEFERRED-184: TSET-008 TSET-013 TSET-007 TSET-012 TSET-044 TSET-045 TSET-062
 F9-DEFERRED-184: UI-009 UI-013 UI-025 UI-027 UI-028 UI-001
 ```
+
+- Amandemen (ADR-350, 2026-11-12): agregat §1 "Gate parity 837/837" di `docs/F9-ACCEPTANCE.md` ditutup menjadi `LULUS` setelah #917 (re-fase) bersama #910/#911 (installer) dan #913/#914/#915 (backfill) bergabung di main `4aad646f`. Bukti: `go test ./internal/archtest -run 'TestParityPhaseColumn|TestF9ParityDeferred184' -count=1` ok dan `scripts/parity-audit.sh` melaporkan total=854, planned=0, LULUS=653, N/A=184, dropped=17, `Deferred184` n/a=184. Tidak ada angka gate yang berubah.
