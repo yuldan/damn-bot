@@ -47,7 +47,7 @@ const (
 	portableMemory portableKind = "memory"
 )
 
-func (c *portableCounts) add(kind portableKind, changed bool) { //nolint:unparam // import passes false in the next PR
+func (c *portableCounts) add(kind portableKind, changed bool) {
 	c.Items++
 	if changed {
 		c.Changed++
