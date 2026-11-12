@@ -947,7 +947,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | OPS-027 | Startup watchdog & bootstrap | Watchdog startup, UTF-8 stdio Windows | `hermes_startup_watchdog.py`, `hermes_bootstrap.py` | on | — |  | F4 | planned |
 | OPS-028 | Install repair / early recovery | Pulihkan update yang terputus | `hermes_cli/_early_recovery.py`, `hermes_cli/_install_repair.py` | on | — |  | F4 | planned |
 | OPS-029 | Docker image & compose | Image Docker resmi | `Dockerfile`, `docker-compose.yml` | opt-in | Docker |  | F9 | LULUS |
-| OPS-030 | Nix flake | Paket Nix | `flake.nix` | opt-in | Nix |  | F9 | planned |
+| OPS-030 | Nix flake | Paket Nix | `flake.nix` | opt-in | Nix |  | F9 | LULUS |
 | OPS-031 | Termux/Android | Dukungan Termux | `hermes_cli/psutil_android.py`, `pyproject.toml:439` | opt-in | Termux | extra `termux` | F9 | LULUS |
 | OPS-032 | Installer scripts | setup-hermes.sh / .ps1 | `setup-hermes.sh`, `setup-hermes.ps1` | — | bash/PowerShell, uv |  | F9 | planned |
 | OPS-033 | Data cleanup / disk status | Bersihkan data & laporan disk | `hermes_cli/data_cleanup.py`, `gateway/disk_status.py` | opt-in | — | disk status `doctor` DOC-011 (ADR-256); hapus data `sessions prune`; `doctor gc` F4 | F4 | planned |

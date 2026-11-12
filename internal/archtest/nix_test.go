@@ -96,3 +96,9 @@ func runNixFlakeCheck(t *testing.T) {
 		t.Fatalf("nix flake check: %v\n%s", err, out)
 	}
 }
+
+// TestF9OPS030NixFlake (F9 ledger OPS-030, ADR-347) is the ledger-named entry
+// for the flake parse/lock checks; TestNixFlakeParse carries the assertions.
+func TestF9OPS030NixFlake(t *testing.T) {
+	TestNixFlakeParse(t)
+}
