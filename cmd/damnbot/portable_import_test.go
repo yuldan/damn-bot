@@ -391,3 +391,23 @@ func TestArchiveCRLFIdempotent(t *testing.T) {
 		t.Fatalf("imported config was not normalized to LF: %q", cfg)
 	}
 }
+
+func TestArchiveSkillSemanticIdempotent(t *testing.T) {
+	ctx := context.Background()
+	src := portableTestPaths(t)
+	writePortableSkill(t, src.ConfigDir, "sem", "seeded", "line one\nline two")
+	key := portableTestKey(t)
+	out := filepath.Join(t.TempDir(), "sem.dmbk")
+	if _, _, err := exportPortable(ctx, src, out, key, nil); err != nil {
+		t.Fatal(err)
+	}
+	dst := portableTestPaths(t)
+	seedPortableSkill(t, dst.DataDir, "sem", "line one\r\nline two", false)
+	counts, err := importPortable(ctx, dst, out, keepLocal, false, key, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Changed != 0 || len(counts.ChangedItems) != 0 {
+		t.Fatalf("semantically identical CRLF skill not idempotent: %+v", counts)
+	}
+}

@@ -191,10 +191,13 @@ func importPortableConfig(p config.Paths, data []byte, mode conflictMode, dry bo
 }
 
 type localSkillRow struct {
-	id     int64
-	sha    string
-	source string
-	memory int64
+	id          int64
+	name        string
+	sha         string
+	source      string
+	description string
+	body        string
+	memory      int64
 }
 
 func localPortableSkills(ctx context.Context, db *ctxdb.Store, name string) ([]localSkillRow, error) {
@@ -207,7 +210,7 @@ func localPortableSkills(ctx context.Context, db *ctxdb.Store, name string) ([]l
 		for _, id := range ids {
 			var r localSkillRow
 			r.id = id
-			if gerr := tx.Get(`SELECT sha256, source, COALESCE(memory_id, 0) FROM skills WHERE id = ?1`, []any{id}, &r.sha, &r.source, &r.memory); gerr != nil {
+			if gerr := tx.Get(`SELECT name, sha256, source, description, body, COALESCE(memory_id, 0) FROM skills WHERE id = ?1`, []any{id}, &r.name, &r.sha, &r.source, &r.description, &r.body, &r.memory); gerr != nil {
 				return fmt.Errorf("query skill %d: %w", id, gerr)
 			}
 			out = append(out, r)
@@ -220,15 +223,19 @@ func localPortableSkills(ctx context.Context, db *ctxdb.Store, name string) ([]l
 	return out, nil
 }
 
-func importPortableSkill(ctx context.Context, db *ctxdb.Store, svc *skills.Service, configDir string, it *portableItem, data []byte, mode conflictMode, dry bool) (changed, conflict, protected, rejected bool, err error) { //nolint:gocognit // closed conflict matrix
+func importPortableSkill(ctx context.Context, db *ctxdb.Store, svc *skills.Service, configDir string, it *portableItem, data []byte, mode conflictMode, dry bool) (changed, conflict, protected, rejected bool, err error) { //nolint:gocognit,gocyclo // closed conflict matrix
 	data = normalizePortableText(data)
 	sha := sha256Hex(data)
+	parsed, perr := skills.Parse(data, filepath.Join(configDir, "skills", it.Name, "SKILL.md"), skills.SourceImport)
+	if perr != nil {
+		return false, false, false, false, fmt.Errorf("skill %s: %w", it.Name, perr)
+	}
 	local, lerr := localPortableSkills(ctx, db, it.Name)
 	if lerr != nil {
 		return false, false, false, false, lerr
 	}
 	for i := range local {
-		if local[i].sha == sha {
+		if samePortableSkill(&parsed, &local[i]) {
 			return false, false, false, false, nil
 		}
 	}
@@ -263,6 +270,15 @@ func importPortableSkill(ctx context.Context, db *ctxdb.Store, svc *skills.Servi
 		return false, conflict, protected, false, serr
 	}
 	return st != skills.StatusRejected, conflict, protected, st == skills.StatusRejected, nil
+}
+
+// samePortableSkill compares the semantic content (name/description/body,
+// CRLF-normalized), not raw bytes: a first install may re-render front matter
+// while the skill is still the same.
+func samePortableSkill(sk *skills.Skill, row *localSkillRow) bool {
+	return sk.Name == row.name &&
+		sk.Description == string(normalizePortableText([]byte(row.description))) &&
+		sk.Body == string(normalizePortableText([]byte(row.body)))
 }
 
 func deletePortablePendingSkills(ctx context.Context, db *ctxdb.Store, name string) error {
