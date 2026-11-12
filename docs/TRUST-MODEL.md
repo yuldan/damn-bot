@@ -9,7 +9,7 @@ Dokumen ringkas untuk pelapor keamanan dan implementer. Sumber normatif tetap [`
 | **Batas** (boundary) | Sandbox path SPEC §14.2 **hanya** untuk tool kode (`read_file`, `grep`, `glob`, tulis/edit) di semua mode, termasuk symlink yang ter-resolve keluar root (verdict `outside_root`) (ADR-079); approval + preview SPEC §14.1 dan P26 = kontrol untuk shell dan `execute_code`: shell **bukan** boundary path, setiap perintah shell butuh approval eksplisit kecuali cocok persis `shell_allow` atau jalur headless `damnbot run --unsafe-auto-shell` yang terdokumentasi (ADR-079), dan setiap `execute_code` butuh approval eksplisit kecuali `language` ada di `exec.code_auto_languages` dengan syarat SPEC §14.1 (ADR-089); gerbang DLP egress `internal/netx` (P29), **hanya** untuk egress tool built-in lewat `internal/netx` (ADR-069); akses gateway P25 (allowlist, owner-only untuk aksi berbahaya); guard sesi + fencing DB SPEC §11.10–§11.11; verifikasi tanda tangan update/indeks hub (ed25519) | vulnerability, in-scope |
 | **Heuristik** (defense-in-depth) | Classifier shell: hanya label risiko untuk preview/bentuk prompt dan penolakan headless, plus `denied_path` best-effort; tidak pernah menghasilkan auto, ketiadaan label tidak menjamin apa pun (isolasi kuat = backend container) (ADR-079); egress subprocess (shell, execute_code, hook, MCP stdio, LSP) = approval, tidak melewati DLP/SSRF `netx` (ADR-069); threat scan skill/memori, redaksi berbasis pola, taint `<untrusted>`, smart approval | dilaporkan sebagai kelemahan; bukan batas |
 
-Vulnerability (ADR-079 butir 8, diperluas ADR-089 butir 1): (a) perintah shell **atau kode `execute_code`** yang berjalan tanpa approval eksplisit di luar jalur auto terdokumentasi (`shell_allow` argv-persis, `--unsafe-auto-shell`, `exec.code_auto_languages` dengan syarat SPEC §14.1); (b) tool kode yang mengakses luar root/`deny_paths` tanpa verdict yang benar; (c) egress tool built-in yang lolos DLP `netx`. Efek perintah yang sudah di-approve user (termasuk filter git, rekursi symlink) dan TOCTOU antara preview dan eksekusi = sisa risiko (§3).
+Vulnerability (ADR-079 butir 8, diperluas ADR-089 butir 1): (a) perintah shell **atau kode `execute_code`** yang berjalan tanpa approval eksplisit di luar jalur auto terdokumentasi (`shell_allow` argv-persis, `--unsafe-auto-shell`, `exec.code_auto_languages` dengan syarat SPEC §14.1); (b) tool kode yang mengakses luar root/`deny_paths` tanpa verdict yang benar; (c) egress tool built-in yang lolos DLP `netx`; (d) bypass P25: identitas gateway yang bertindak di luar allowlist/role/scope-nya, menjawab approval yang bukan miliknya, atau membaca sesi/memori/workspace identitas lain. Efek perintah yang sudah di-approve user (termasuk filter git, rekursi symlink) dan TOCTOU antara preview dan eksekusi = sisa risiko (§3).
 
 ## 2. Aktor
 
@@ -53,3 +53,35 @@ Vulnerability (ADR-079 butir 8, diperluas ADR-089 butir 1): (a) perintah shell *
 | Secret ref `exec.env` (`keychain:<id>`) yang disuntikkan hanya pada mode execve runner (tanpa interpreter) untuk argv0 ∈ `commands` | Program yang di-approve user dapat mentransformasi nilai (encode, tulis file, kirim jaringan) sehingga lolos redaksi pola/nilai; Damn-Bot tidak pernah menyuntikkannya ke konteks model, sesi shell, atau `bash -c` | ADR-081 butir 1, ADR-088 butir 4 |
 | Eksekusi kode proyek oleh language server di workspace trusted yang tidak bisa dimatikan lewat setting server (build script/proc-macro dimatikan bila didukung, mis. rust-analyzer `cargo.buildScripts.enable=false`, `procMacro.enable=false`; tsserver tanpa plugin workspace) | LSP di workspace trusted dapat menjalankan kode proyek tanpa approval per aksi; workspace untrusted tidak pernah memulai LSP/build | ADR-089 butir 2 |
 | Auto headless `execute_code` untuk bahasa di `exec.code_auto_languages` (NEW3-02) | `--approval auto` + allowlist + trusted + tidak tainted + tidak ada tulis tanpa approval sudah cukup; **tidak** ada flag `--unsafe-auto-code` terpisah. Residu diterima eksplisit: gate lebih lemah dari shell, tetapi opt-in config eksplisit dan kode tetap dijalankan di backend dengan `network=deny`/limit; auto tidak pernah aktif untuk bahasa shell. | NEW3-02, ADR-089 butir 1 |
+
+## 4. Threat model
+
+**Aset yang dilindungi.** (1) credential provider, platform, dan OAuth; (2) isi sesi, memori, blob, dan backup; (3) file workspace dan config repo; (4) integritas DB, lease, dan riwayat audit; (5) host dan akun OS pengguna.
+
+| Penyerang | Vektor | Kontrol utama |
+|---|---|---|
+| Konten eksternal (web, email, pesan platform, hasil tool) | Prompt injection yang meminta tool call berbahaya | Pembungkus `<untrusted>`, taint lengket per turn, approval §14.1 (ADR-070) |
+| Workspace/repo tidak tepercaya | AGENTS.md, context file, hook, build script, config `git` | Workspace trust fail-closed; konten dibungkus dan men-taint turn; jalur auto mati (ADR-069) |
+| Server MCP dan skill pihak ketiga | Deskripsi/hasil tool berisi instruksi; indeks skill tanpa tanda tangan | Default `untrusted` + pin tool (SEC-04), karantina + threat scan + tanda tangan indeks (SEC-20) |
+| Identitas gateway lain | Membaca/menulis sesi, memori, atau workspace identitas lain; menjawab approval asing | P25, allowlist/role, isolasi workspace per identitas (ADR-076, ADR-084) |
+| Proses lokal lain atau user OS lain | Menulis DB, trigger, atau binary di `<data_dir>` | Di luar model untuk user OS pemilik; lease + fencing token antar-proses (§11.10–§11.11) |
+| Supply chain | Dependency, artefak rilis, updater | Dependency pinned + allowlist, SBOM, rilis bertanda tangan ed25519 (CROSS-CUTTING §1.4) |
+
+**Asumsi.** Akun OS yang menjalankan Damn-Bot adalah pemilik data dan dipercaya; bind non-loopback web mewajibkan `allow_remote` + TLS; artefak rilis diverifikasi tanda tangan; model provider adalah pihak eksternal yang menerima prompt yang sudah diredaksi.
+
+**Di luar cakupan.** Kompromi root/kernel, akses fisik, side channel hardware, alignment internal model, dan efek samping perintah yang sudah di-approve pengguna (lihat §3). Bug pada heuristik dilaporkan sebagai kelemahan, bukan bypass boundary (§1).
+
+## 5. Alur data, sandbox, dan secret
+
+| Tahap | Data yang lewat | Kontrol |
+|---|---|---|
+| Input kanal (TUI, ACP, web, gateway, headless, `mcp serve`) | Pesan, lampiran, keputusan approval | Autentikasi per kanal (§13), allowlist/role P25, `request_id` + `preview_sha` |
+| Assemble → model | Prompt, konteks, hasil tool | Redaksi §14.3 sebelum dikirim; credential tidak pernah masuk konteks model |
+| Dispatch tool | Argumen tervalidasi schema, path, perintah shell, kode `execute_code` | Pipeline §4.3, approval §14.1, sandbox path §14.2 untuk tool kode, taint |
+| Egress | HTTP tool, gateway `send_message`, MCP, provider | DLP/SSRF `internal/netx` untuk tool built-in; egress subprocess hanya approval |
+| Penyimpanan | Event, memori, blob, backup | Redaksi sebelum tulis, data dir 0700, `storage.encrypt` opt-in, retensi backup `daily-*` 3 + `premigrate-*` 2 |
+| Purge/restore | Sesi, payload, backup | Barrier pemeliharaan, `purge.log`, anonimisasi best-effort untuk payload bebas (§3) |
+
+**Sandbox.** Batas path hanya berlaku untuk tool kode dan ditegakkan dengan resolusi `openat2(RESOLVE_BENEATH)`/verifikasi fd (SPEC §14.2); shell **bukan** boundary path, sehingga kontrol shell adalah approval eksplisit (§14.1), dan isolasi kuat hanya lewat backend container. Gerbang DLP egress `internal/netx` **hanya** mencakup egress tool built-in; classifier, threat scan, dan redaksi berbasis pola adalah heuristik defense-in-depth (§1).
+
+**Secret.** Credential disimpan di OS keychain atau `<config_dir>/secrets.enc` (XChaCha20-Poly1305); config hanya memuat referensi (`keychain:<id>`/`*_env`) dan env anak memakai allowlist deny-by-default. Secret ref `exec.env` hanya disuntikkan ke execve runner dengan cakupan `commands`, tidak pernah ke sesi shell atau `bash -c`. Nilai secret adalah sumber redaksi §14.3 dan tidak pernah dikirim ke model, log level ≥ INFO, DB, atau pesan keluar gateway; target 0 credential plaintext di data/config (CROSS-CUTTING §1.2).
