@@ -107,10 +107,10 @@ func (g Gate) Item(tb testing.TB, id, phase, status string) bool {
 		return true // covered ahead of its phase is allowed (NEW2-22)
 	case status != "pending:"+phase:
 		tb.Errorf("PHASE GAGAL %s: status %q, want covered, n/a or pending:%s", id, status, phase)
-	case g.cur == 9:
-		tb.Errorf("PHASE GAGAL %s: pending at PHASE F9 (ADR-077)", id)
 	case g.acceptance && p <= g.cur:
 		tb.Errorf("PHASE GAGAL %s: phase acceptance F%d: item %s still pending", id, g.cur, phase)
+	case g.cur == 9:
+		tb.Errorf("PHASE GAGAL %s: pending at PHASE F9 (ADR-077)", id)
 	case p < g.cur:
 		tb.Errorf("PHASE GAGAL %s: phase %s < PHASE F%d must be covered", id, phase, g.cur)
 	}

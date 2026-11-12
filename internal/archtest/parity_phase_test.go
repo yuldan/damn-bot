@@ -2,6 +2,7 @@ package archtest
 
 import (
 	"maps"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -123,6 +124,10 @@ func TestParityPhaseColumn(t *testing.T) {
 	if f8Closed(phase) {
 		report("baris F8 belum LULUS/N/A setelah F8 ditutup (ADR-330)", parityOpenF8(parityText))
 	}
+	// ADR-347: F9 terminal, jadi gate aktif hanya pada penanda rilis.
+	if f9Closed(releaseActive()) {
+		report("baris F9 belum LULUS/N/A saat penanda rilis aktif (ADR-347)", parityOpenF9(parityText))
+	}
 }
 
 // parityScan = hasil pemindaian baris ID FEATURE-PARITY terhadap fase yang diizinkan.
@@ -195,6 +200,12 @@ const (
 	f8Phase     = "F8"
 	f8LedgerDoc = "docs/F8-ACCEPTANCE.md"
 	f8LedgerRow = "F8-ACCEPTANCE"
+	f9Phase     = "F9"
+	f9LedgerDoc = "docs/F9-ACCEPTANCE.md"
+	f9LedgerRow = "F9-ACCEPTANCE"
+	// F9 is terminal: no later PHASE value can close it, so the gate activates
+	// only on the release marker (ADR-347). PHASE stays F9.
+	releaseEnv = "DAMNBOT_RELEASE"
 )
 
 // phaseClosed reports whether PHASE is past the phase named by done.
@@ -206,6 +217,15 @@ func phaseClosed(phase, done string) bool {
 func f6Closed(phase string) bool { return phaseClosed(phase, f6Phase) }
 func f7Closed(phase string) bool { return phaseClosed(phase, f7Phase) }
 func f8Closed(phase string) bool { return phaseClosed(phase, f8Phase) }
+
+// releaseActive reports the F9 terminal activation marker (ADR-347). The
+// ledger is alive while PHASE=F9, so the gate must not run on every build.
+func releaseActive() bool { return os.Getenv(releaseEnv) == "1" }
+
+// f9Closed reports whether the F9 release marker is set. It is a pure seam so
+// TestF9LedgerGateRules can exercise both sides without touching the process
+// environment.
+func f9Closed(release bool) bool { return release }
 
 // parityOpenPhase mengembalikan baris fase yang tidak boleh dibiarkan terbuka
 // setelah fase itu ditutup. F6 (ADR-323) hanya menolak `planned`; fase strict
@@ -252,6 +272,9 @@ func parityOpenF7(text string) []string { return parityOpenPhase(text, f7Phase, 
 // `LULUS` atau `N/A — <alasan>` (ADR-330).
 func parityOpenF8(text string) []string { return parityOpenPhase(text, f8Phase, true) }
 
+// parityOpenF9 mengembalikan baris fase F9 yang belum ditutup (ADR-347).
+func parityOpenF9(text string) []string { return parityOpenPhase(text, f9Phase, true) }
+
 // ledgerOpenRows mengembalikan ID yang masih `BELUM` dan baris N/A tanpa
 // alasan teknis. Status dibaca dari kolom `Status` pada header tabel, bukan
 // dari sel terakhir (tabel parity punya kolom Catatan setelahnya).
@@ -295,16 +318,22 @@ func ledgerOpenRows(text string) (open, badNA []string) {
 // sintetis: `closed` adalah fase yang sudah dilewati PHASE, `ledgerRow` nama
 // tabel yang dilaporkan, dan `strict` memilih aturan status parity F7.
 func phaseLedgerViolations(phase, closed, ledgerRow, parityText, ledgerText string, strict bool) []string {
-	if !phaseClosed(phase, closed) {
+	return closedLedgerViolations(phaseClosed(phase, closed), closed, ledgerRow, parityText, ledgerText, strict)
+}
+
+// closedLedgerViolations is the phase-independent core shared by the PHASE
+// gates and the terminal F9 release-marker gate.
+func closedLedgerViolations(done bool, closedPhase, ledgerRow, parityText, ledgerText string, strict bool) []string {
+	if !done {
 		return nil
 	}
 	var out []string
-	if ids := parityOpenPhase(parityText, closed, strict); len(ids) > 0 {
+	if ids := parityOpenPhase(parityText, closedPhase, strict); len(ids) > 0 {
 		rule := "masih planned"
 		if strict {
 			rule = "belum LULUS/N/A"
 		}
-		out = append(out, "FEATURE-PARITY: baris "+closed+" "+rule+" ("+strconv.Itoa(len(ids))+"): "+strings.Join(ids, ", "))
+		out = append(out, "FEATURE-PARITY: baris "+closedPhase+" "+rule+" ("+strconv.Itoa(len(ids))+"): "+strings.Join(ids, ", "))
 	}
 	open, badNA := ledgerOpenRows(ledgerText)
 	if len(open) > 0 {
@@ -329,6 +358,12 @@ func f7LedgerViolations(phase, parityText, ledgerText string) []string {
 // f8LedgerViolations adalah gate ledger F8 (ADR-330).
 func f8LedgerViolations(phase, parityText, ledgerText string) []string {
 	return phaseLedgerViolations(phase, f8Phase, f8LedgerRow, parityText, ledgerText, true)
+}
+
+// f9LedgerViolations adalah gate ledger F9 (ADR-347). F9 tidak punya fase
+// sesudahnya, jadi `release` menggantikan perbandingan PHASE.
+func f9LedgerViolations(release bool, parityText, ledgerText string) []string {
+	return closedLedgerViolations(f9Closed(release), f9Phase, f9LedgerRow, parityText, ledgerText, true)
 }
 
 // TestF6LedgerClosed menolak penaikan PHASE ke F7 selama ledger F6 belum
@@ -479,6 +514,62 @@ func TestF8LedgerGateRules(t *testing.T) {
 		t.Errorf("baris LULUS ditolak: %s", joined)
 	}
 	if got := f8LedgerViolations("F9", strings.ReplaceAll(parityOpen, "planned", "LULUS"), ledgerClosed); len(got) != 0 {
+		t.Fatalf("ledger tertutup masih ditolak: %v", got)
+	}
+}
+
+// TestF9LedgerClosed menolak rilis 1.0 selama ledger F9 belum ditutup. Selama
+// PHASE=F9 gate ini tidak aktif (ledger hidup); penanda rilis
+// DAMNBOT_RELEASE=1 yang mengaktifkannya (ADR-347).
+func TestF9LedgerClosed(t *testing.T) {
+	t.Parallel()
+	for _, v := range f9LedgerViolations(releaseActive(), readRepoFile(t, "docs/FEATURE-PARITY.md"), readRepoFile(t, f9LedgerDoc)) {
+		t.Error(v)
+	}
+}
+
+// TestF9LedgerGateRules adalah kontrol negatif gate: tanpa penanda rilis tidak
+// menuduh, dengan penanda rilis menuduh baris parity yang belum LULUS, baris
+// ledger `BELUM`, dan `N/A` telanjang; `LULUS` serta `N/A — <alasan>` bersih.
+func TestF9LedgerGateRules(t *testing.T) {
+	t.Parallel()
+	const parityOpen = `| ID | Fitur | fase | status |
+|---|---|---|---|
+| UI-018 | x | F9 | planned |
+| OPS-029 | x | F9 | planned |
+| OPS-030 | x | F9 | LULUS |
+| OPS-031 | x | F9 | N/A — no test account (carryover F10) |`
+	const ledgerOpen = `| ID | Fitur | Kriteria | Tes | Status | Catatan |
+|---|---|---|---|---|---|
+| UI-018 | x | x | x | BELUM | x |
+| OPS-029 | x | x | x | BELUM | x |
+| OPS-030 | x | x | x | LULUS | x |
+| OPS-031 | x | x | x | N/A | x |`
+	const ledgerClosed = `| ID | Fitur | Kriteria | Tes | Status | Catatan |
+|---|---|---|---|---|---|
+| UI-018 | x | x | x | LULUS | x |
+| OPS-029 | x | x | x | N/A — no test account (carryover F10) | carryover F10 |`
+
+	if !f9Closed(true) || f9Closed(false) {
+		t.Fatal("f9Closed bukan gerbang penanda rilis murni")
+	}
+	if got := f9LedgerViolations(false, parityOpen, ledgerOpen); len(got) != 0 {
+		t.Fatalf("gate aktif tanpa penanda rilis: %v", got)
+	}
+	got := f9LedgerViolations(true, parityOpen, ledgerOpen)
+	if len(got) != 3 {
+		t.Fatalf("pelanggaran = %d, want 3: %v", len(got), got)
+	}
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"UI-018=planned", "OPS-029=planned", "BELUM", "N/A tanpa alasan"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("laporan gate tidak memuat %q: %s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "OPS-030") {
+		t.Errorf("baris LULUS ditolak: %s", joined)
+	}
+	if got := f9LedgerViolations(true, strings.ReplaceAll(parityOpen, "planned", "LULUS"), ledgerClosed); len(got) != 0 {
 		t.Fatalf("ledger tertutup masih ditolak: %v", got)
 	}
 }

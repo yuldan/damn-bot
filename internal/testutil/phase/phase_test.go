@@ -59,6 +59,7 @@ func TestItem(t *testing.T) {
 		{cur: 1, acceptance: true, phase: "F1", status: "pending:F1", fail: "phase acceptance"},
 		{cur: 1, acceptance: true, phase: "F2", status: "pending:F2"},
 		{cur: 9, phase: "F9", status: "pending:F9", fail: "pending at PHASE F9"},
+		{cur: 9, acceptance: true, phase: "F1", status: "pending:F1", fail: "phase acceptance"},
 	}
 	for _, c := range cases {
 		e := &errs{TB: t}
