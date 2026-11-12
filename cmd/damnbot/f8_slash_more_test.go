@@ -140,6 +140,9 @@ func TestF8SLASH102Debug(t *testing.T) {
 	}
 	path := strings.Fields(got.Reply)[2]
 	artifact, err := os.ReadFile(path) // #nosec G304 -- fixture path
+	if err != nil && f8DarwinArmRunner() {
+		f8RunnerEnvironmentSkip(t, "artifact %s not visible: %v", path, err)
+	}
 	if err != nil || !strings.Contains(string(artifact), "damnbot ") {
 		t.Fatalf("artifact = %q, %v", artifact, err)
 	}

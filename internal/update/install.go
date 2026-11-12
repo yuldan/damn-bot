@@ -247,11 +247,11 @@ func restoreBinary(active, prev string) error {
 		return nil
 	}
 	tmp := active + ".rollback"
-	if err := os.Rename(active, tmp); err != nil {
+	if err := renameWithRetry(active, tmp); err != nil {
 		return fmt.Errorf("update: save current binary: %w", err)
 	}
-	if err := os.Rename(prev, active); err != nil {
-		if rerr := os.Rename(tmp, active); rerr != nil {
+	if err := renameWithRetry(prev, active); err != nil {
+		if rerr := renameWithRetry(tmp, active); rerr != nil {
 			return errors.Join(fmt.Errorf("update: restore previous binary: %w", err), fmt.Errorf("update: restore current binary: %w", rerr))
 		}
 		return fmt.Errorf("update: restore previous binary: %w", err)

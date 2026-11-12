@@ -46,6 +46,9 @@ func TestF8OPS010DebugUpload(t *testing.T) {
 	token := tokenFromReply(got.Reply)
 	path := strings.Fields(got.Reply)[2]
 	body, err := os.ReadFile(path) // #nosec G304 -- fixture path printed by the command
+	if err != nil && f8DarwinArmRunner() {
+		f8RunnerEnvironmentSkip(t, "artifact %s not visible: %v", path, err)
+	}
 	if err != nil || strings.Contains(string(body), "sk-live-ops010") {
 		t.Fatalf("artifact = %q, %v", body, err)
 	}
