@@ -9,7 +9,7 @@ Sumber normatif: ROADMAP F9 (`docs/ROADMAP.md:216-226`, termasuk acceptance gate
 Aturan gate:
 - **Penutupan (ADR-347, melanjutkan ADR-330/ADR-326).** Baris hanya `LULUS` bila PR yang sama menambah tes bernama, mengubah baris parity F9 (`docs/FEATURE-PARITY.md`) menjadi `LULUS`, dan mengubah baris ledger `BELUM`→`LULUS`. Baris yang tidak dapat dibuktikan ditulis `N/A — <alasan teknis> (carryover F10)`, bukan `BELUM`.
 - **Gate mesin.** F9 adalah fase terminal: tidak ada `PHASE` sesudahnya, sehingga `PHASE` tetap `F9`. `TestF9LedgerClosed` dan cabang F9 `TestParityPhaseColumn` **nonaktif selama `PHASE=F9`** dan hanya aktif bila penanda rilis `DAMNBOT_RELEASE=1` diset (ADR-347). Saat aktif, keduanya menolak `BELUM`, `N/A` telanjang (< 8 karakter alasan), dan baris parity F9 yang bukan `LULUS`/`N/A — …`; `TestF9LedgerGateRules` adalah kontrol negatifnya.
-- **Agregat.** Enam baris §1 dihitung dari anggota, bukan dari narasi: parity 837/837 (termasuk backfill F1–F5), GAP 118/118, EC 166/166, OS matrix 8 target, soak/chaos, dan artefak rilis/scorecard. Kerangka tes agregat yang belum lengkap (`TestF9GapSweep118`, `TestF9EdgeCases166`, `TestF9OSMatrix`, `TestF9SpeedParity`) memakai prasyarat yang sama: skip selama penanda rilis belum aktif, gagal bila penanda aktif dan prasyarat belum terpenuhi.
+- **Agregat.** Enam baris §1 dihitung dari anggota, bukan dari narasi: parity 837/837 = 653 `LULUS` + 184 `N/A` re-phased (ADR-350) dengan 0 `planned` di F1–F9, GAP 118/118, EC 166/166, OS matrix 8 target, soak/chaos, dan artefak rilis/scorecard. Kerangka tes agregat yang belum lengkap (`TestF9GapSweep118`, `TestF9EdgeCases166`, `TestF9OSMatrix`, `TestF9SpeedParity`) memakai prasyarat yang sama: skip selama penanda rilis belum aktif, gagal bila penanda aktif dan prasyarat belum terpenuhi.
 - **Tanpa `t.Skip` liar (REL-15).** Skip hanya di kerangka agregat di atas dengan alasan eksplisit dan gerbang `DAMNBOT_RELEASE=1`; tes baris data tetap wajib ada dan lulus.
 - **Budget.** Tidak ada kenaikan `maxModuleLOC` 132.000, `maxCoreLOC`, atau plafon modul; F9 tidak menambah paket produk baru.
 
@@ -17,7 +17,7 @@ Aturan gate:
 
 | Item ROADMAP F9 | Kriteria | Tes yang harus ada | Status |
 |---|---|---|---|
-| Gate parity 837/837 | seluruh 837 baris penyebut gate (854 baris − 17 `dropped-with-approval`) berstatus `LULUS`; backfill F1–F5 (493 baris yang masih `planned`) ditutup oleh PR backfill terpisah; `TestParityPhaseColumn` tetap hijau | `TestParityPhaseColumn` (`internal/archtest/parity_phase_test.go:86`) + `docs/FEATURE-PARITY.md` audit 837/837 | BELUM |
+| Gate parity 837/837 | 653 baris `LULUS` + 184 baris `N/A — re-phased to F10 (ADR-350)` = 837 penyebut gate (854 baris − 17 `dropped-with-approval`), 0 `planned` di F1–F9; `TestParityPhaseColumn` dan `TestF9ParityDeferred184` tetap hijau | `TestParityPhaseColumn` (`internal/archtest/parity_phase_test.go:86`), `TestF9ParityDeferred184` (`internal/archtest/f9_parity_deferred_test.go`), `docs/FEATURE-PARITY.md` audit 837/837 | BELUM |
 | GAP-SWEEP 118/118 | 118/118 requirement SPEC §22.1 terverifikasi dengan resolusi ADR-033/ADR-034; tabel SPEC §22.1 ≡ MITIGATION-MATRIX §10 | `TestF9GapSweep118` (`internal/archtest/gap_sweep_test.go`) | BELUM |
 | EDGE-CASES 166/166 | 166/166 entri EDGE-CASES `covered` atau `n/a` beralasan; tidak ada `pending:F9` | `TestF9EdgeCases166` (`internal/testutil/phase/f9_edgecases_test.go`), `TestEdgeCaseCatalogSync` (`internal/testutil/phase/acceptance_test.go:37`) | BELUM |
 | OS matrix lengkap | 8 target rilis kanonik (E-39) build/test/runner sesuai CROSS-CUTTING §7; linux/arm dan android/arm64 menjalankan suite di QEMU | `TestF9OSMatrix` (`internal/archtest/osmatrix_test.go`), `make build-matrix`, job `test`/`sqlite-engine` tier `full` | BELUM |
@@ -90,6 +90,7 @@ make size-check
 - adapter tanpa akun uji nyata → `N/A — no test account (nightly smoke) (carryover F10)` pada baris *smoke akun nyata* saja; baris fake server tetap wajib `LULUS`.
 - pengukuran hardware Q14 → `N/A — hardware: target hanya sah di Q14 (carryover F10)`.
 - artefak eksternal yang menunggu keputusan owner saat RC (mis. model/anggaran head-to-head Q23-RC) → hanya bila ADR mencatat penundaan dan baris agregat §1 tetap `BELUM`.
+- baris parity F1–F5 yang dire-fase owner → `N/A — re-phased to F10 (ADR-350)`; bentuk ini memindahkan penagihan baris ke F10, bukan menutupnya, dan hanya sah bila daftar 184 ID dipin `TestF9ParityDeferred184`.
 
 Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 8 karakter), `N/A` untuk menyembunyikan tes yang gagal, `N/A` pada baris parity yang tesnya bisa dibuat, dan `N/A` pada baris agregat yang anggotanya belum tertutup.
 
@@ -97,7 +98,7 @@ Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 
 
 - Baris data ledger: **15** = 5 parity (UI 1, OPS 4) + 8 GAP + 0 EC + 2 carryover F8.
 - Baris agregat §1: **6**. Total baris ledger: **21**.
-- Parity global: **837/837** penyebut gate (854 baris − 17 `dropped-with-approval`); saat ini 493 baris F1–F5 masih menunggu backfill terpisah, sehingga agregat parity tetap `BELUM`.
+- Parity global: **837/837** penyebut gate (854 baris − 17 `dropped-with-approval`) = **653 `LULUS` + 184 `N/A` re-phased (ADR-350)**, 0 `planned` di F1–F9 setelah PR backfill F3/F4–F5 dan installer F9 bergabung; `TestParityPhaseColumn` + `TestF9ParityDeferred184` hijau.
 - GAP F9 resmi: **7** (SEC-19/22/28, OPS-03/05, INF-03/10) + GAP-INF-02 (ADR-193) = **8**; GAP-SWEEP total **118/118**.
 - EDGE-CASES: **166/166**; EC F9: **0**.
 - OS matrix: **8** target E-39 = linux/{amd64,arm64,arm}, darwin/{amd64,arm64}, windows/{amd64,arm64}, android/arm64 (6 berrunner + 2 QEMU).

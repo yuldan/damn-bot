@@ -6927,3 +6927,49 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 
 **Amendemen 2026-11-12 (F9 GAP-OPS-03; ADR-330/ADR-347).** `internal/setup` membaca `install-manifest.json` (schema, path absolut/kanonik, tulis atomik 0600) dan `damnbot setup --uninstall [--dry-run] [--purge-data]` hanya menghapus file yang tercatat: file berubah dipertahankan dan dilaporkan, blok `# >>> damnbot >>>`…`# <<< damnbot <<<` dilepas byte-exact tanpa memadatkan baris user, operasi idempoten untuk file/blok hilang, dan data/config dir hanya dihapus dengan `--purge-data`. Bukti tes: `TestInstallerManifestUninstall` (`internal/setup/uninstall_test.go:13`), `TestUninstallKeepsUnlistedFiles` (`:69`), `TestInstallerRCMarkers` (`:235`), `TestUninstallRestoresRC` (`:260`), `TestInstallManifest` (`:285`), `TestSetupUninstallCLI` (`cmd/damnbot/setup_uninstall_test.go:24`). Ledger `GAP-OPS-03` menjadi `LULUS`; baris lain tidak berubah.
+## ADR-350 — Re-fase 184 baris parity F1–F5 ke F10 (121 deferred + 63 residual)
+
+**Status:** Accepted 2026-11-12 (F9; melanjutkan ADR-349). Disetujui owner pada 2026-11-12: 121 baris `TestF9ParityDeferred121` dan 63 baris residual ADR-349 dire-fase ke F10, bukan dikejar di F9.
+
+**Konteks.** ADR-349 memisahkan 493 baris F1–F5 yang masih `planned` menjadi 309 baris berbukti, 121 deferred yang dipin, dan 63 residual yang belum lolos ambang bukti. Setelah PR backfill F1–F2/F3/F4–F5, tinggal 184 baris F1–F5 yang `planned`: 121 deferred (fitur belum dibangun) dan 63 residual (permukaan parsial, stub penolakan, adapter provider yang ditolak `runtimeAuth`, atau tanpa tes yang menegaskan baris). F9 berbudget 0 LOC Go produk dan tidak boleh memperbesar cakupan produk; owner memutuskan kedelapan belas puluh empat baris itu dire-fase ke F10 alih-alih dipaksakan menjadi `LULUS` pada F9.
+
+**Keputusan.**
+
+1. **Cakupan 184 baris.** Daftar ID bersifat literal dan terdiri dari 121 ID ADR-349 + 63 residual ADR-349: F1 10, F2 5, F3 95, F4 6, F5 68. Status baris di `docs/FEATURE-PARITY.md` diubah menjadi `N/A — re-phased to F10 (ADR-350)` (alasan ≥ 8 karakter). Kolom `fase` **tidak** diubah (`F1`–`F5` tetap), baris tidak dipindahkan, kolom lain tidak disentuh, dan tidak ada baris `LULUS` yang diubah.
+2. **Gate tidak longgar.** `TestF9ParityDeferred121` diperluas dan di-rename menjadi `TestF9ParityDeferred184` (`internal/archtest/f9_parity_deferred_test.go`): daftar literal tepat 184 ID tanpa duplikat, penanda ADR `F9-DEFERRED-184` di dokumen ini, dan setiap baris wajib tetap tanpa `planned` setelah disetujui. `scripts/parity-audit.sh` mencetak `Deferred184` (total/planned/N/A) dan memperingatkan bila daftar berubah; pin 121 lama dihapus. Denominator 854/837, `TestParityPhaseColumn`, jumlah per fase, `maxModuleLOC`/`maxCoreLOC`, dan `loc.budget` tidak berubah.
+3. **Komitmen F10.** Seluruh 184 baris masuk backlog F10 dan wajib dibangun atau dibuktikan ulang di F10: setiap baris hanya boleh kembali menjadi `LULUS` lewat PR yang menambah tes bernama dan menjalankannya hijau, atau tetap `N/A` dengan alasan teknis yang lebih kuat. Re-fase ini tidak menghapus requirement; ia memindahkan penagihannya ke ledger F10.
+4. **Dampak pada parity 1.0.** Penyebut gate tetap 837 (854 − 17 `dropped-with-approval`). Setelah PR backfill F3/F4–F5 (220 baris `planned`→`LULUS`), PR installer F9 (UI-018, OPS-032), dan PR re-fase ini bergabung, komposisinya adalah **653 `LULUS` + 184 `N/A` re-phased = 837, 0 `planned`**. Pada branch PR ini sendiri (di atas `origin/main` sebelum PR backfill lain bergabung) rekap tercatat `planned 222, LULUS 431, N/A 184, dropped 17`; tidak ada angka gate yang diubah.
+5. **Tanpa kode produk.** Tidak ada kode produk, dependency, migrasi, config key, packet, atau plafon yang berubah. Yang berubah hanya dokumen, tes arsitektur, dan skrip audit read-only.
+
+**Dampak terukur.** `docs/FEATURE-PARITY.md`: 184 baris hanya kolom status + rekap; `docs/F9-ACCEPTANCE.md` §1 kriteria agregat parity; satu tes arsitektur diperluas; satu skrip audit diperbarui. `make loc`, `make size-check`, `deadcode` 3-GOOS, dan `TestParityPhaseColumn` tidak berubah anggarannya. Gate: `go test ./internal/archtest -run 'TestParityPhaseColumn|TestF9ParityDeferred184' -count=1` hijau.
+
+**Daftar ID (penanda `F9-DEFERRED-184`).**
+
+```
+F9-DEFERRED-184: AUTO-021 AUTO-022 AUTO-024 AUTO-023
+F9-DEFERRED-184: CLI-003 CLI-004 CLI-005 CLI-007 CLI-008 CLI-010 CLI-013 CLI-020 CLI-021 CLI-022
+F9-DEFERRED-184: CLI-033 CLI-034 CLI-035 CLI-038 CLI-043 CLI-044 CLI-053 CLI-062 CLI-064 CLI-071
+F9-DEFERRED-184: CLI-072 CLI-075 CLI-002 CLI-011 CLI-031 CLI-042 CLI-046 CLI-048 CLI-057 CLI-059
+F9-DEFERRED-184: CLI-061 CLI-066
+F9-DEFERRED-184: CORE-006 CORE-010 CORE-016 CORE-017 CORE-009 CORE-012 CORE-015 CORE-019
+F9-DEFERRED-184: EXEC-008 EXEC-023 EXEC-025 EXEC-026 EXEC-027 EXEC-028 EXEC-029 EXEC-030 EXEC-031 EXEC-032
+F9-DEFERRED-184: EXEC-013 EXEC-015 EXEC-019 EXEC-022 EXEC-024 EXEC-035 EXEC-043
+F9-DEFERRED-184: GW-024
+F9-DEFERRED-184: MEM-017 MEM-022 MEM-036 MEM-020
+F9-DEFERRED-184: OPS-005 OPS-012 OPS-017 OPS-025 OPS-013
+F9-DEFERRED-184: PLUG-001 PLUG-002 PLUG-003 PLUG-004 PLUG-005 PLUG-006 PLUG-007 PLUG-008 PLUG-033 PLUG-010
+F9-DEFERRED-184: PLUG-032
+F9-DEFERRED-184: PROV-055 PROV-056 PROV-058 PROV-059 PROV-060 PROV-061 PROV-077 PROV-079 PROV-012 PROV-015
+F9-DEFERRED-184: PROV-016 PROV-031 PROV-033 PROV-037 PROV-041 PROV-047 PROV-063 PROV-064 PROV-065 PROV-066
+F9-DEFERRED-184: PROV-067 PROV-068 PROV-069 PROV-070 PROV-071 PROV-072 PROV-076
+F9-DEFERRED-184: SKILL-003 SKILL-005 SKILL-006 SKILL-008
+F9-DEFERRED-184: SLASH-004 SLASH-005 SLASH-006 SLASH-007 SLASH-008 SLASH-009 SLASH-011 SLASH-014 SLASH-016 SLASH-017
+F9-DEFERRED-184: SLASH-019 SLASH-024 SLASH-025 SLASH-026 SLASH-032 SLASH-033 SLASH-036 SLASH-039 SLASH-042 SLASH-044
+F9-DEFERRED-184: SLASH-045 SLASH-046 SLASH-048 SLASH-050 SLASH-051 SLASH-054 SLASH-055 SLASH-057 SLASH-058 SLASH-059
+F9-DEFERRED-184: SLASH-060 SLASH-062 SLASH-066 SLASH-067 SLASH-068 SLASH-069 SLASH-070 SLASH-071 SLASH-074 SLASH-083
+F9-DEFERRED-184: SLASH-085 SLASH-086 SLASH-087 SLASH-088 SLASH-097 SLASH-100 SLASH-101 SLASH-103 SLASH-010 SLASH-018
+F9-DEFERRED-184: SLASH-020 SLASH-029 SLASH-038 SLASH-047 SLASH-053 SLASH-065 SLASH-081
+F9-DEFERRED-184: TOOL-021
+F9-DEFERRED-184: TSET-008 TSET-013 TSET-007 TSET-012 TSET-044 TSET-045 TSET-062
+F9-DEFERRED-184: UI-009 UI-013 UI-025 UI-027 UI-028 UI-001
+```
