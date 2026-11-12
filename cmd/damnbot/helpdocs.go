@@ -62,7 +62,8 @@ func helpDocsCommand(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
-	q := strings.ToLower(args[0])
+	query := strings.Join(args, " ")
+	q := strings.ToLower(query)
 	found := false
 	for _, d := range docs {
 		if !strings.Contains(strings.ToLower(d.Body), q) && !strings.Contains(strings.ToLower(d.Name), q) {
@@ -75,7 +76,7 @@ func helpDocsCommand(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	if !found {
-		say(stdout, "no offline documentation matches %q\n", cleanArg(args[0]))
+		say(stdout, "no offline documentation matches %q\n", cleanArg(query))
 		return 0
 	}
 	return 0

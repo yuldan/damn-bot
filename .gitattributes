@@ -27,3 +27,8 @@ internal/loop/testdata/** -text
 internal/compaction/testdata/** -text
 # Golden API server P2 (conformance JSON/SSE) dibandingkan byte-persis; checkout Windows tidak boleh CRLF.
 internal/gwapi/testdata/** -text
+# Referensi docs dan banner terjemahan dibandingkan byte-persis dengan generator;
+# checkout Windows tidak boleh CRLF (GAP-INF-10).
+docs/reference/** text eol=lf
+docs/README.md text eol=lf
+docs/id/** text eol=lf
