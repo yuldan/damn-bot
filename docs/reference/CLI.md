@@ -138,6 +138,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--config` | `skillsCommand` | `` | config file; its directory holds trusted-projects |
 | `--config-dir` | `parseBundleArgs` | `` |  |
 | `--confirm-base-url` | `runFlagSet` | `` | confirm a non-default base_url for a provider that overrides a built-in id |
+| `--conflict` | `runImportArchive` | `` | conflict resolution: keep-local, take-remote, or both |
 | `--continue` | `runFlagSet` | `` | continue the newest session in the current directory |
 | `--csv` | `runScorecard` | `` | print the result as CSV |
 | `--cwd` | `parseSearchArgs` | `` | only sessions created in this directory |
@@ -178,6 +179,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--data-dir` | `runDump` | `` | data directory (default: profile data dir) |
 | `--data-dir` | `runEstop` | `` | data directory |
 | `--data-dir` | `runFlagSet` | `` | data directory (default: SPEC §11) |
+| `--data-dir` | `runImportArchive` | `` | override the data directory |
 | `--data-dir` | `runInsights` | `` | data directory (default: profile data dir) |
 | `--data-dir` | `runJourney` | `` | data directory (default: profile data dir) |
 | `--data-dir` | `runMemory` | `` | data directory (default: profile data dir) |
@@ -215,6 +217,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--dry-run` | `launchdInstallCmd` | `` | print the plist; write nothing |
 | `--dry-run` | `parseUndoFlags` | `` | show what would be restored, with diffs; change nothing |
 | `--dry-run` | `runImport` | `` | report what would be imported; write nothing |
+| `--dry-run` | `runImportArchive` | `` | report what would change; write nothing |
 | `--dry-run` | `runSetupUninstall` | `` | print a unified diff without changing anything |
 | `--dry-run` | `serviceInstallCmd` | `` | print the unit; write nothing |
 | `--dry-run` | `sessionsRestore` | `` | verify and print the plan without changing data |
