@@ -14,8 +14,8 @@
    "bench/f3/results/hermes-868b9f244f-F3.json": "8e6829aab7fab99b33095a376f5558f2cece3863602d8fb463f16904332eedfc",
    "bench/f4/results/damnbot-4c1e69ba-F4.json": "5d9d6e6ee71b5c50bdde5871dcbfcb9e176fcd5c6b1f52ecafbbe253f73f8fed",
    "bench/f4/results/hermes-868b9f244f-F4.json": "eb6c76abdcfa4abeb7b7b903953802cb09aa96ed19722cf579d7d5e0660fd446",
-   "bench/scorecard/not_measured.json": "ea7192a598bd01a334918f01113ed7d1ffd74aea457ff3c67e917bbc676e9cb1",
-   "bench/scorecard/results/tooling-8fab87144e.json": "3e6401a3a41b16a956f61cdd99c68e8cdca22cfb32fe3fd60d319271fa3febad",
+   "bench/scorecard/not_measured.json": "112d7fb9db0b11e723d62967b24817277d26791c50509088048ab286dfc53dac",
+   "bench/scorecard/results/tooling-8fab87144e.json": "f14ac8a34d7de0d8ef0427b6048a45e84503df83b2c0f02351ec6e84c6f8a9db",
    "bench/speed/results/hermes-868b9f244f-F6.json": "7bb783884287bcb0b3cbf58c9a9e9cae63c8e3d685e9c432b1f99cfc4f0f9615",
    "docs/FEATURE-PARITY.md": "418c6ddc99b6b3868e2629b551ebea85b4b84d4c1894eeb6f7e8c02388543108",
    "docs/PROVIDERS.md": "7f16f0b42a021c5ef7cd36399fa7ca4b6790fb50c339f3e7e99e70967114c3e1",
@@ -205,8 +205,15 @@
    "name": "Exec spawn overhead",
    "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
    "core": false,
-   "rule": "lower",
-   "not_measured": "tidak ada artefak harness terukur untuk dimensi ini di bench/*/results"
+   "rule": "absolute_max",
+   "target": 15,
+   "unit": "ms p95",
+   "hermes": 0,
+   "damnbot": 0.786,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "BenchmarkShellSessionExec 786 µs"
   },
   "Fakta basi": {
    "name": "Fakta basi",
@@ -241,7 +248,13 @@
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
    "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "unit": "baris",
+   "hermes": 8392,
+   "damnbot": 800,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "test 1.077 vs 23.074 (SCORECARD §1.7)"
   },
   "First token di UI": {
    "name": "First token di UI",
@@ -277,15 +290,28 @@
    "name": "Flake rate",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "target": 0.1,
+   "unit": "%",
+   "hermes": 0,
+   "damnbot": 3.33,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "gh run list main 30 run (2026-11-12); 1 gagal"
   },
   "Fungsi terpanjang / \u003e 80 baris": {
    "name": "Fungsi terpanjang / \u003e 80 baris",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
    "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "unit": "baris",
+   "hermes": 616,
+   "damnbot": 134,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "10 fungsi \u003e80 (target 0); target panjang ≤80"
   },
   "Idle RSS": {
    "name": "Idle RSS",
@@ -320,14 +346,26 @@
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
    "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "unit": "fungsi",
+   "hermes": 169,
+   "damnbot": 38,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "fungsi bernama retry/backoff; target 1"
   },
   "Kebocoran goroutine": {
    "name": "Kebocoran goroutine",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "unit": "kebocoran",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "goleak TestMain ./internal/secret"
   },
   "Klaim selesai tanpa bukti": {
    "name": "Klaim selesai tanpa bukti",
@@ -340,8 +378,14 @@
    "name": "Klasifikasi error via string",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "unit": "temuan",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "make vet-custom (nostringclassify)"
   },
   "Kode mati": {
    "name": "Kode mati",
@@ -361,7 +405,13 @@
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
    "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "unit": "nilai",
+   "hermes": 102,
+   "damnbot": 40,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "58 fungsi \u003e15 (target 0)"
   },
   "Konkurensi": {
    "name": "Konkurensi",
@@ -743,8 +793,15 @@
    "name": "Waktu CI PR",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "target": 12,
+   "unit": "menit p90",
+   "hermes": 0,
+   "damnbot": 23.5,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "gh run list main 30 run; p90 23,5"
   },
   "Waktu build bersih / inkremental": {
    "name": "Waktu build bersih / inkremental",

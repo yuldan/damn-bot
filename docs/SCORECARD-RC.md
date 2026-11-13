@@ -5,7 +5,7 @@ Gate: `TestScorecardGate` (`bench/scorecard/scorecard_test.go`); artefak dibangu
 ulang oleh tes yang sama (`SCORECARD_UPDATE=1`). Basis: `8fab87144e`, hermes `868b9f244f`.
 
 Status: **P20 BELUM lulus**. Artefak ini memuat 11 dimensi terukur dan 63
-dimensi `not_measured`; **0 pelanggaran pada dimensi terukur**. Baris agregat F9
+dimensi `not_measured`; **2 pelanggaran pada dimensi terukur** (flake 3,33% > 0,1%; CI p90 23,5 > 12 menit). Baris agregat F9
 "Artefak rilis & scorecard" tetap `BELUM` (lihat
 [`F9-ACCEPTANCE.md`](F9-ACCEPTANCE.md) §1). Tidak ada target yang diturunkan.
 
@@ -45,6 +45,15 @@ Angka diambil ulang dari artefak fase (SHA-256 tercatat di `meta.sources_sha256`
 | Undo / preview / plan | n/a | 100% / 100% / 100% | 100% | lulus |
 | Budget guard | n/a | 0 call setelah cap | 0 | lulus |
 | Dukungan OS | n/a | 8 target | ≥ 8 | lulus |
+| File terbesar non-test/test | 8.392 / 23.074 | 800 / 1.077 | ≤ hermes | lulus |
+| Fungsi terpanjang / >80 | 616 baris / 716 | 134 baris / 10 | ≤ hermes, target 0 | lulus vs hermes; absolut gagal |
+| Kompleksitas maks / >15 | 102 / 2.475 | 40 / 58 | ≤ hermes, target 0 | lulus vs hermes; absolut gagal |
+| Implementasi retry | 169 | 38 | ≤ hermes, target 1 | lulus vs hermes; absolut gagal |
+| Klasifikasi error via string | 41 + 88 | 0 | 0 | lulus |
+| Kebocoran goroutine | n/a | 0 | 0 | lulus |
+| Exec spawn overhead | n/a | 0,786 ms | <15 ms | lulus |
+| Flake rate | n/a | 3,33% (1/30) | ≤0,1% | **gagal** |
+| Waktu CI PR p90 | n/a | 23,5 menit | ≤12 | **gagal** |
 
 Sumber: `bench/budget/results/hermes-868b9f244f.json`, `internal/assemble/testdata/p1/all-modules.request.json`,
 `bench/f2/results/hermes-868b9f244f-F2.json`, `bench/f3/results/{damnbot-8fab87144e,damnbot-6d01e7a1d5,hermes-868b9f244f}-F3.json`,
@@ -57,7 +66,7 @@ hermes 66,276 s; first token/startup memakai artefak final `8fab87144e`.
 
 ## Dimensi belum terukur
 
-40 dimensi `not_measured` (rincian di artefak):
+31 dimensi `not_measured` (rincian di artefak):
 
 - Token input/output, biaya, cache, background token, task success, invalid tool
   call, klaim tanpa bukti, recall, fakta basi, routing skill, long-session, error
@@ -85,7 +94,7 @@ Damn-Bot untuk operasi yang sama belum ada, jadi tidak ada angka yang dikarang.
 cd bench
 SCORECARD_UPDATE=1 go test -count=1 -run '^TestScorecardGate$' ./scorecard  # tulis ulang artefak
 go test -count=1 ./scorecard                 # skip ber-alasan tanpa penanda rilis
-DAMNBOT_RELEASE=1 go test -count=1 ./scorecard  # gagal: 40 dimensi belum terukur
+DAMNBOT_RELEASE=1 go test -count=1 ./scorecard  # gagal: 31 dimensi belum terukur
 ```
 
 `TestScorecardGate` membangun ulang artefak dan membandingkan setiap baris

@@ -264,6 +264,23 @@ func (b *builder) measure() error {
 	mk("Budget guard", RuleAbsMax, 0, "LLM call setelah cap", "TestBudgetGuard*", "behavior", "budget_calls_after_cap")
 	mk("Migrasi dari hermes", RuleAbsMin, 5, "fixture", "5 state DB fixture", "migration", "fixtures")
 	mk("Dukungan OS", RuleAbsMin, 8, "target", "Makefile TARGETS", "inventory", "os_targets")
+	mk("Kebocoran goroutine", RuleAbsMax, 0, "kebocoran", "goleak TestMain ./internal/secret", "code_quality", "goroutine_leaks")
+	mk("Klasifikasi error via string", RuleAbsMax, 0, "temuan", "make vet-custom (nostringclassify)", "code_quality", "error_string_classifications")
+	mk("Flake rate", RuleAbsMax, 0.1, "%", "gh run list main 30 run (2026-11-12); 1 gagal", "code_quality", "flake_rate_pct")
+	mk("Waktu CI PR", RuleAbsMax, 12, "menit p90", "gh run list main 30 run; p90 23,5", "code_quality", "ci_p90_min")
+	mk("Exec spawn overhead", RuleAbsMax, 15, "ms p95", "BenchmarkShellSessionExec 786 µs", "code_quality", "exec_spawn_ms")
+	b.put(&Dimension{Name: "File terbesar (non-test / test)", Rule: RuleLower, Unit: "baris", Hermes: new(8392.0),
+		Damnbot: new(b.must(tool, "code_quality", "largest_file_lines")), Source: []string{tool},
+		Detail: "test 1.077 vs 23.074 (SCORECARD §1.7)"})
+	b.put(&Dimension{Name: "Fungsi terpanjang / > 80 baris", Rule: RuleLower, Unit: "baris", Hermes: new(616.0),
+		Damnbot: new(b.must(tool, "code_quality", "longest_function_lines")), Source: []string{tool},
+		Detail: fmt.Sprintf("%d fungsi >80 (target 0); target panjang ≤80", int(b.must(tool, "code_quality", "functions_over_80")))})
+	b.put(&Dimension{Name: "Kompleksitas siklomatik maks / > 15", Rule: RuleLower, Unit: "nilai", Hermes: new(102.0),
+		Damnbot: new(b.must(tool, "code_quality", "max_cyclomatic")), Source: []string{tool},
+		Detail: fmt.Sprintf("%d fungsi >15 (target 0)", int(b.must(tool, "code_quality", "functions_over_15")))})
+	b.put(&Dimension{Name: "Implementasi retry", Rule: RuleLower, Unit: "fungsi", Hermes: new(169.0),
+		Damnbot: new(b.must(tool, "code_quality", "retry_functions")), Source: []string{tool},
+		Detail: "fungsi bernama retry/backoff; target 1"})
 	// Special cases with a hermes baseline.
 	b.put(&Dimension{Name: "LOC per fitur", Rule: RuleLower, Unit: "LOC/baris", Hermes: new(1162.0),
 		Damnbot: new(b.must(tool, "code_quality", "source_loc") / 837), Source: []string{tool},
