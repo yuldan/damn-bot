@@ -1,15 +1,16 @@
 {
  "meta": {
   "phase": "F9",
-  "date": "2026-11-12T00:00:00Z",
+  "date": "2026-11-13T00:00:00Z",
   "hermes_commit": "868b9f244f5aa3ad238e494048046fe4f29c28ba",
-  "damnbot_commit": "aeb4dc65",
+  "damnbot_commit": "8fab87144e",
   "evalset": "evalset/v1",
   "harness": "bench/scorecard: agregasi artefak fase terukur; 0 LLM call",
   "sources_sha256": {
    "bench/budget/results/hermes-868b9f244f.json": "249a98e366a35e88e8fdfbc5e38f4885bde39cf9294794e1b9a260f60309b4ab",
    "bench/f2/results/hermes-868b9f244f-F2.json": "7131b62d3b1c4ae2fdfc4cab5209d53387fe9a02b80fea41fc5b8bf58d476407",
    "bench/f3/results/damnbot-6d01e7a1d5-F3.json": "b833fbc833066a5fc63eef28e14fa34b17195f9d30d3375106a7613aafbfa618",
+   "bench/f3/results/damnbot-8fab87144e-F3.json": "1286457da40601505325b838ed85f1aa885ce1bc815ff39fce0729e177a02b21",
    "bench/f3/results/hermes-868b9f244f-F3.json": "8e6829aab7fab99b33095a376f5558f2cece3863602d8fb463f16904332eedfc",
    "bench/f4/results/damnbot-4c1e69ba-F4.json": "5d9d6e6ee71b5c50bdde5871dcbfcb9e176fcd5c6b1f52ecafbbe253f73f8fed",
    "bench/f4/results/hermes-868b9f244f-F4.json": "eb6c76abdcfa4abeb7b7b903953802cb09aa96ed19722cf579d7d5e0660fd446",
@@ -203,12 +204,12 @@
    "max_ratio": 0.2,
    "unit": "ms p50",
    "hermes": 39.407,
-   "damnbot": 10.032,
+   "damnbot": 6.178,
    "source": [
-    "bench/f3/results/damnbot-6d01e7a1d5-F3.json",
+    "bench/f3/results/damnbot-8fab87144e-F3.json",
     "bench/f3/results/hermes-868b9f244f-F3.json"
    ],
-   "detail": "T0 fake provider → token terlihat di TUI"
+   "detail": "T0 fake provider → token terlihat di TUI; 120 fps (p50 10,0 → 6,178 ms)"
   },
   "Fixed overhead": {
    "name": "Fixed overhead",
@@ -477,12 +478,12 @@
    "max_ratio": 0.1,
    "unit": "ms p50",
    "hermes": 1368.273,
-   "damnbot": 42.507,
+   "damnbot": 50.317,
    "source": [
-    "bench/f3/results/damnbot-6d01e7a1d5-F3.json",
+    "bench/f3/results/damnbot-8fab87144e-F3.json",
     "bench/f3/results/hermes-868b9f244f-F3.json"
    ],
-   "detail": "frame pertama TUI; target 10x (SPEC P12/F3)"
+   "detail": "frame pertama TUI; target 10x (SPEC P12/F3), 120 fps pada build 8fab8714"
   },
   "State global mutable": {
    "name": "State global mutable",

@@ -13,7 +13,7 @@ import (
 )
 
 // ArtefactPath is the published RC scorecard path (SCORECARD §2.6).
-const ArtefactPath = "scorecard/results/2026-11-12-aeb4dc65.json"
+const ArtefactPath = "scorecard/results/2026-11-13-8fab87144e.json"
 
 // Build rebuilds the RC artefact from committed phase artifacts; every number
 // has its source SHA-256 recorded, and a missing measurement gets a reason.
@@ -166,30 +166,31 @@ func (b *builder) measure() error {
 	})
 
 	// §1.2 Startup/first token/build: F3 measured both agents on the same TUI.
-	f3d := "bench/f3/results/damnbot-6d01e7a1d5-F3.json"
+	f3d := "bench/f3/results/damnbot-8fab87144e-F3.json"
+	f3build := "bench/f3/results/damnbot-6d01e7a1d5-F3.json"
 	f3h := "bench/f3/results/hermes-868b9f244f-F3.json"
 	b.put(&Dimension{
 		Name: "Startup", Core: true, Rule: RuleLowerMax, MaxRatio: 0.1, Unit: "ms p50",
 		Hermes:  new(b.must(f3h, "dimensions", "tui", "first_frame_p50_ms")),
 		Damnbot: new(b.must(f3d, "dimensions", "startup_p12", "p50_ms")),
 		Source:  []string{f3d, f3h},
-		Detail:  "frame pertama TUI; target 10x (SPEC P12/F3)",
+		Detail:  "frame pertama TUI; target 10x (SPEC P12/F3), 120 fps pada build 8fab8714",
 	})
 	b.put(&Dimension{
 		Name: "First token di UI", Core: true, Rule: RuleLowerMax, MaxRatio: 0.2, Unit: "ms p50",
 		Hermes:  new(b.must(f3h, "dimensions", "tui", "first_token", "p50_ms")),
 		Damnbot: new(b.must(f3d, "dimensions", "first_token_tui", "p50_ms")),
 		Source:  []string{f3d, f3h},
-		Detail:  "T0 fake provider → token terlihat di TUI",
+		Detail:  "T0 fake provider → token terlihat di TUI; 120 fps (p50 10,0 → 6,178 ms)",
 	})
 	b.put(&Dimension{
 		Name: "Waktu build bersih / inkremental", Rule: RuleLower, Unit: "detik p50 (clean)",
 		Hermes:  new(b.must(f3h, "dimensions", "buildtime", "clean", "p50_s")),
-		Damnbot: new(b.must(f3d, "dimensions", "buildtime", "clean", "p50_s")),
-		Source:  []string{f3d, f3h},
+		Damnbot: new(b.must(f3build, "dimensions", "buildtime", "clean", "p50_s")),
+		Source:  []string{f3build, f3h},
 		Detail: fmt.Sprintf("inkremental: hermes %.3f s vs damnbot %.3f s",
 			b.must(f3h, "dimensions", "buildtime", "incremental", "p50_s"),
-			b.must(f3d, "dimensions", "buildtime", "incremental", "p50_s")),
+			b.must(f3build, "dimensions", "buildtime", "incremental", "p50_s")),
 	})
 	// §1.2 RSS/CPU idle: F4 measured both agents with the same /proc method.
 	f4d := "bench/f4/results/damnbot-4c1e69ba-F4.json"
