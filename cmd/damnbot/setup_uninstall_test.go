@@ -32,13 +32,13 @@ func TestSetupUninstallCLI(t *testing.T) {
 	t.Setenv("APPDATA", cfgRoot)
 	t.Setenv("XDG_DATA_HOME", dataRoot)
 	t.Setenv("XDG_CONFIG_HOME", cfgRoot)
-	loader, err := config.New(config.OS())
-	if err != nil {
-		t.Fatal(err)
+	loader, lerr := config.New(config.OS())
+	if lerr != nil {
+		t.Fatal(lerr)
 	}
-	paths, err := loader.Paths("")
-	if err != nil {
-		t.Fatal(err)
+	paths, perr := loader.Paths("")
+	if perr != nil {
+		t.Fatal(perr)
 	}
 	data := paths.DataDir
 	bin := filepath.Join(home, "bin", "damnbot")

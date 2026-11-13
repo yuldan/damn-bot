@@ -148,6 +148,23 @@ func qemuWiringProblems(ci wfDoc, script string) []string {
 // langkah↔leg berasal dari matrix `qemu` milik baris target yang sama, jadi
 // gate tidak sekadar mencari substring "arm" di YAML mana pun.
 func qemuPlatformProblems(job wfJob) []string {
+	literal, out := qemuLiteralSteps(job)
+	for _, target := range f9QEMUTargets() {
+		arch := qemuArch(target)
+		if qemu, ok := jobMatrixField(job, target, "qemu"); !ok || qemu != arch {
+			out = append(out, "matrix os-matrix-qemu "+target+" tidak memakai qemu: "+arch)
+		}
+		if literal[arch] != arch {
+			out = append(out, "tidak ada step setup-qemu literal platforms "+arch+" untuk "+target)
+		}
+	}
+	return out
+}
+
+// qemuLiteralSteps maps each guarded arch to the literal `platforms` value of
+// its setup step and reports steps whose input is still an expression, has no
+// guard, or registers the wrong arch.
+func qemuLiteralSteps(job wfJob) (map[string]string, []string) {
 	var out []string
 	var qemuActions int
 	literal := map[string]string{}
@@ -178,16 +195,11 @@ func qemuPlatformProblems(job wfJob) []string {
 	if qemuActions == 0 {
 		out = append(out, "docker/setup-qemu-action tidak dipin di job os-matrix-qemu")
 	}
-	for _, target := range f9QEMUTargets() {
-		arch := target[strings.IndexByte(target, '/')+1:]
-		if qemu, ok := jobMatrixField(job, target, "qemu"); !ok || qemu != arch {
-			out = append(out, "matrix os-matrix-qemu "+target+" tidak memakai qemu: "+arch)
-		}
-		if literal[arch] != arch {
-			out = append(out, "tidak ada step setup-qemu literal platforms "+arch+" untuk "+target)
-		}
-	}
-	return out
+	return literal, out
+}
+
+func qemuArch(target string) string {
+	return target[strings.IndexByte(target, '/')+1:]
 }
 
 // jobMatrixField reads one scalar field of the strategy.matrix.include row
