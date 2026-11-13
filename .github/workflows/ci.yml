@@ -178,7 +178,8 @@ jobs:
     # 11:16:42Z→11:41:25Z, hanya job macos berstatus cancelled). Amandemen ADR-324 (F9 installer,
     # run 43196971160): ubuntu dibatalkan 25m15s dua kali tanpa `--- FAIL` setelah suite e2e installer
     # bertambah; Windows 35, macOS 40, target lain 35.
-    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 35 || (startsWith(matrix.os, 'macos') && 40 || 35) }}
+    # Run 43356954927: ubuntu cancelled at 35m15s; windows 35 / macos 40 stay.
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 35 || (startsWith(matrix.os, 'macos') && 40 || 45) }}
     env:
       CGO_ENABLED: ${{ matrix.cgo }} # -race butuh cgo; build rilis tetap CGO_ENABLED=0 (job static, portability)
       # ADR-324 amandemen (batas infrastruktur, bukan gate tes): plafon `go test -timeout` per binary
