@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
@@ -15,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -47,7 +49,7 @@ const (
 	portableMemory portableKind = "memory"
 )
 
-func (c *portableCounts) add(kind portableKind, changed bool) { //nolint:unparam // import passes false in the next PR
+func (c *portableCounts) add(kind portableKind, changed bool) {
 	c.Items++
 	if changed {
 		c.Changed++
@@ -79,6 +81,19 @@ type portableManifest struct {
 	App       string         `json:"app"`
 	CreatedAt int64          `json:"created_at"`
 	Items     []portableItem `json:"items"`
+}
+
+// portableConfigEqual treats two configs with the same TOML values as equal,
+// so a re-import is idempotent across line endings, key order, and comments.
+func portableConfigEqual(a, b []byte) bool {
+	if bytes.Equal(a, b) {
+		return true
+	}
+	var ma, mb map[string]any
+	if toml.Unmarshal(a, &ma) != nil || toml.Unmarshal(b, &mb) != nil {
+		return false
+	}
+	return reflect.DeepEqual(ma, mb)
 }
 
 func portableRedactor() *redact.Redactor {

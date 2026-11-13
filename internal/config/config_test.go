@@ -275,6 +275,19 @@ func TestConfigPaths(t *testing.T) {
 			wantCfg: "/roaming/damnbot", wantData: "/local/damnbot",
 		},
 		{
+			// The e2e harness used to export XDG_DATA_HOME for a Windows child:
+			// XDG is a Linux convention, so the child resolved LOCALAPPDATA
+			// while --data-dir pointed at the ignored override.
+			name: "windows_ignores_linux_xdg", goos: "windows",
+			env: map[string]string{
+				"HOME": "/home/u", "USERPROFILE": "/home/u",
+				"XDG_CONFIG_HOME": "/home/u/xdg-config", "XDG_DATA_HOME": "/home/u/xdg-data",
+				"APPDATA": "/home/u/AppData/Roaming", "LOCALAPPDATA": "/home/u/AppData/Local",
+			},
+			wantCfg:  "/home/u/AppData/Roaming/damnbot",
+			wantData: "/home/u/AppData/Local/damnbot",
+		},
+		{
 			name: "profile", goos: "linux", profile: "work",
 			wantCfg:  "/home/u/.config/damnbot/profiles/work",
 			wantData: "/home/u/.local/share/damnbot/profiles/work",

@@ -33,7 +33,10 @@ type importOptions struct {
 	dryRun     bool
 }
 
-func runImport(args []string, stdout, stderr io.Writer) (code int) {
+func runImport(args []string, stdout, stderr io.Writer) (code int) { //nolint:gocyclo // dispatch over the closed importer set
+	if len(args) > 0 && args[0] == "archive" {
+		return runImportArchive(args[1:], stdout, stderr)
+	}
 	var o importOptions
 	fs := flag.NewFlagSet("import", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -109,6 +112,7 @@ func importFail(stderr io.Writer, command string, err error) int {
 
 func importUsage(w io.Writer) {
 	sessionsPrintf(w, "usage: damnbot import hermes [--from DIR] [--only config,secrets,skills,memory,mcp,cron,sessions] [--dry-run]\n")
+	sessionsPrintf(w, "       damnbot import archive <file> [--conflict keep-local|take-remote|both] [--dry-run] [--data-dir DIR]\n")
 }
 
 func parseAgentOnly(value, command string, supported, unsupported []string, reason string, stderr io.Writer) (map[string]string, bool) {

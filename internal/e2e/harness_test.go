@@ -267,13 +267,38 @@ func (e *Env) execEnv(stdin io.Reader, env []string, args ...string) Result {
 // childEnv is the environment of every child process: private HOME/XDG so the
 // host profile is never touched (Windows resolves its roots from these too).
 func (e *Env) childEnv() []string {
-	return append(os.Environ(),
+	return replaceEnv(os.Environ(),
 		"HOME="+e.home,
 		"XDG_CONFIG_HOME="+e.home,
 		"USERPROFILE="+e.home,
 		"APPDATA="+filepath.Join(e.home, "AppData", "Roaming"),
 		"LOCALAPPDATA="+filepath.Join(e.home, "AppData", "Local"),
 	)
+}
+
+// replaceEnv drops every inherited entry for the keys in kv, then appends the
+// fixture values. Windows environment lookups are case-insensitive, so a
+// duplicate inherited USERPROFILE/APPDATA would otherwise shadow the fixture;
+// Unix keys stay case-sensitive.
+func replaceEnv(base []string, kv ...string) []string {
+	key := func(entry string) string {
+		name, _, _ := strings.Cut(entry, "=")
+		if runtime.GOOS == "windows" {
+			return strings.ToUpper(name)
+		}
+		return name
+	}
+	drop := make(map[string]bool, len(kv))
+	for _, entry := range kv {
+		drop[key(entry)] = true
+	}
+	out := make([]string, 0, len(base)+len(kv))
+	for _, entry := range base {
+		if !drop[key(entry)] {
+			out = append(out, entry)
+		}
+	}
+	return append(out, kv...)
 }
 
 // RequireOK fails unless the child exited 0.
