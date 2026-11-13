@@ -56,6 +56,10 @@ function Verify-Minisig([string]$File, [string]$Sig) {
     $pubRaw = [Convert]::FromBase64String($PubKey)
     if ($pubRaw.Length -ne 42) { Fail 'pinned public key is not a minisign key' }
     $openssl = Get-Command openssl -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    # macOS ships LibreSSL, which cannot verify Ed25519. Prefer Homebrew's OpenSSL 3 when present.
+    foreach ($candidate in @('/opt/homebrew/opt/openssl@3/bin/openssl', '/usr/local/opt/openssl@3/bin/openssl')) {
+        if (Test-Path -LiteralPath $candidate) { $openssl = Get-Command $candidate -CommandType Application; break }
+    }
     if ($openssl) {
         $pem = Join-Path $work 'pub.pem'
         Write-Pem $pubRaw $pem
