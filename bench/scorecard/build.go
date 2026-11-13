@@ -233,6 +233,38 @@ func (b *builder) measure() error {
 		Hermes: new(b.concurrentErrors(f2, "hermes")), Damnbot: new(b.concurrentErrors(f2, "damnbot")),
 		Source: []string{f2}, Detail: "SQLITE_BUSY/error lain + integritas; 0 untuk kedua agen",
 	})
+	// §1.5 Inventory: counts from the committed tables/catalogs.
+	providers := "docs/PROVIDERS.md"
+	b.put(&Dimension{
+		Name: "Provider", Rule: RuleHigher, Unit: "profil", Hermes: new(50.0),
+		Damnbot: new(float64(b.countPrefix(providers, "| LLM-"))), Source: []string{providers},
+		Detail: "baris katalog PROVIDERS.md; baseline hermes 50 profil (SCORECARD §1.5)",
+	})
+	locales, err := filepath.Glob(filepath.Join(b.root, "internal", "i18n", "locales", "*.toml"))
+	if err != nil {
+		return err
+	}
+	b.put(&Dimension{
+		Name: "Bahasa UI", Rule: RuleHigher, Unit: "locale", Hermes: new(17.0),
+		Damnbot: new(float64(len(locales))), Source: []string{"internal/i18n/locales"},
+		Detail: "berkas locale lengkap; baseline hermes 17",
+	})
+	b.put(&Dimension{
+		Name: "Skill tersedia", Rule: RuleAbsMin, Target: 211, Unit: "skill", Hermes: new(211.0),
+		Damnbot: new(float64(b.countRows("internal/skills/catalog/skills.tsv"))),
+		Source:  []string{"internal/skills/catalog/skills.tsv"},
+		Detail:  "baris data katalog (58 bundled + 153 optional); baseline hermes 58 + 153",
+	})
+	b.put(&Dimension{
+		Name: "Platform chat", Rule: RuleAbsMin, Target: 30, Unit: "adapter", Hermes: new(30.0),
+		Damnbot: new(float64(b.countPrefix("docs/FEATURE-PARITY.md", "| PLAT-"))), Source: []string{"docs/FEATURE-PARITY.md"},
+		Detail: "baris PLAT-001..030; target 30",
+	})
+	b.put(&Dimension{
+		Name: "MCP", Rule: RuleAbsMin, Target: 65, Unit: "server", Hermes: new(65.0),
+		Damnbot: new(float64(b.countPrefix("docs/FEATURE-PARITY.md", "| MCPX-"))), Source: []string{"docs/FEATURE-PARITY.md"},
+		Detail: "baris MCPX katalog; target 65",
+	})
 	// §1.5 Feature parity: rows counted from the committed table.
 	parity := "docs/FEATURE-PARITY.md"
 	total, dropped, err := b.parity(parity)
@@ -262,6 +294,43 @@ func (b *builder) concurrentErrors(rel, agent string) float64 {
 var parityIDRe = regexp.MustCompile(`^[A-Z]{2,6}-[0-9]{3}$`)
 
 // parity counts FEATURE-PARITY rows and the dropped-with-approval subset.
+// countRows counts non-empty, non-comment lines in a committed file.
+func (b *builder) countRows(rel string) int {
+	data, err := os.ReadFile(filepath.Join(b.root, rel)) //nolint:gosec // path repo
+	if err != nil {
+		b.err = fmt.Errorf("scorecard: %s: %w", rel, err)
+		return 0
+	}
+	sum := sha256.Sum256(data)
+	b.sources[rel] = hex.EncodeToString(sum[:])
+	n := 0
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if line != "" && !strings.HasPrefix(line, "#") {
+			n++
+		}
+	}
+	return n
+}
+
+// countPrefix reads a committed file, records its digest, and counts lines
+// starting with prefix.
+func (b *builder) countPrefix(rel, prefix string) int {
+	data, err := os.ReadFile(filepath.Join(b.root, rel)) //nolint:gosec // path repo
+	if err != nil {
+		b.err = fmt.Errorf("scorecard: %s: %w", rel, err)
+		return 0
+	}
+	sum := sha256.Sum256(data)
+	b.sources[rel] = hex.EncodeToString(sum[:])
+	n := 0
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if strings.HasPrefix(line, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
 func (b *builder) parity(rel string) (total, dropped int, err error) {
 	full := filepath.Join(b.root, rel)
 	data, rerr := os.ReadFile(full) //nolint:gosec // path repo
