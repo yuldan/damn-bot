@@ -15,7 +15,7 @@
    "bench/f4/results/damnbot-4c1e69ba-F4.json": "5d9d6e6ee71b5c50bdde5871dcbfcb9e176fcd5c6b1f52ecafbbe253f73f8fed",
    "bench/f4/results/hermes-868b9f244f-F4.json": "eb6c76abdcfa4abeb7b7b903953802cb09aa96ed19722cf579d7d5e0660fd446",
    "bench/scorecard/not_measured.json": "112d7fb9db0b11e723d62967b24817277d26791c50509088048ab286dfc53dac",
-   "bench/scorecard/results/tooling-8fab87144e.json": "f14ac8a34d7de0d8ef0427b6048a45e84503df83b2c0f02351ec6e84c6f8a9db",
+   "bench/scorecard/results/tooling-8fab87144e.json": "dfae66d98328b7f454247df660c11a1137c6af9a7c215ff0ee26b396e7ca8021",
    "bench/speed/results/hermes-868b9f244f-F6.json": "7bb783884287bcb0b3cbf58c9a9e9cae63c8e3d685e9c432b1f99cfc4f0f9615",
    "docs/FEATURE-PARITY.md": "4574f1594a26dd939291062e0934352163e4e52a84ffa7b18083f96794db134c",
    "docs/PROVIDERS.md": "7f16f0b42a021c5ef7cd36399fa7ca4b6790fb50c339f3e7e99e70967114c3e1",
@@ -209,11 +209,11 @@
    "target": 15,
    "unit": "ms p95",
    "hermes": 0,
-   "damnbot": 0.786,
+   "damnbot": 1.202,
    "source": [
     "bench/scorecard/results/tooling-8fab87144e.json"
    ],
-   "detail": "BenchmarkShellSessionExec 786 µs"
+   "detail": "BenchmarkShellSessionExec p95 1,202 ms (mean 750,784 µs/op)"
   },
   "Fakta basi": {
    "name": "Fakta basi",
@@ -247,14 +247,15 @@
    "name": "File terbesar (non-test / test)",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
+   "rule": "absolute_max",
+   "target": 800,
    "unit": "baris",
    "hermes": 8392,
    "damnbot": 800,
    "source": [
     "bench/scorecard/results/tooling-8fab87144e.json"
    ],
-   "detail": "test 1.077 vs 23.074 (SCORECARD §1.7)"
+   "detail": "non-test 800 ≤ 800; test 1077 ≤ 1.500 (internal/browser/parity_test.go); hermes 8.392/23.074"
   },
   "First token di UI": {
    "name": "First token di UI",
@@ -294,24 +295,25 @@
    "target": 0.1,
    "unit": "%",
    "hermes": 0,
-   "damnbot": 3.33,
+   "damnbot": 72,
    "source": [
     "bench/scorecard/results/tooling-8fab87144e.json"
    ],
-   "detail": "gh run list main 30 run (2026-11-12); 1 gagal"
+   "detail": "nightly make flake -count=20: 18/25 run gagal (18/20 yang dieksekusi), 5 cancelled, 2026-10-19..11-12; kategori internal/exec sweep dan exec/backends ETXTBSY"
   },
   "Fungsi terpanjang / \u003e 80 baris": {
    "name": "Fungsi terpanjang / \u003e 80 baris",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
+   "rule": "absolute_max",
+   "target": 80,
    "unit": "baris",
    "hermes": 616,
-   "damnbot": 134,
+   "damnbot": 132,
    "source": [
     "bench/scorecard/results/tooling-8fab87144e.json"
    ],
-   "detail": "10 fungsi \u003e80 (target 0); target panjang ≤80"
+   "detail": "non-test: maks 132 baris (cmd/damnbot/project_cli.go:71 projectCommand), 6 fungsi \u003e80; target ≤80/0; semua \u003e80 ber-nolint funlen (E-52)"
   },
   "Idle RSS": {
    "name": "Idle RSS",
@@ -345,14 +347,15 @@
    "name": "Implementasi retry",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
+   "rule": "absolute_max",
+   "target": 1,
    "unit": "fungsi",
    "hermes": 169,
    "damnbot": 38,
    "source": [
     "bench/scorecard/results/tooling-8fab87144e.json"
    ],
-   "detail": "fungsi bernama retry/backoff; target 1"
+   "detail": "38 fungsi non-test bernama retry/backoff; 1 kebijakan terpusat internal/netx/retry; 78 tes; target 1"
   },
   "Kebocoran goroutine": {
    "name": "Kebocoran goroutine",
@@ -365,7 +368,7 @@
    "source": [
     "bench/scorecard/results/tooling-8fab87144e.json"
    ],
-   "detail": "goleak TestMain ./internal/secret"
+   "detail": "53 paket goleak.VerifyTestMain (ctxdb, exec, gateway, tui + 49); cmd dengan -tags goolm; 0 bocor; race di 4 paket kritis"
   },
   "Klaim selesai tanpa bukti": {
    "name": "Klaim selesai tanpa bukti",
@@ -380,12 +383,12 @@
    "core": false,
    "rule": "absolute_max",
    "unit": "temuan",
-   "hermes": 0,
-   "damnbot": 0,
+   "hermes": 129,
+   "damnbot": 1,
    "source": [
     "bench/scorecard/results/tooling-8fab87144e.json"
    ],
-   "detail": "make vet-custom (nostringclassify)"
+   "detail": "1 produksi: cmd/damnbot/cron_store.go:88 strings.Contains(err.Error(), \"UNIQUE\"); 1 allowlist E-21 (ctxdb/errors.go:65); 196 assertion pesan di test tidak diklasifikasi; hermes 41 + 88"
   },
   "Kode mati": {
    "name": "Kode mati",
@@ -404,14 +407,15 @@
    "name": "Kompleksitas siklomatik maks / \u003e 15",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
+   "rule": "absolute_max",
+   "target": 15,
    "unit": "nilai",
    "hermes": 102,
    "damnbot": 40,
    "source": [
     "bench/scorecard/results/tooling-8fab87144e.json"
    ],
-   "detail": "58 fungsi \u003e15 (target 0)"
+   "detail": "non-test: maks 40 (cmd/damnbot/project_cli.go:71 projectCommand), 23 fungsi \u003e15; target ≤15/0"
   },
   "Konkurensi": {
    "name": "Konkurensi",
@@ -797,11 +801,11 @@
    "target": 12,
    "unit": "menit p90",
    "hermes": 0,
-   "damnbot": 23.5,
+   "damnbot": 32.62,
    "source": [
     "bench/scorecard/results/tooling-8fab87144e.json"
    ],
-   "detail": "gh run list main 30 run; p90 23,5"
+   "detail": "30 run ci pull_request selesai: p90 32,62 menit, median 25,35 (2026-11-12T16:43..11-13T00:51)"
   },
   "Waktu build bersih / inkremental": {
    "name": "Waktu build bersih / inkremental",

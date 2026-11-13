@@ -4,8 +4,10 @@ Artefak mesin: [`bench/scorecard/results/2026-11-13-8fab87144e.json`](../bench/s
 Gate: `TestScorecardGate` (`bench/scorecard/scorecard_test.go`); artefak dibangun
 ulang oleh tes yang sama (`SCORECARD_UPDATE=1`). Basis: `8fab87144e`, hermes `868b9f244f`.
 
-Status: **P20 BELUM lulus**. Artefak ini memuat 11 dimensi terukur dan 63
-dimensi `not_measured`; **2 pelanggaran pada dimensi terukur** (flake 3,33% > 0,1%; CI p90 23,5 > 12 menit). Baris agregat F9
+Status: **P20 BELUM lulus**. Artefak ini memuat 43 dimensi terukur dan 31
+dimensi `not_measured`; **6 pelanggaran pada dimensi terukur**: fungsi terpanjang
+132 > 80, kompleksitas 40 > 15, retry 38 > 1, klasifikasi error string 1 > 0,
+flake 72% > 0,1%, dan CI p90 32,62 > 12 menit. Baris agregat F9
 "Artefak rilis & scorecard" tetap `BELUM` (lihat
 [`F9-ACCEPTANCE.md`](F9-ACCEPTANCE.md) §1). Tidak ada target yang diturunkan.
 
@@ -45,20 +47,22 @@ Angka diambil ulang dari artefak fase (SHA-256 tercatat di `meta.sources_sha256`
 | Undo / preview / plan | n/a | 100% / 100% / 100% | 100% | lulus |
 | Budget guard | n/a | 0 call setelah cap | 0 | lulus |
 | Dukungan OS | n/a | 8 target | ≥ 8 | lulus |
-| File terbesar non-test/test | 8.392 / 23.074 | 800 / 1.077 | ≤ hermes | lulus |
-| Fungsi terpanjang / >80 | 616 baris / 716 | 134 baris / 10 | ≤ hermes, target 0 | lulus vs hermes; absolut gagal |
-| Kompleksitas maks / >15 | 102 / 2.475 | 40 / 58 | ≤ hermes, target 0 | lulus vs hermes; absolut gagal |
-| Implementasi retry | 169 | 38 | ≤ hermes, target 1 | lulus vs hermes; absolut gagal |
-| Klasifikasi error via string | 41 + 88 | 0 | 0 | lulus |
-| Kebocoran goroutine | n/a | 0 | 0 | lulus |
-| Exec spawn overhead | n/a | 0,786 ms | <15 ms | lulus |
-| Flake rate | n/a | 3,33% (1/30) | ≤0,1% | **gagal** |
-| Waktu CI PR p90 | n/a | 23,5 menit | ≤12 | **gagal** |
+| File terbesar non-test/test | 8.392 / 23.074 | 800 / 1.077 | ≤800 / ≤1.500 | lulus |
+| Fungsi terpanjang / >80 | 616 baris / 716 | 132 baris / 6 | ≤80 / 0 | **gagal** (absolut) |
+| Kompleksitas maks / >15 | 102 / 2.475 | 40 / 23 | ≤15 / 0 | **gagal** (absolut) |
+| Implementasi retry | 169 | 38 fungsi (1 kebijakan) | 1 | **gagal** (absolut) |
+| Klasifikasi error via string | 41 + 88 | 1 (`cron_store.go:88`) | 0 | **gagal** |
+| Kebocoran goroutine | n/a | 0 (53 paket goleak) | 0 | lulus |
+| Exec spawn overhead | n/a | p95 1,202 ms (mean 0,751) | <15 ms | lulus |
+| Flake rate | n/a | 72% (18/25; 18/20 dieksekusi) | ≤0,1% | **gagal** |
+| Waktu CI PR p90 | n/a | 32,62 menit (median 25,35) | ≤12 | **gagal** |
 
 Sumber: `bench/budget/results/hermes-868b9f244f.json`, `internal/assemble/testdata/p1/all-modules.request.json`,
 `bench/f2/results/hermes-868b9f244f-F2.json`, `bench/f3/results/{damnbot-8fab87144e,damnbot-6d01e7a1d5,hermes-868b9f244f}-F3.json`,
 `bench/f4/results/{damnbot-4c1e69ba,hermes-868b9f244f}-F4.json`,
-`bench/speed/results/hermes-868b9f244f-F6.json`, `docs/FEATURE-PARITY.md`.
+`bench/speed/results/hermes-868b9f244f-F6.json`, `docs/FEATURE-PARITY.md`,
+`bench/scorecard/results/tooling-8fab87144e.json` (goleak 53 paket, go/ast main
+module, gocyclo, `gh api actions/runs` 30 hari).
 
 Buildtime memakai artefak `6d01e7a1d5` karena pengukuran build baru berjalan di
 bawah nice/6-CPU host bersama (143,965 s) dan tidak sebanding dengan baseline
@@ -77,10 +81,11 @@ hermes 66,276 s; first token/startup memakai artefak final `8fab87144e`.
   50 turn/50 kill, bukan soak 24 jam/1.000 turn/200 kill.
 - Ukuran & waktu install dari nol, langkah setup, baris config: butuh VM bersih
   10 Mbit/s; host ini bukan VM RC dan tidak ada docker/root.
-- Kualitas kode, keamanan, migrasi, OS, dan fitur pembeda: belum ada artefak
-  angka RC. Inventaris platform/provider/locale/skill/MCP kini terukur dari
-  tabel repo (lihat tabel di atas).
+- Harness yang belum punya artefak terukur: code tools (korpus/host beda),
+  proses yatim/perintah hang, edit salah lokasi, error tertelan, fallback tak
+  terlihat.
 - `Error informatif`: menunggu 2 penilai manusia.
+- `Scorecard mingguan`: job ada, aktivasi setelah RC.
 
 ## Speed parity
 
@@ -94,7 +99,7 @@ Damn-Bot untuk operasi yang sama belum ada, jadi tidak ada angka yang dikarang.
 cd bench
 SCORECARD_UPDATE=1 go test -count=1 -run '^TestScorecardGate$' ./scorecard  # tulis ulang artefak
 go test -count=1 ./scorecard                 # skip ber-alasan tanpa penanda rilis
-DAMNBOT_RELEASE=1 go test -count=1 ./scorecard  # gagal: 31 dimensi belum terukur
+DAMNBOT_RELEASE=1 go test -count=1 ./scorecard  # gagal: 31 dimensi belum terukur + 6 pelanggaran
 ```
 
 `TestScorecardGate` membangun ulang artefak dan membandingkan setiap baris
