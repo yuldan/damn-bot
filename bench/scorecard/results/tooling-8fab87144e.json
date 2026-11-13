@@ -15,7 +15,21 @@
   "global_mutable": 0,
   "direct_deps": 24,
   "cgo": 0,
-  "source": "make loc-ratio; make lint; make deadcode; TestImportGraph; TestDirectDeps"
+  "source": "make loc-ratio; make lint; make deadcode; TestImportGraph; TestDirectDeps; AST scan (go/ast); gocyclo -over 15; goleak ./internal/secret; BenchmarkShellSessionExec; gh run list main 30 runs",
+  "largest_file_lines": 800,
+  "largest_test_lines": 1077,
+  "longest_function_lines": 134,
+  "functions_over_80": 10,
+  "max_cyclomatic": 40,
+  "functions_over_15": 58,
+  "retry_functions": 38,
+  "error_string_classifications": 0,
+  "goroutine_leaks": 0,
+  "exec_spawn_ms": 0.786,
+  "flake_rate_pct": 3.33,
+  "ci_p90_min": 23.5,
+  "ci_runs": 30,
+  "ci_window": "2026-11-12T09:46Z..2026-11-12T23:42Z"
  },
  "security": {
   "redaction_leaks": 0,
