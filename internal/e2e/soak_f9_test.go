@@ -34,6 +34,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -46,6 +47,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
@@ -102,6 +104,56 @@ func soakPlanFromEnv(t *testing.T) soakPlan {
 	}
 	interval := max(window/time.Duration(turns), 50*time.Millisecond)
 	return soakPlan{hours: hours, window: window, turns: turns, interval: interval}
+}
+
+// The gateway's inbound quota (SPEC §9.7 P25) is per identity: the 201st turn
+// of one identity in a day and the 21st message in a minute are refused with a
+// notice and no turn. A soak profile that drives 1.000 turns through two owner
+// identities therefore hits a designed refusal — the harness then waits for a
+// provider request that by policy will never happen. Spread the turns over
+// enough owner identities to stay inside both windows instead of weakening the
+// quota, and keep the arithmetic below in sync with internal/gateway.
+const (
+	soakTurnsPerDay        = gateway.DefaultTurnsPerDay
+	soakMessagesPerMinute  = gateway.DefaultMessagesPerMinute
+	soakMinIdentityPerFace = 2
+)
+
+// soakIdentities returns the number of owner identities per platform needed by
+// plan: enough for the daily turn budget and for a per-identity message rate
+// below the per-minute window. Telegram and webhook identities are separate
+// quota keys, so one pool size serves both surfaces.
+func soakIdentities(plan soakPlan) int {
+	perSurface := plan.turns/3 + 1
+	daily := (perSurface + soakTurnsPerDay - 1) / soakTurnsPerDay
+	spacing := 3 * plan.interval // one message per identity per round-robin cycle
+	rate := 0
+	if spacing > 0 {
+		rate = int(math.Ceil(60.0 / spacing.Seconds() / float64(soakMessagesPerMinute)))
+	}
+	return max(daily, rate+1, soakMinIdentityPerFace)
+}
+
+// soakIdentity maps a turn to one owner identity. Both gateway surfaces share
+// the cycle: cycle k uses identity k%N for its telegram and webhook turn, so
+// each platform identity receives exactly one message per cycle.
+func soakIdentity(plan soakPlan, turn int) int {
+	return (turn / 3) % soakIdentities(plan)
+}
+
+func soakTelegramID(plan soakPlan, turn int) int64 {
+	return gatewayOwner + int64(soakIdentity(plan, turn))
+}
+
+func soakWebhookSenderAt(index int) string {
+	if index == 0 {
+		return "e2e"
+	}
+	return fmt.Sprintf("e2e-%d", index)
+}
+
+func soakWebhookSender(plan soakPlan, turn int) string {
+	return soakWebhookSenderAt(soakIdentity(plan, turn))
 }
 
 // f9Soak is the artefact and the live measurements of one soak.
@@ -176,7 +228,7 @@ func TestF9Soak24h(t *testing.T) {
 	t.Logf("F9 soak profile=%s window=%s turns=%d interval=%s", profile, plan.window, plan.turns, plan.interval)
 
 	started := time.Now()
-	rt := startF9Soak(t)
+	rt := startF9Soak(t, plan)
 	start, end, panicFree := soakRunTurns(t, rt, plan)
 	if !panicFree {
 		t.Errorf("serve panicked during the soak\nstderr:\n%s", rt.p.stderr.String())
@@ -208,17 +260,18 @@ type f9SoakRuntime struct {
 	client *http.Client
 }
 
-func startF9Soak(t *testing.T) *f9SoakRuntime {
+func startF9Soak(t *testing.T, plan soakPlan) *f9SoakRuntime {
 	t.Helper()
 	e := New(t)
 	tg := NewFakeTG(t, FakeTGOptions{})
-	// The non-owner identity needs an existing workspace: the gateway refuses
-	// a webhook turn whose sandbox root does not exist (typed error, no crash).
+	// The gateway resolves a role user's workspace from [gateway.users], but
+	// every soak sender is seeded as an owner (the daily USD guard fails closed
+	// for role users on the unpriced fake provider). Owners need no workspace.
 	userCfg := fmt.Sprintf("[gateway.users.%q]\nworkspace = %q\n", soakWebhookID, e.Workdir)
 	if err := os.WriteFile(e.cfg, []byte(userCfg), 0o600); err != nil {
 		t.Fatalf("write gateway user config: %v", err)
 	}
-	seedSoakWebhookOwner(t, e.DataDir)
+	seedSoakOwners(t, e.DataDir, plan)
 	env := append(gatewayServeEnv(e, tg),
 		"DAMNBOT_GATEWAY_ALLOW="+soakWebhookID,
 		"DAMNBOT_WEBHOOK_LISTEN=127.0.0.1:0",
@@ -240,12 +293,14 @@ func startF9Soak(t *testing.T) *f9SoakRuntime {
 	return rt
 }
 
-// seedSoakWebhookOwner makes the second platform an owner identity. The daily
-// USD guard caps role user identities and fails closed on a NULL-cost row; the
-// fake provider has no price, so a role user webhook would be denied after its
+// seedSoakOwners makes every sender the profile uses an owner identity. The
+// daily USD guard caps role user identities and fails closed on a NULL-cost
+// row; the fake provider has no price, so a role user would be denied after its
 // first turn. A real deployment can have owners on more than one platform, and
-// EnsureIdentity never overwrites the pre-seeded owner row.
-func seedSoakWebhookOwner(t *testing.T, dir string) {
+// EnsureIdentity never overwrites the pre-seeded owner row. The identity count
+// comes from soakIdentities: driving 1.000 turns through one identity would hit
+// the designed 200 turns/day quota at the 201st telegram turn.
+func seedSoakOwners(t *testing.T, dir string, plan soakPlan) {
 	t.Helper()
 	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: dir, Kind: "cli"})
 	if err != nil {
@@ -259,17 +314,23 @@ func seedSoakWebhookOwner(t *testing.T, dir string) {
 	// Same row shape as gwstore.EnsureIdentity; the e2e import matrix does not
 	// allow the store package to be imported from this package's tests.
 	err = db.Write(t.Context(), func(tx *ctxdb.Tx) error {
-		_, xerr := tx.Exec(`INSERT INTO gateway_identities(platform, external_id, display_name, role, status, strength, updated_at)
-			VALUES (?1, ?2, ?2, 'owner', 'allowlisted', 'platform_authenticated', ?3)
-			ON CONFLICT(platform, external_id) DO NOTHING`,
-			"webhook", "e2e", time.Now().UnixMilli())
-		if xerr != nil {
-			return fmt.Errorf("insert gateway identity: %w", xerr)
+		now := time.Now().UnixMilli()
+		for i := range soakIdentities(plan) {
+			for _, row := range [][2]string{
+				{"telegram", strconv.FormatInt(gatewayOwner+int64(i), 10)},
+				{"webhook", soakWebhookSenderAt(i)},
+			} {
+				if _, xerr := tx.Exec(`INSERT INTO gateway_identities(platform, external_id, display_name, role, status, strength, updated_at)
+					VALUES (?1, ?2, ?2, 'owner', 'allowlisted', 'platform_authenticated', ?3)
+					ON CONFLICT(platform, external_id) DO NOTHING`, row[0], row[1], now); xerr != nil {
+					return fmt.Errorf("insert gateway identity %s:%s: %w", row[0], row[1], xerr)
+				}
+			}
 		}
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("seed webhook owner: %v", err)
+		t.Fatalf("seed soak owners: %v", err)
 	}
 }
 
@@ -281,7 +342,7 @@ func soakRunTurns(t *testing.T, rt *f9SoakRuntime, plan soakPlan) (start, end f9
 	gatewayDone := 0
 	for i := range plan.turns {
 		turnStart := time.Now()
-		gatewayDone = soakExecuteTurn(t, rt, i, plan.interval, gatewayDone)
+		gatewayDone = soakExecuteTurn(t, rt, i, plan, gatewayDone)
 		if i+1 == warmup {
 			start = soakStableSample(t, rt)
 		}
@@ -304,8 +365,9 @@ func soakRunTurns(t *testing.T, rt *f9SoakRuntime, plan soakPlan) (start, end f9
 
 // soakExecuteTurn sends one message on the surface selected by turn%3 and
 // waits for its provider call (and, for Telegram, its final answer).
-func soakExecuteTurn(t *testing.T, rt *f9SoakRuntime, turn int, interval time.Duration, gatewayDone int) int {
+func soakExecuteTurn(t *testing.T, rt *f9SoakRuntime, turn int, plan soakPlan, gatewayDone int) int {
 	t.Helper()
+	interval := plan.interval
 	surface := turn % 3
 	marker := fmt.Sprintf("f9-soak-%d-%04d", surface, turn)
 	answer := "soak-ok " + marker
@@ -313,18 +375,15 @@ func soakExecuteTurn(t *testing.T, rt *f9SoakRuntime, turn int, interval time.Du
 	want := turn + 1
 	switch surface {
 	case 0:
-		rt.tg.PushText(gatewayOwner, marker)
-		waitFor(t, soakTurnBudget(interval), "telegram turn "+marker, func() bool {
-			return len(rt.e.Server.Requests()) == want
-		})
+		rt.tg.PushMessage(gatewayOwner, 0, marker, FakeTGUser{ID: soakTelegramID(plan, turn), FirstName: "u"})
+		soakWaitRequests(t, rt, want, soakTurnBudget(interval), "telegram turn "+marker)
 		waitFor(t, soakTurnBudget(interval), "telegram answer "+marker, func() bool {
 			return soakAnswerSeen(rt.tg, answer)
 		})
 	case 1:
-		postGenericWebhook(t, rt.client, rt.webhookURL, genericWebhookSecret, soakWebhookEnvelope(t, marker, marker))
-		waitFor(t, soakTurnBudget(interval), "webhook turn "+marker, func() bool {
-			return len(rt.e.Server.Requests()) == want
-		})
+		postGenericWebhook(t, rt.client, rt.webhookURL, genericWebhookSecret,
+			soakWebhookEnvelope(t, marker, marker, soakWebhookSender(plan, turn)))
+		soakWaitRequests(t, rt, want, soakTurnBudget(interval), "webhook turn "+marker)
 		waitFor(t, soakTurnBudget(interval), "webhook answer "+marker, func() bool {
 			return soakAnswerSeen(rt.tg, answer)
 		})
@@ -366,6 +425,81 @@ func soakSurfaceCounts(turns int) (telegram, webhook int) {
 		}
 	}
 	return telegram, webhook
+}
+
+// TestSoakIdentitiesRespectGatewayQuota is the deterministic regression for
+// the 14 h acceptance run that stopped at turn 600: the harness drove the
+// 201st telegram turn of one identity and the gateway, by design, refused it
+// (200 turns/day per identity, SPEC §9.7 P25). The profile must keep every
+// identity inside both the daily budget and the per-minute window; this test
+// simulates the exact turn->identity mapping without starting a process.
+func TestSoakIdentitiesRespectGatewayQuota(t *testing.T) {
+	cases := []struct {
+		name string
+		plan soakPlan
+	}{
+		{"acceptance-24h-1000t", soakPlan{hours: 24, window: 24 * time.Hour, turns: soakAcceptanceTurns, interval: 24 * time.Hour / soakAcceptanceTurns}},
+		{"nightly-1h-1000t", soakPlan{hours: 1, window: time.Hour, turns: soakAcceptanceTurns, interval: time.Hour / soakAcceptanceTurns}},
+		{"accelerated-50ms-1000t", soakPlan{hours: 50.0 / 3600.0, window: 50 * time.Second, turns: soakAcceptanceTurns, interval: 50 * time.Millisecond}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertSoakQuota(t, tc.plan)
+		})
+	}
+}
+
+func assertSoakQuota(t *testing.T, plan soakPlan) {
+	t.Helper()
+	n := soakIdentities(plan)
+	if n < soakMinIdentityPerFace {
+		t.Fatalf("identity pool = %d, want >= %d", n, soakMinIdentityPerFace)
+	}
+	for surface := range 2 {
+		assertSurfaceQuota(t, plan, surface)
+		if got := len(soakIdentitySet(plan, surface)); got != n {
+			t.Fatalf("surface %d identities used = %d, want %d", surface, got, n)
+		}
+	}
+}
+
+// soakIdentitySet is the set of senders a surface would use for the profile.
+func soakIdentitySet(plan soakPlan, surface int) map[string]bool {
+	out := map[string]bool{}
+	for turn := surface; turn < plan.turns; turn += 3 {
+		if surface == 0 {
+			out[strconv.FormatInt(soakTelegramID(plan, turn), 10)] = true
+		} else {
+			out[soakWebhookSender(plan, turn)] = true
+		}
+	}
+	return out
+}
+
+// assertSurfaceQuota checks the turns of one surface against the per-identity
+// daily and per-minute windows at the profile's exact turn spacing.
+func assertSurfaceQuota(t *testing.T, plan soakPlan, surface int) {
+	t.Helper()
+	perIdentity := map[int][]time.Duration{}
+	for turn := surface; turn < plan.turns; turn += 3 {
+		id := soakIdentity(plan, turn)
+		perIdentity[id] = append(perIdentity[id], time.Duration(turn)*plan.interval)
+	}
+	for id, times := range perIdentity {
+		if len(times) > soakTurnsPerDay {
+			t.Fatalf("surface %d identity %d: %d turns, quota %d/day", surface, id, len(times), soakTurnsPerDay)
+		}
+		for i := range times {
+			j := i
+			for j < len(times) && times[j]-times[i] < time.Minute {
+				j++
+			}
+			if j-i > soakMessagesPerMinute {
+				t.Fatalf("surface %d identity %d: %d messages in one minute at %s, quota %d/min",
+					surface, id, j-i, times[i], soakMessagesPerMinute)
+			}
+		}
+	}
 }
 
 // soakVerifyTranscript opens the stopped data dir read-only and counts the
@@ -582,6 +716,34 @@ func soakTurnBudget(interval time.Duration) time.Duration {
 	return 30 * time.Second
 }
 
+// soakWaitRequests waits for the turn's provider call without assuming the
+// count advances by exactly one: a retry, a post-turn judge or any other
+// legitimate extra call would otherwise jump past the expected value and stall
+// every later turn. The exactly-once acceptance evidence is the durable
+// transcript (one user_message/turn_start/turn_end per marker), not this
+// counter. An overshoot is still recorded so a duplicated turn is visible.
+func soakWaitRequests(t *testing.T, rt *f9SoakRuntime, want int, budget time.Duration, what string) {
+	t.Helper()
+	deadline := time.NewTimer(budget)
+	defer deadline.Stop()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		got := len(rt.e.Server.Requests())
+		if got >= want {
+			if got > want {
+				t.Logf("provider request overshoot: %s want >= %d, got %d", what, want, got)
+			}
+			return
+		}
+		select {
+		case <-tick.C:
+		case <-deadline.C:
+			t.Fatalf("timed out waiting for %s: want >= %d, got %d", what, want, got)
+		}
+	}
+}
+
 func soakProfile(plan soakPlan) string {
 	switch {
 	case plan.hours == soakAcceptanceHours && plan.turns == soakAcceptanceTurns:
@@ -771,12 +933,14 @@ func soakTranscript(t *testing.T, db *chaosDB, turns int) f9SoakTranscript {
 // soakWebhookEnvelope is the generic webhook delivery of the third surface.
 // The chat id is the fake bot's own chat: the gateway has exactly one outbound
 // adapter (Telegram), so a webhook turn finalises by replying there. The
-// marker prefix distinguishes the two surfaces in the outbound transcript.
-func soakWebhookEnvelope(t *testing.T, id, text string) []byte {
+// marker prefix distinguishes the two surfaces in the outbound transcript; the
+// sender is rotated by soakIdentity so each identity stays inside the P25
+// per-identity quota.
+func soakWebhookEnvelope(t *testing.T, id, text, sender string) []byte {
 	t.Helper()
 	body, err := json.Marshal(map[string]any{
 		"id": id, "event": "message.created", "chat": strconv.FormatInt(gatewayOwner, 10),
-		"sender": "e2e", "text": text, "mentioned": true,
+		"sender": sender, "text": text, "mentioned": true,
 	})
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)

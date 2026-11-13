@@ -40,9 +40,23 @@ func stopModules(ctx context.Context, mods *runModules, cause error) error {
 	return cause
 }
 
+// closeWiringStore closes an owned store, or releases only the session lease
+// of a borrowed one (gateway turns run on the serve store).
+func closeWiringStore(ctx context.Context, db *ctxdb.Store, sid string, owned bool, cause error) error {
+	if owned {
+		return closeDB(ctx, db, sid, cause)
+	}
+	if sid != "" {
+		if rerr := db.ReleaseLease(ctx, sid); rerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("release lease: %w", rerr))
+		}
+	}
+	return cause
+}
+
 // closeWiring releases everything newRunWiring opened and joins every error
 // with the cause, so the fail path and runModel.close report identically.
-func closeWiring(ctx context.Context, cause error, mods *runModules, engine *codetools.Engine, sessions *exec.Sessions, backend exec.Backend, db *ctxdb.Store, sid string) error {
+func closeWiring(ctx context.Context, cause error, mods *runModules, engine *codetools.Engine, sessions *exec.Sessions, backend exec.Backend, db *ctxdb.Store, sid string, owned bool) error {
 	cause = stopModules(ctx, mods, cause)
 	engine.Close()
 	if sessions != nil {
@@ -55,7 +69,7 @@ func closeWiring(ctx context.Context, cause error, mods *runModules, engine *cod
 			cause = errors.Join(cause, fmt.Errorf("close backend: %w", cerr))
 		}
 	}
-	return closeDB(ctx, db, sid, cause)
+	return closeWiringStore(ctx, db, sid, owned, cause)
 }
 
 // runtimeDialect follows the shell exec actually chose (SEC10-29); guessing
@@ -226,6 +240,7 @@ type runWiring struct {
 	sessions  *exec.Sessions
 	procClose func(context.Context) error
 	execRPC   executeRPC
+	ownsDB    bool
 	registry  *tools.Registry
 	modules   runModules
 	sid       string
@@ -263,25 +278,31 @@ func configSHAFor(cfg *config.Config, o *runOptions) string {
 	return hashConfig(cfg)
 }
 
-// openWiredSession opens the run store and resolves the session (new or
-// resumed), returning the effective model. Extracted from newRunWiring so its
-// cyclomatic complexity stays inside the E-51 gate.
-func openWiredSession(ctx context.Context, dataDir, modelRef, cfgSHA string, o *runOptions, codec ctxdb.Codec) (*ctxdb.Store, string, string, string, error) {
-	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run", Codec: codec})
-	if err != nil {
-		return nil, "", "", "", fmt.Errorf("open ctxdb: %w", err)
+// openWiredSession opens the run store (or borrows o.sharedDB) and resolves
+// the session (new or resumed), returning the effective model and whether the
+// caller owns the store. Extracted from newRunWiring so its cyclomatic
+// complexity stays inside the E-51 gate.
+func openWiredSession(ctx context.Context, dataDir, modelRef, cfgSHA string, o *runOptions, codec ctxdb.Codec) (db *ctxdb.Store, owned bool, sid, cwd, effectiveModel string, err error) {
+	if o.sharedDB != nil {
+		db = o.sharedDB
+	} else {
+		db, err = ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run", Codec: codec})
+		if err != nil {
+			return nil, false, "", "", "", fmt.Errorf("open ctxdb: %w", err)
+		}
+		owned = true
 	}
 	sid, cwd, resumedModel, err := runSession(ctx, db, modelRef, cfgSHA, o)
 	if err != nil {
-		return nil, "", "", "", closeDB(ctx, db, "", err)
+		return nil, owned, "", "", "", closeWiringStore(ctx, db, "", owned, err)
 	}
 	if modelRef == "" {
 		modelRef = resumedModel
 	}
 	if modelRef == "" {
-		return nil, "", "", "", closeDB(ctx, db, sid, errors.New("--model or provider.model is required to resume a session without one"))
+		return nil, owned, "", "", "", closeWiringStore(ctx, db, sid, owned, errors.New("--model or provider.model is required to resume a session without one"))
 	}
-	return db, sid, cwd, modelRef, nil
+	return db, owned, sid, cwd, modelRef, nil
 }
 
 // fallbackRecorder records one acp_fs_fallback event per capability per
@@ -384,27 +405,27 @@ func terminalFallbackRecorder(db *ctxdb.Store, sid string) func(context.Context)
 //
 //nolint:funlen,gocyclo // the wiring order is the dependency graph; splitting it hides init order
 func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runWiring, error) {
-	db, sid, cwd, modelRef, err := openWiredSession(ctx, dataDir, modelRef, configSHAFor(cfg, o), o, codec)
+	db, owned, sid, cwd, modelRef, err := openWiredSession(ctx, dataDir, modelRef, configSHAFor(cfg, o), o, codec)
 	if err != nil {
 		return nil, err
 	}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
 	if err != nil {
-		return nil, closeDB(ctx, db, sid, fmt.Errorf("sandbox: %w", err))
+		return nil, closeWiringStore(ctx, db, sid, owned, fmt.Errorf("sandbox: %w", err))
 	}
 	// Headless runs are untrusted unless the cwd is trusted (SPEC §14).
 	trusted, err := workspaceTrusted(cfg, configDir, cwd, home)
 	if err != nil {
-		return nil, closeDB(ctx, db, sid, fmt.Errorf("workspace trust: %w", err))
+		return nil, closeWiringStore(ctx, db, sid, owned, fmt.Errorf("workspace trust: %w", err))
 	}
 	scope, err := journalScope(roots, cfg.DenyPaths(configDir), home)
 	if err != nil {
-		return nil, closeDB(ctx, db, sid, err)
+		return nil, closeWiringStore(ctx, db, sid, owned, err)
 	}
 	engine, err := codetools.New(&codetools.Config{Sandbox: sb, Roots: roots, Home: home, ClientFS: o.clientFS, OnClientFallback: fallbackRecorder(db, sid)})
 	if err != nil {
-		return nil, closeDB(ctx, db, sid, fmt.Errorf("codetools: %w", err))
+		return nil, closeWiringStore(ctx, db, sid, owned, fmt.Errorf("codetools: %w", err))
 	}
 	runner := exec.New(ctx)
 	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
@@ -415,11 +436,11 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		if cerr := runner.CloseContext(ctx); cerr != nil {
 			err = errors.Join(err, fmt.Errorf("close runner: %w", cerr))
 		}
-		return nil, closeDB(ctx, db, sid, err)
+		return nil, closeWiringStore(ctx, db, sid, owned, err)
 	}
 	var mods runModules
 	fail := func(cause error) error {
-		return closeWiring(ctx, cause, &mods, engine, sessions, backend, db, sid)
+		return closeWiring(ctx, cause, &mods, engine, sessions, backend, db, sid, owned)
 	}
 	allow, monetary, err := shellGate(ctx, cfg, configDir, cwd)
 	if err != nil {
@@ -477,6 +498,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	return &runWiring{
 		db:        db,
+		ownsDB:    owned,
 		engine:    engine,
 		backend:   backend,
 		sessions:  sessions,

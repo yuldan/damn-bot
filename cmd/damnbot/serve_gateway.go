@@ -488,6 +488,10 @@ func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid st
 		baseURL: strings.TrimSpace(config.OS().Getenv("DAMNBOT_SERVE_BASE_URL")), apiKey: strings.TrimSpace(config.OS().Getenv("DAMNBOT_SERVE_API_KEY")),
 		session: sid, approvalOrigin: "run", cfgOverride: &g.cfg,
 		gatewayIdentity: in.Platform + ":" + in.SenderID,
+		// Borrow the serve store: opening and closing a fresh ctxdb.Store per
+		// gateway message retained one store's migration ladder per turn and
+		// grew RSS without bound (F9 soak). The turn releases only its lease.
+		sharedDB: g.store.DB,
 	}
 	if tz, terr := g.Timezone(ctx, in.Platform, in.SenderID); terr == nil && tz != "" {
 		if loc, lerr := time.LoadLocation(tz); lerr == nil {
