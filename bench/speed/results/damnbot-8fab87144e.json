@@ -1,0 +1,43 @@
+{
+ "meta": {
+  "damnbot_commit": "8fab87144e",
+  "harness": "bench/speed/cmd/damnbot-speed: existing same-protocol Damn-Bot measurements",
+  "note": "partial: only IDs with a committed Damn-Bot measurement; absent IDs are gate failures",
+  "phase": "F9"
+ },
+ "entries": [
+  {
+   "id": "TOOL-045",
+   "prefix": "TOOL",
+   "feature": "`patch` (toolset `file`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "p50_ms": 5.238
+   },
+   "source": "codetools/results/f1-7d0f6bd.json#ops[kind=patch].p50_ms median"
+  },
+  {
+   "id": "TOOL-046",
+   "prefix": "TOOL",
+   "feature": "`read_file` (toolset `file`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "p50_ms": 0.509
+   },
+   "source": "codetools/results/f1-7d0f6bd.json#ops[kind=read_file].p50_ms median"
+  },
+  {
+   "id": "TOOL-047",
+   "prefix": "TOOL",
+   "feature": "`search_files` (toolset `file`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "p50_ms": 10.519
+   },
+   "source": "codetools/results/f1-7d0f6bd.json#ops[kind=search_files].p50_ms median"
+  }
+ ]
+}
