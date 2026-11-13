@@ -72,7 +72,10 @@ func runTUI(args []string) int {
 	})
 	if err == nil {
 		benchTrace("app-built")
-		prog := tea.NewProgram(app)
+		// 120 FPS halves the worst-case render wait for the first streamed token
+		// (F3 first token p50 10,0 → 5,3 ms on the reference workstation); the
+		// renderer only ticks while a frame is dirty, so idle CPU is unchanged.
+		prog := tea.NewProgram(app, tea.WithFPS(120))
 		bridge.setSender(prog.Send)
 		benchTrace("run-start")
 		_, err = prog.Run()
