@@ -36,7 +36,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 .PHONY: all build build-minimal-all build-matrix lint vet-custom test test-windows-evidence test-timing archtest vet-cross size-check loc loc-ratio chaos soak chaos-full \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
-	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker image-test release ci-required ci-required-test deadcode-linux agent-guard-test
+	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker image-test release ci-required ci-required-test deadcode-linux agent-guard-test hooks dep-age
 
 all: check
 
@@ -77,6 +77,14 @@ skill-refs:
 # The failure names every stale entry (version, base_url, model, until).
 prices-gate:
 	go test $(GOTAGS) -count=1 -run '^TestPricingTableNotExpired$$' ./internal/provider/registry
+
+# GAP-INF-07: dependency quarantine (age ≥ 3 days at proxy.golang.org).
+dep-age:
+	scripts/dep-age.sh
+
+# GAP-INF-05: satu titik masuk lokal (`make check`) dipakai hook dan CI.
+hooks:
+	git config core.hooksPath .githooks
 
 # GAP-INF-03/OPS-030 (ADR-033 Q49): flake Nix untuk paket default (CGO=0, `go build -tags goolm`)
 # dan devShell. Parse statis tidak membutuhkan Nix; `nix flake check` dijalankan sebagai bukti bila

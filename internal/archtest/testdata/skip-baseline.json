@@ -1,0 +1,33 @@
+{
+  "total": 128,
+  "packages": {
+    "cmd/damnbot": 16,
+    "internal/archtest": 2,
+    "internal/backup": 1,
+    "internal/codeintel": 1,
+    "internal/codetools": 13,
+    "internal/cron": 1,
+    "internal/ctxdb": 5,
+    "internal/ctxdb/journalstore": 4,
+    "internal/e2e": 22,
+    "internal/exec": 22,
+    "internal/exec/backends": 2,
+    "internal/gateway/render": 2,
+    "internal/gwapi/webhook": 2,
+    "internal/importer": 1,
+    "internal/journal": 12,
+    "internal/media/doc": 2,
+    "internal/provider": 1,
+    "internal/provider/auth": 2,
+    "internal/provider/replay": 1,
+    "internal/sandbox": 1,
+    "internal/secret": 2,
+    "internal/skills": 2,
+    "internal/testutil/phase": 1,
+    "internal/tools": 4,
+    "internal/voice": 2,
+    "internal/voice/stt": 1,
+    "internal/voice/tts": 1,
+    "internal/voice/wake": 2
+  }
+}

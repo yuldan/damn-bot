@@ -302,7 +302,7 @@ func TestACPClientTerminalFallback(t *testing.T) {
 	}
 }
 
-func TestACPClientTerminalKillOnTimeout(t *testing.T) {
+func TestACPClientTerminalTimeout(t *testing.T) {
 	e := newEnv(t)
 	srv := providertest.New(t, nil,
 		ToolCallReply("call-1", "shell", `{"command":"sleep 5","timeout_s":1}`),

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Local gate (GAP-INF-05): the same single entry point CI runs in the nightly
+# `check` job. Enable once with `make hooks` (core.hooksPath=.githooks).
+set -eu
+exec make check

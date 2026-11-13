@@ -28,6 +28,24 @@ jobs:
   ci-full:
     uses: ./.github/workflows/ci.yml
 
+  # GAP-INF-05: the single local entry point (`.githooks/pre-commit`) is the
+  # same command CI runs here; TestHookMatchesCI keeps the two in sync.
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+            bench/go.sum
+      - run: make check
+
   # Basis data kerentanan berubah tanpa commit: dijalankan setiap hari tanpa syarat.
   vuln:
     runs-on: ubuntu-latest

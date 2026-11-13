@@ -243,8 +243,8 @@ func TestFallbackVisible(t *testing.T) {
 	}
 }
 
-// TestEmptyResponseRetry (COST-15): exactly one re-call without a nudge.
-func TestEmptyResponseRetry(t *testing.T) {
+// TestEmptyResponseBudget (COST-15): at most one re-call without a nudge.
+func TestEmptyResponseBudget(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
 	empty := func(context.Context, *Request, func(Delta)) (Reply, error) {
@@ -305,9 +305,9 @@ func (c *fakeCompactor) Compact(_ context.Context, _ string, contextLength bool)
 	return nil
 }
 
-// TestNoProgress (COST-07): the second identical (tool, args, result) ends the
+// TestNoProgressStop (COST-07): the second identical (tool, args, result) ends the
 // turn with end_turn/no_progress.
-func TestNoProgress(t *testing.T) {
+func TestNoProgressStop(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
 	f.cfg.MaxIdentical = 2
@@ -443,6 +443,31 @@ func runWith(t *testing.T, f *fixture, deps *Deps) error {
 	for range out {
 	}
 	return nil
+}
+
+// TestCancelConfirmBeforeRedispatch (REL-06, ADR-072): a non-idempotent tool
+// reported still_running is never automatically redispatched in the same
+// turn; the turn ends cancelled and the provider is not asked again.
+func TestCancelConfirmBeforeRedispatch(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	dispatches := 0
+	f.tools.add("work", &toolStub{dispatch: func(ctx context.Context, _ *Prepared) (ToolResult, error) {
+		dispatches++
+		f.cancel()
+		<-ctx.Done()
+		return ToolResult{Status: "still_running"}, nil
+	}})
+	f.provider.scripts = []streamFunc{callScript(FinishToolCalls, ToolCall{ID: "a", Name: "work", Arguments: `{}`})}
+	if got := terminal(t, f.run(t)); got.Stop != event.StopCancelled {
+		t.Fatalf("stop = %s, want cancelled", got.Stop)
+	}
+	if dispatches != 1 {
+		t.Fatalf("tool dispatches = %d, want 1 (no redispatch before confirmation)", dispatches)
+	}
+	if f.provider.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", f.provider.calls)
+	}
 }
 
 // TestHistoryIncludesToolResults: iteration 2 sees the assistant tool-call

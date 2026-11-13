@@ -600,6 +600,29 @@ jobs:
           retry make release-test
           retry make vuln
 
+  # GAP-INF-07/E-46..E-50: quarantine a module bump younger than 3 days.
+  # TestDependencyAgeGate proves the fixture negative/positive controls; the
+  # job then applies the same script to this PR's go.mod changes.
+  supply-chain:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Fixture controls (fresh fails, old passes)
+        run: go test -count=1 -run '^TestDependencyAgeGate$' ./internal/archtest
+      - name: Module age ≥ 3 days
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          make dep-age DAMNBOT_DEP_BASE=origin/main
+
   # ADR-181/ADR-324: tier `smoke` untuk `push: main`. Run main tidak bisa dibatalkan (ADR-135 butir 1)
   # dan isinya sudah diverifikasi PR yang di-squash + merge queue/nightly, jadi main hanya menjalankan
   # gate cepat yang menangkap kerusakan merge: kompilasi seluruh paket (`make build`, E-39), `go vet`
@@ -788,6 +811,7 @@ jobs:
       - bench
       - bench-parity
       - supply
+      - supply-chain
       - skill-refs
       - sqlite-engine
       - os-matrix-qemu

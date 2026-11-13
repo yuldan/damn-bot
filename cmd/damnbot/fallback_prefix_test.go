@@ -14,13 +14,14 @@ import (
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
-// TestFallbackPrefixStable (GAP-COST-04, provider layer): two configured
+// TestPrefixStableAcrossFallback (GAP-COST-04, provider layer): two configured
 // routes, A→B, then a second call back on A. The assembled system prefix and
 // the tools array — the provider's cache-key material — are byte-identical on
 // every attempt, before and after the model switch; only the wire model field
-// changes. The session-level acceptance stays PARTIAL: run does not pass
-// cfg.Provider.Fallback to provider.Config yet (F5).
-func TestFallbackPrefixStable(t *testing.T) {
+// changes. F5 wired cfg.Provider.Fallback into provider.Config (see
+// provider_resolve.go/newProviderPool), so the same path backs a real session;
+// the session-level cache_break metric is pinned by TestCacheBreakMetric.
+func TestPrefixStableAcrossFallback(t *testing.T) {
 	t.Parallel()
 	srv, prov, req := fallbackFixture(t)
 	do := func(model string) provider.Response {
