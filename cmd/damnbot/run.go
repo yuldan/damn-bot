@@ -88,6 +88,10 @@ type runOptions struct {
 	cwd      string // override for the session cwd/sandbox root (tests, eval)
 	// trimMemory is the RSS trim hook (MEM-033); nil uses debug.FreeOSMemory.
 	trimMemory func()
+	// sharedDB borrows an already-open store (gateway turns run on the serve
+	// store instead of opening and closing a fresh ctxdb.Store per message).
+	// The owner keeps it open; the turn releases only its session lease.
+	sharedDB *ctxdb.Store
 }
 
 // reportedParseError marks a parse failure the flag package already wrote to
@@ -335,6 +339,7 @@ type runModel struct {
 	limits    *registry.Limits
 	toolsets  toolset.Selection
 	db        *ctxdb.Store
+	ownsDB    bool // false when db is borrowed from runOptions.sharedDB
 	// inlineCap is the route window budget in tokens the turn inline aggregate
 	// scales with (SPEC P5 amendment, GAP-COST-08); tools.TurnInlineCap turns
 	// it into the character cap with the session's char/token ratio.
@@ -373,6 +378,14 @@ func (m *runModel) close(ctx context.Context) error {
 		}
 	}
 	if m.db == nil {
+		return err
+	}
+	if !m.ownsDB {
+		// The caller owns the store (gateway turns): release only this turn's
+		// session lease so `damnbot undo` can take it (SPEC §18.1).
+		if rerr := m.db.ReleaseLease(ctx, m.sessionID); rerr != nil {
+			return errors.Join(err, fmt.Errorf("release lease: %w", rerr))
+		}
 		return err
 	}
 	// Release the lease so `damnbot undo` can take it (SPEC §18.1).
@@ -447,6 +460,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		trusted:   w.trusted,
 		reader:    w.reader,
 		db:        w.db,
+		ownsDB:    w.ownsDB,
 		engine:    w.engine,
 		backend:   w.backend,
 		sessions:  w.sessions,
