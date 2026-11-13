@@ -26,6 +26,11 @@ Angka diambil ulang dari artefak fase (SHA-256 tercatat di `meta.sources_sha256`
 | Image preflight | 453,536 ms | 265,000 ms | ≤ hermes | lulus vs hermes; target absolut 150 ms hanya sah di Q14 (ADR-323), tidak diklaim |
 | Waktu build bersih | 66,276 s | 29,140 s | ≤ hermes | lulus (inkremental 4,756 s vs 1,698 s) |
 | Feature parity [I] | 854 baris | 837 baris | = 837/837 | lulus |
+| Provider | 50 profil | 88 profil | ≥ hermes | lulus |
+| Bahasa UI | 17 locale | 18 locale | ≥ hermes | lulus |
+| Skill tersedia | 211 | 211 | ≥ 211 | lulus |
+| Platform chat | 30 | 30 | ≥ 30 | lulus |
+| MCP | 65 | 65 | ≥ 65 | lulus |
 
 Sumber: `bench/budget/results/hermes-868b9f244f.json`, `internal/assemble/testdata/p1/all-modules.request.json`,
 `bench/f2/results/hermes-868b9f244f-F2.json`, `bench/f3/results/{damnbot-8fab87144e,damnbot-6d01e7a1d5,hermes-868b9f244f}-F3.json`,
@@ -38,7 +43,7 @@ hermes 66,276 s; first token/startup memakai artefak final `8fab87144e`.
 
 ## Dimensi belum terukur
 
-63 dimensi `not_measured` (rincian di artefak):
+58 dimensi `not_measured` (rincian di artefak):
 
 - Token input/output, biaya, cache, background token, task success, invalid tool
   call, klaim tanpa bukti, recall, fakta basi, routing skill, long-session, error
@@ -49,8 +54,9 @@ hermes 66,276 s; first token/startup memakai artefak final `8fab87144e`.
   50 turn/50 kill, bukan soak 24 jam/1.000 turn/200 kill.
 - Ukuran & waktu install dari nol, langkah setup, baris config: butuh VM bersih
   10 Mbit/s; host ini bukan VM RC dan tidak ada docker/root.
-- Kualitas kode, keamanan, migrasi, inventaris platform/provider/locale/OS/skill/
-  MCP, dan fitur pembeda: belum ada artefak angka RC.
+- Kualitas kode, keamanan, migrasi, OS, dan fitur pembeda: belum ada artefak
+  angka RC. Inventaris platform/provider/locale/skill/MCP kini terukur dari
+  tabel repo (lihat tabel di atas).
 - `Error informatif`: menunggu 2 penilai manusia.
 
 ## Speed parity
@@ -65,7 +71,7 @@ Damn-Bot untuk operasi yang sama belum ada, jadi tidak ada angka yang dikarang.
 cd bench
 SCORECARD_UPDATE=1 go test -count=1 -run '^TestScorecardGate$' ./scorecard  # tulis ulang artefak
 go test -count=1 ./scorecard                 # skip ber-alasan tanpa penanda rilis
-DAMNBOT_RELEASE=1 go test -count=1 ./scorecard  # gagal: 63 dimensi belum terukur
+DAMNBOT_RELEASE=1 go test -count=1 ./scorecard  # gagal: 58 dimensi belum terukur
 ```
 
 `TestScorecardGate` membangun ulang artefak dan membandingkan setiap baris
