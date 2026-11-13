@@ -14,7 +14,8 @@
    "bench/f3/results/hermes-868b9f244f-F3.json": "8e6829aab7fab99b33095a376f5558f2cece3863602d8fb463f16904332eedfc",
    "bench/f4/results/damnbot-4c1e69ba-F4.json": "5d9d6e6ee71b5c50bdde5871dcbfcb9e176fcd5c6b1f52ecafbbe253f73f8fed",
    "bench/f4/results/hermes-868b9f244f-F4.json": "eb6c76abdcfa4abeb7b7b903953802cb09aa96ed19722cf579d7d5e0660fd446",
-   "bench/scorecard/not_measured.json": "72baceca6eabe22fc11b124d929205bc9b33a2131ce82a4ef83d41a6c63779ca",
+   "bench/scorecard/not_measured.json": "112d7fb9db0b11e723d62967b24817277d26791c50509088048ab286dfc53dac",
+   "bench/scorecard/results/tooling-8fab87144e.json": "dfae66d98328b7f454247df660c11a1137c6af9a7c215ff0ee26b396e7ca8021",
    "bench/speed/results/hermes-868b9f244f-F6.json": "7bb783884287bcb0b3cbf58c9a9e9cae63c8e3d685e9c432b1f99cfc4f0f9615",
    "docs/FEATURE-PARITY.md": "4574f1594a26dd939291062e0934352163e4e52a84ffa7b18083f96794db134c",
    "docs/PROVIDERS.md": "7f16f0b42a021c5ef7cd36399fa7ca4b6790fb50c339f3e7e99e70967114c3e1",
@@ -27,8 +28,14 @@
    "name": "Akses gateway orang asing",
    "section": "1.6 Keamanan",
    "core": false,
-   "rule": "lower",
-   "not_measured": "tidak ada artefak bench RC untuk dimensi keamanan ini"
+   "rule": "absolute_max",
+   "unit": "tool/LLM call",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "E8 tests"
   },
   "Akurasi routing skill": {
    "name": "Akurasi routing skill",
@@ -75,15 +82,27 @@
    "name": "Broad catch (`except Exception` / error diabaikan)",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "unit": "temuan",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "errcheck via make lint"
   },
   "Budget guard": {
    "name": "Budget guard",
    "section": "1.8 Fitur pembeda (tidak ada di hermes)",
    "core": false,
-   "rule": "lower",
-   "not_measured": "test perilaku ada, tetapi belum ada artefak angka RC 100%/0 untuk dimensi ini"
+   "rule": "absolute_max",
+   "unit": "LLM call setelah cap",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "TestBudgetGuard*"
   },
   "CPU idle": {
    "name": "CPU idle",
@@ -124,22 +143,42 @@
    "name": "Data at-rest",
    "section": "1.6 Keamanan",
    "core": false,
-   "rule": "lower",
-   "not_measured": "tidak ada artefak bench RC untuk dimensi keamanan ini"
+   "rule": "absolute_max",
+   "unit": "credential plaintext",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "at-rest tests"
   },
   "Dependency langsung / CGO": {
    "name": "Dependency langsung / CGO",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "target": 28,
+   "unit": "dependency",
+   "hermes": 0,
+   "damnbot": 24,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "go list -m non-indirect; CGO 0"
   },
   "Dukungan OS": {
    "name": "Dukungan OS",
    "section": "1.5 Cakupan \u0026 ekosistem",
    "core": false,
-   "rule": "lower",
-   "not_measured": "dimensi inventaris statis; angka gate ada di suite fase masing-masing, bukan artefak bench RC"
+   "rule": "absolute_min",
+   "target": 8,
+   "unit": "target",
+   "hermes": 0,
+   "damnbot": 8,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "Makefile TARGETS"
   },
   "Edit salah lokasi": {
    "name": "Edit salah lokasi",
@@ -166,8 +205,15 @@
    "name": "Exec spawn overhead",
    "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
    "core": false,
-   "rule": "lower",
-   "not_measured": "tidak ada artefak harness terukur untuk dimensi ini di bench/*/results"
+   "rule": "absolute_max",
+   "target": 15,
+   "unit": "ms p95",
+   "hermes": 0,
+   "damnbot": 1.202,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "BenchmarkShellSessionExec p95 1,202 ms (mean 750,784 µs/op)"
   },
   "Fakta basi": {
    "name": "Fakta basi",
@@ -201,8 +247,15 @@
    "name": "File terbesar (non-test / test)",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "target": 800,
+   "unit": "baris",
+   "hermes": 8392,
+   "damnbot": 800,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "non-test 800 ≤ 800; test 1077 ≤ 1.500 (internal/browser/parity_test.go); hermes 8.392/23.074"
   },
   "First token di UI": {
    "name": "First token di UI",
@@ -238,15 +291,29 @@
    "name": "Flake rate",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "target": 0.1,
+   "unit": "%",
+   "hermes": 0,
+   "damnbot": 72,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "nightly make flake -count=20: 18/25 run gagal (18/20 yang dieksekusi), 5 cancelled, 2026-10-19..11-12; kategori internal/exec sweep dan exec/backends ETXTBSY"
   },
   "Fungsi terpanjang / \u003e 80 baris": {
    "name": "Fungsi terpanjang / \u003e 80 baris",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "target": 80,
+   "unit": "baris",
+   "hermes": 616,
+   "damnbot": 132,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "non-test: maks 132 baris (cmd/damnbot/project_cli.go:71 projectCommand), 6 fungsi \u003e80; target ≤80/0; semua \u003e80 ber-nolint funlen (E-52)"
   },
   "Idle RSS": {
    "name": "Idle RSS",
@@ -280,15 +347,28 @@
    "name": "Implementasi retry",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "target": 1,
+   "unit": "fungsi",
+   "hermes": 169,
+   "damnbot": 38,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "38 fungsi non-test bernama retry/backoff; 1 kebijakan terpusat internal/netx/retry; 78 tes; target 1"
   },
   "Kebocoran goroutine": {
    "name": "Kebocoran goroutine",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "unit": "kebocoran",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "53 paket goleak.VerifyTestMain (ctxdb, exec, gateway, tui + 49); cmd dengan -tags goolm; 0 bocor; race di 4 paket kritis"
   },
   "Klaim selesai tanpa bukti": {
    "name": "Klaim selesai tanpa bukti",
@@ -301,22 +381,41 @@
    "name": "Klasifikasi error via string",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "unit": "temuan",
+   "hermes": 129,
+   "damnbot": 1,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "1 produksi: cmd/damnbot/cron_store.go:88 strings.Contains(err.Error(), \"UNIQUE\"); 1 allowlist E-21 (ctxdb/errors.go:65); 196 assertion pesan di test tidak diklasifikasi; hermes 41 + 88"
   },
   "Kode mati": {
    "name": "Kode mati",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "unit": "fungsi",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "make deadcode 3 GOOS"
   },
   "Kompleksitas siklomatik maks / \u003e 15": {
    "name": "Kompleksitas siklomatik maks / \u003e 15",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "target": 15,
+   "unit": "nilai",
+   "hermes": 102,
+   "damnbot": 40,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "non-test: maks 40 (cmd/damnbot/project_cli.go:71 projectCommand), 23 fungsi \u003e15; target ≤15/0"
   },
   "Konkurensi": {
    "name": "Konkurensi",
@@ -336,7 +435,13 @@
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
    "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "unit": "LOC/baris",
+   "hermes": 1162,
+   "damnbot": 192.53405017921148,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "source LOC / 837 baris penyebut gate (SPEC §8)"
   },
   "Langkah setup": {
    "name": "Langkah setup",
@@ -370,8 +475,15 @@
    "name": "Migrasi dari hermes",
    "section": "1.4 Ukuran, instalasi, UX",
    "core": false,
-   "rule": "lower",
-   "not_measured": "tidak ada artefak 5 fixture ~/.hermes pada RC"
+   "rule": "absolute_min",
+   "target": 5,
+   "unit": "fixture",
+   "hermes": 0,
+   "damnbot": 5,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "5 state DB fixture"
   },
   "Overhead agent per iterasi": {
    "name": "Overhead agent per iterasi",
@@ -398,8 +510,15 @@
    "name": "Plan mode",
    "section": "1.8 Fitur pembeda (tidak ada di hermes)",
    "core": false,
-   "rule": "lower",
-   "not_measured": "test perilaku ada, tetapi belum ada artefak angka RC 100%/0 untuk dimensi ini"
+   "rule": "absolute_min",
+   "target": 100,
+   "unit": "% deviasi",
+   "hermes": 0,
+   "damnbot": 100,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "TestPlanModeDeviationMatrix"
   },
   "Platform chat": {
    "name": "Platform chat",
@@ -419,8 +538,15 @@
    "name": "Preview aksi berbahaya",
    "section": "1.8 Fitur pembeda (tidak ada di hermes)",
    "core": false,
-   "rule": "lower",
-   "not_measured": "test perilaku ada, tetapi belum ada artefak angka RC 100%/0 untuk dimensi ini"
+   "rule": "absolute_min",
+   "target": 100,
+   "unit": "%",
+   "hermes": 0,
+   "damnbot": 100,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "TestPreviewBeforeDangerous"
   },
   "Prompt-injection suite": {
    "name": "Prompt-injection suite",
@@ -454,7 +580,13 @@
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
    "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "unit": "rasio",
+   "hermes": 1.48,
+   "damnbot": 0.93,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "target 0,80–1,20; diukur make loc-ratio"
   },
   "Recall memori lintas sesi (\"ga pikun\")": {
    "name": "Recall memori lintas sesi (\"ga pikun\")",
@@ -474,8 +606,14 @@
    "name": "Secret redaction",
    "section": "1.6 Keamanan",
    "core": false,
-   "rule": "lower",
-   "not_measured": "tidak ada artefak bench RC untuk dimensi keamanan ini"
+   "rule": "absolute_max",
+   "unit": "kebocoran",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "TestRedactionAndZero + TestRecordingsNoKey"
   },
   "Self-healing": {
    "name": "Self-healing",
@@ -488,8 +626,14 @@
    "name": "Siklus import / komentar \"hindari circular import\"",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "unit": "siklus",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "TestImportGraph"
   },
   "Skill tersedia": {
    "name": "Skill tersedia",
@@ -524,15 +668,27 @@
    "name": "State global mutable",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "unit": "temuan",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "gochecknoglobals via make lint"
   },
   "Supply chain": {
    "name": "Supply chain",
    "section": "1.6 Keamanan",
    "core": false,
-   "rule": "lower",
-   "not_measured": "tidak ada artefak bench RC untuk dimensi keamanan ini"
+   "rule": "absolute_max",
+   "unit": "temuan reachable",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "govulncheck 3 modul; direct deps 24"
   },
   "Task success rate": {
    "name": "Task success rate",
@@ -552,8 +708,14 @@
    "name": "Temuan lint",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "unit": "temuan",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "make lint"
   },
   "Token input per task": {
    "name": "Token input per task",
@@ -608,8 +770,15 @@
    "name": "Undo universal",
    "section": "1.8 Fitur pembeda (tidak ada di hermes)",
    "core": false,
-   "rule": "lower",
-   "not_measured": "test perilaku ada, tetapi belum ada artefak angka RC 100%/0 untuk dimensi ini"
+   "rule": "absolute_min",
+   "target": 100,
+   "unit": "%",
+   "hermes": 0,
+   "damnbot": 100,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "TestUndo* byte restore"
   },
   "Voice end-to-end": {
    "name": "Voice end-to-end",
@@ -628,8 +797,15 @@
    "name": "Waktu CI PR",
    "section": "1.7 Kualitas kode \u0026 proses engineering",
    "core": false,
-   "rule": "lower",
-   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+   "rule": "absolute_max",
+   "target": 12,
+   "unit": "menit p90",
+   "hermes": 0,
+   "damnbot": 32.62,
+   "source": [
+    "bench/scorecard/results/tooling-8fab87144e.json"
+   ],
+   "detail": "30 run ci pull_request selesai: p90 32,62 menit, median 25,35 (2026-11-12T16:43..11-13T00:51)"
   },
   "Waktu build bersih / inkremental": {
    "name": "Waktu build bersih / inkremental",

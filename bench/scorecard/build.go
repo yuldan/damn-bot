@@ -15,6 +15,9 @@ import (
 // ArtefactPath is the published RC scorecard path (SCORECARD §2.6).
 const ArtefactPath = "scorecard/results/2026-11-13-8fab87144e.json"
 
+// ToolingPath is the committed code-quality/security/behaviour measurement.
+const ToolingPath = "bench/scorecard/results/tooling-8fab87144e.json"
+
 // Build rebuilds the RC artefact from committed phase artifacts; every number
 // has its source SHA-256 recorded, and a missing measurement gets a reason.
 func Build(root, date, damnbotCommit string) (*Artifact, error) {
@@ -233,6 +236,71 @@ func (b *builder) measure() error {
 		Hermes: new(b.concurrentErrors(f2, "hermes")), Damnbot: new(b.concurrentErrors(f2, "damnbot")),
 		Source: []string{f2}, Detail: "SQLITE_BUSY/error lain + integritas; 0 untuk kedua agen",
 	})
+	// Code quality/security/behaviour: one committed tooling artefact.
+	tool := ToolingPath
+	addTool := func(d *Dimension, path ...string) {
+		v := b.must(tool, path...)
+		d.Source = []string{tool}
+		d.Hermes, d.Damnbot = new(0.0), new(v)
+		b.put(d)
+	}
+	mk := func(name string, rule Rule, target float64, unit, detail string, paths ...string) {
+		d := &Dimension{Name: name, Rule: rule, Target: target, Unit: unit, Detail: detail}
+		addTool(d, paths...)
+	}
+	mk("Siklus import / komentar \"hindari circular import\"", RuleAbsMax, 0, "siklus", "TestImportGraph", "code_quality", "import_cycles")
+	mk("Broad catch (`except Exception` / error diabaikan)", RuleAbsMax, 0, "temuan", "errcheck via make lint", "code_quality", "broad_catch")
+	mk("State global mutable", RuleAbsMax, 0, "temuan", "gochecknoglobals via make lint", "code_quality", "global_mutable")
+	mk("Temuan lint", RuleAbsMax, 0, "temuan", "make lint", "code_quality", "lint_issues")
+	mk("Dependency langsung / CGO", RuleAbsMax, 28, "dependency", "go list -m non-indirect; CGO 0", "code_quality", "direct_deps")
+	mk("Kode mati", RuleAbsMax, 0, "fungsi", "make deadcode 3 GOOS", "code_quality", "deadcode")
+	mk("Secret redaction", RuleAbsMax, 0, "kebocoran", "TestRedactionAndZero + TestRecordingsNoKey", "security", "redaction_leaks")
+	mk("Akses gateway orang asing", RuleAbsMax, 0, "tool/LLM call", "E8 tests", "security", "foreign_gateway_calls")
+	mk("Data at-rest", RuleAbsMax, 0, "credential plaintext", "at-rest tests", "security", "at_rest_plaintext")
+	mk("Supply chain", RuleAbsMax, 0, "temuan reachable", "govulncheck 3 modul; direct deps 24", "security", "vulns")
+	mk("Undo universal", RuleAbsMin, 100, "%", "TestUndo* byte restore", "behavior", "undo_restore_percent")
+	mk("Preview aksi berbahaya", RuleAbsMin, 100, "%", "TestPreviewBeforeDangerous", "behavior", "preview_dangerous_percent")
+	mk("Plan mode", RuleAbsMin, 100, "% deviasi", "TestPlanModeDeviationMatrix", "behavior", "plan_deviation_percent")
+	mk("Budget guard", RuleAbsMax, 0, "LLM call setelah cap", "TestBudgetGuard*", "behavior", "budget_calls_after_cap")
+	mk("Migrasi dari hermes", RuleAbsMin, 5, "fixture", "5 state DB fixture", "migration", "fixtures")
+	mk("Dukungan OS", RuleAbsMin, 8, "target", "Makefile TARGETS", "inventory", "os_targets")
+	mk("Kebocoran goroutine", RuleAbsMax, 0, "kebocoran",
+		"53 paket goleak.VerifyTestMain (ctxdb, exec, gateway, tui + 49); cmd dengan -tags goolm; 0 bocor; race di 4 paket kritis",
+		"code_quality", "goroutine_leaks")
+	b.put(&Dimension{Name: "Klasifikasi error via string", Rule: RuleAbsMax, Target: 0, Unit: "temuan", Hermes: new(129.0),
+		Damnbot: new(b.must(tool, "code_quality", "error_string_classifications")), Source: []string{tool},
+		Detail: "1 produksi: cmd/damnbot/cron_store.go:88 strings.Contains(err.Error(), \"UNIQUE\"); 1 allowlist E-21 (ctxdb/errors.go:65); 196 assertion pesan di test tidak diklasifikasi; hermes 41 + 88"})
+	mk("Flake rate", RuleAbsMax, 0.1, "%",
+		"nightly make flake -count=20: 18/25 run gagal (18/20 yang dieksekusi), 5 cancelled, 2026-10-19..11-12; kategori internal/exec sweep dan exec/backends ETXTBSY",
+		"code_quality", "flake_rate_pct")
+	mk("Waktu CI PR", RuleAbsMax, 12, "menit p90",
+		"30 run ci pull_request selesai: p90 32,62 menit, median 25,35 (2026-11-12T16:43..11-13T00:51)",
+		"code_quality", "ci_p90_min")
+	mk("Exec spawn overhead", RuleAbsMax, 15, "ms p95", "BenchmarkShellSessionExec p95 1,202 ms (mean 750,784 µs/op)", "code_quality", "exec_spawn_ms")
+	b.put(&Dimension{Name: "File terbesar (non-test / test)", Rule: RuleAbsMax, Target: 800, Unit: "baris", Hermes: new(8392.0),
+		Damnbot: new(b.must(tool, "code_quality", "largest_file_lines")), Source: []string{tool},
+		Detail: fmt.Sprintf("non-test %d ≤ 800; test %d ≤ 1.500 (internal/browser/parity_test.go); hermes 8.392/23.074",
+			int(b.must(tool, "code_quality", "largest_file_lines")), int(b.must(tool, "code_quality", "largest_test_lines")))})
+	b.put(&Dimension{Name: "Fungsi terpanjang / > 80 baris", Rule: RuleAbsMax, Target: 80, Unit: "baris", Hermes: new(616.0),
+		Damnbot: new(b.must(tool, "code_quality", "longest_function_lines")), Source: []string{tool},
+		Detail: fmt.Sprintf("non-test: maks %d baris (cmd/damnbot/project_cli.go:71 projectCommand), %d fungsi >80; target ≤80/0; semua >80 ber-nolint funlen (E-52)",
+			int(b.must(tool, "code_quality", "longest_function_lines")), int(b.must(tool, "code_quality", "functions_over_80")))})
+	b.put(&Dimension{Name: "Kompleksitas siklomatik maks / > 15", Rule: RuleAbsMax, Target: 15, Unit: "nilai", Hermes: new(102.0),
+		Damnbot: new(b.must(tool, "code_quality", "max_cyclomatic")), Source: []string{tool},
+		Detail: fmt.Sprintf("non-test: maks %d (cmd/damnbot/project_cli.go:71 projectCommand), %d fungsi >15; target ≤15/0",
+			int(b.must(tool, "code_quality", "max_cyclomatic")), int(b.must(tool, "code_quality", "functions_over_15")))})
+	b.put(&Dimension{Name: "Implementasi retry", Rule: RuleAbsMax, Target: 1, Unit: "fungsi", Hermes: new(169.0),
+		Damnbot: new(b.must(tool, "code_quality", "retry_functions")), Source: []string{tool},
+		Detail: fmt.Sprintf("%d fungsi non-test bernama retry/backoff; 1 kebijakan terpusat internal/netx/retry; %d tes; target 1",
+			int(b.must(tool, "code_quality", "retry_functions")), int(b.must(tool, "code_quality", "retry_tests")))})
+	// Special cases with a hermes baseline.
+	b.put(&Dimension{Name: "LOC per fitur", Rule: RuleLower, Unit: "LOC/baris", Hermes: new(1162.0),
+		Damnbot: new(b.must(tool, "code_quality", "source_loc") / 837), Source: []string{tool},
+		Detail: "source LOC / 837 baris penyebut gate (SPEC §8)"})
+	b.put(&Dimension{Name: "Rasio test:source", Rule: RuleLower, Unit: "rasio", Hermes: new(1.48),
+		Damnbot: new(b.must(tool, "code_quality", "test_source_ratio")), Source: []string{tool},
+		Detail: "target 0,80–1,20; diukur make loc-ratio"})
+
 	// §1.5 Inventory: counts from the committed tables/catalogs.
 	providers := "docs/PROVIDERS.md"
 	b.put(&Dimension{
