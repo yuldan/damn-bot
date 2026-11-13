@@ -501,3 +501,19 @@ func TestF6LedgerPhaseIsolation(t *testing.T) {
 		t.Fatal("F6 must reject a reserve over its own remaining cap")
 	}
 }
+
+// TestDamnbotHarnessPermissions: the RC probe must not fail because the
+// headless runner is less permissive than hermes --yolo: the task workspace is
+// trusted, shell is auto-approved, and curl can reach the task-local server.
+func TestDamnbotHarnessPermissions(t *testing.T) {
+	t.Parallel()
+	cfg := damnbotConfig("/tmp/h2h_work/E1-117")
+	for _, want := range []string{
+		`trusted_projects = ["/tmp/h2h_work/E1-117"]`,
+		`shell_allow = [["curl"]]`,
+	} {
+		if !strings.Contains(cfg, want) {
+			t.Errorf("config tidak memuat %q:\n%s", want, cfg)
+		}
+	}
+}
