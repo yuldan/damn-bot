@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -19,6 +21,13 @@ type Damnbot struct {
 	Binary           string
 	Model            string
 	ProviderAttempts int
+}
+
+// damnbotConfig gives the headless runner the same permissions as hermes
+// `--yolo`: the task workdir is trusted, arbitrary shell is allowed, and curl
+// may reach the task-local fake server (SPEC §14; ADR-079/ADR-088).
+func damnbotConfig(workdir string) string {
+	return "[skills]\ntrusted_projects = [" + strconv.Quote(workdir) + "]\n\n[approval]\nshell_allow = [[\"curl\"]]\n"
 }
 
 type damnbotTurn struct {
@@ -50,10 +59,14 @@ func (d *Damnbot) Run(ctx context.Context, workdir, prompt, proxyURL string, tim
 	if !strings.Contains(model, "/") {
 		model = "openai/" + model
 	}
+	cfgPath := filepath.Join(dataDir, "config.toml")
+	if err := os.WriteFile(cfgPath, []byte(damnbotConfig(workdir)), 0o600); err != nil {
+		return run, fmt.Errorf("h2h: config: %w", err)
+	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, d.Binary, "run",
-		"--output", "json", "--approval", "auto", "--data-dir", dataDir,
+		"--output", "json", "--approval", "auto", "--unsafe-auto-shell", "--config", cfgPath, "--data-dir", dataDir,
 		"--model", model, "--base-url", proxyURL, "--api-key", DummyKey,
 		"--provider-attempts", fmt.Sprint(d.ProviderAttempts), "-p", prompt)
 	cmd.Dir = workdir
