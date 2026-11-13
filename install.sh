@@ -22,7 +22,7 @@ fetch() { # <url> <out>
 	elif command -v wget >/dev/null 2>&1; then wget -q -O "$2" "$1"
 	else die "curl or wget is required"; fi
 }
-OPENSSL=openssl; for c in /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl /opt/homebrew/bin/openssl /usr/local/bin/openssl; do [ -x "$c" ] && OPENSSL=$c; done
+OPENSSL=openssl; for c in /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl /opt/homebrew/Cellar/openssl@3/*/bin/openssl /usr/local/Cellar/openssl@3/*/bin/openssl; do if [ -x "$c" ]; then OPENSSL=$c; break; fi; done
 hash() { # <file> -> hex sha256
 	if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
 	else shasum -a 256 "$1" | cut -d' ' -f1; fi
