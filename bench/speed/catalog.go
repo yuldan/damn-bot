@@ -114,6 +114,8 @@ type Entry struct {
 	Reason string  `json:"reason,omitempty"`
 	Op     *Op     `json:"op,omitempty"`
 	Result *Result `json:"result,omitempty"`
+	// Source names the committed Damn-Bot measurement this entry came from.
+	Source string `json:"source,omitempty"`
 }
 
 var cliCmdRe = regexp.MustCompile("^`hermes ([a-z0-9-]+)")
