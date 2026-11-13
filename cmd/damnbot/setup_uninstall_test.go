@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/setup"
 )
 
@@ -31,7 +32,15 @@ func TestSetupUninstallCLI(t *testing.T) {
 	t.Setenv("APPDATA", cfgRoot)
 	t.Setenv("XDG_DATA_HOME", dataRoot)
 	t.Setenv("XDG_CONFIG_HOME", cfgRoot)
-	data := filepath.Join(dataRoot, "damnbot")
+	loader, err := config.New(config.OS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := loader.Paths("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := paths.DataDir
 	bin := filepath.Join(home, "bin", "damnbot")
 	rc := filepath.Join(home, ".bashrc")
 	for path, body := range map[string]string{bin: "binary", rc: "# user\n"} {
