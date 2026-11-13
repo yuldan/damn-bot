@@ -26,13 +26,13 @@ type allowPacer struct{}
 func (allowPacer) TakeChat(string, string, bool, time.Time) (bool, time.Duration) { return true, 0 }
 func (allowPacer) Penalize(string, time.Time)                                     {}
 
-func newOutbox(t *testing.T, name string) *gwplat.Outbox {
+func newOutbox(t *testing.T) *gwplat.Outbox {
 	t.Helper()
 	reg, err := gwplat.NewDefaultRegistry()
 	if err != nil {
 		t.Fatal(err)
 	}
-	desc, err := reg.Lookup(name)
+	desc, err := reg.Lookup("dingtalk")
 	if err != nil {
 		t.Fatal(err)
 	}

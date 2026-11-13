@@ -48,7 +48,7 @@ func TestF7PLAT004DingTalk(t *testing.T) {
 	if derr != nil {
 		t.Fatal(derr)
 	}
-	out := newOutbox(t, "dingtalk")
+	out := newOutbox(t)
 	got := make(chan gateway.Inbound, 2)
 	a, err := New(t.Context(), &Config{Enabled: true, API: srv.URL}, &desc,
 		secrets{"dingtalk_client_id": "id", "dingtalk_client_secret": "secret"}, out,
@@ -88,7 +88,7 @@ func sendDingTalk(t *testing.T, a *Adapter, sent chan map[string]any) {
 func TestF7DingTalkDedupe(t *testing.T) {
 	desc := mustDesc(t, "dingtalk")
 	a, err := New(t.Context(), &Config{Enabled: true, API: "http://127.0.0.1:1"}, &desc,
-		secrets{"dingtalk_client_id": "id", "dingtalk_client_secret": "s"}, newOutbox(t, "dingtalk"),
+		secrets{"dingtalk_client_id": "id", "dingtalk_client_secret": "s"}, newOutbox(t),
 		gwplat.HandlerFunc(func(context.Context, *gateway.Inbound) error { return nil }))
 	if err != nil {
 		t.Fatal(err)
