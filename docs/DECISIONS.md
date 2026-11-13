@@ -7019,7 +7019,7 @@ F9-DEFERRED-184: UI-009 UI-013 UI-025 UI-027 UI-028 UI-001
 
 **Dampak terukur.** Kode produk di `cmd/damnbot` (composition root) tanpa paket baru, dependency baru, migrasi, config key, atau kenaikan plafon LOC. Tes: `TestArchiveRoundTrip`, `TestArchiveNoSecret`, `TestRedaction`, `TestArchiveConflicts`, `TestArchiveRejectsTraversalAndSymlinks`, `TestArchiveRejectsGarbage` (`cmd/damnbot/portable_archive_test.go`), dan alur biner asli `TestArchivePortableBinary` + `TestArchivePortableBinaryRefusals` (`internal/e2e/archive_test.go`). Bukti baris: format/ekspor `cmd/damnbot/portable_archive.go:115-190`, baca/validasi `:441-500`, redaksi config `:102-113`, impor `cmd/damnbot/portable_import.go:42-120`, konflik `:125-246`, karantina skill `:258-285`, scan memori `:309-320`, CLI `cmd/damnbot/import_archive.go:13`, flag ekspor `cmd/damnbot/sessions.go:458-494`. Ledger `docs/F9-ACCEPTANCE.md:47` menjadi `LULUS`.
 
-## ADR-351 — Scorecard RC F9: gate P20, artefak terpublikasi, dan blocker yang jujur
+## ADR-353 — Scorecard RC F9: gate P20, artefak terpublikasi, dan blocker yang jujur
 
 **Status:** Accepted 2026-11-12 (F9; melanjutkan ADR-347/ADR-054). Baris agregat F9 "Artefak rilis & scorecard" **tetap `BELUM`**; ADR ini tidak menurunkan target dan tidak mengubah P20.
 
