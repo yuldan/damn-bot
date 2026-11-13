@@ -31,6 +31,20 @@ Angka diambil ulang dari artefak fase (SHA-256 tercatat di `meta.sources_sha256`
 | Skill tersedia | 211 | 211 | ≥ 211 | lulus |
 | Platform chat | 30 | 30 | ≥ 30 | lulus |
 | MCP | 65 | 65 | ≥ 65 | lulus |
+| LOC per fitur | 1.162 | 192,5 | ≤ hermes | lulus |
+| Rasio test:source | 1,48 | 0,93 | target 0,80–1,20 | lulus |
+| Siklus import | 149 komentar | 0 | 0 | lulus |
+| Lint / broad catch / global mutable | n/a | 0 / 0 / 0 | 0 | lulus |
+| Dependency langsung | 55 | 24 | ≤ 28, CGO 0 | lulus |
+| Kode mati | n/a | 0 | 0 | lulus |
+| Secret redaction | n/a | 0 kebocoran | 0 | lulus |
+| Akses gateway orang asing | n/a | 0 call | 0 | lulus |
+| Supply chain (reachable) | n/a | 0 | 0 | lulus |
+| Data at-rest | plaintext `.env` | 0 | 0 | lulus |
+| Migrasi dari hermes | n/a | 5 fixture | ≥ 5 | lulus |
+| Undo / preview / plan | n/a | 100% / 100% / 100% | 100% | lulus |
+| Budget guard | n/a | 0 call setelah cap | 0 | lulus |
+| Dukungan OS | n/a | 8 target | ≥ 8 | lulus |
 
 Sumber: `bench/budget/results/hermes-868b9f244f.json`, `internal/assemble/testdata/p1/all-modules.request.json`,
 `bench/f2/results/hermes-868b9f244f-F2.json`, `bench/f3/results/{damnbot-8fab87144e,damnbot-6d01e7a1d5,hermes-868b9f244f}-F3.json`,
@@ -43,7 +57,7 @@ hermes 66,276 s; first token/startup memakai artefak final `8fab87144e`.
 
 ## Dimensi belum terukur
 
-58 dimensi `not_measured` (rincian di artefak):
+40 dimensi `not_measured` (rincian di artefak):
 
 - Token input/output, biaya, cache, background token, task success, invalid tool
   call, klaim tanpa bukti, recall, fakta basi, routing skill, long-session, error
@@ -71,7 +85,7 @@ Damn-Bot untuk operasi yang sama belum ada, jadi tidak ada angka yang dikarang.
 cd bench
 SCORECARD_UPDATE=1 go test -count=1 -run '^TestScorecardGate$' ./scorecard  # tulis ulang artefak
 go test -count=1 ./scorecard                 # skip ber-alasan tanpa penanda rilis
-DAMNBOT_RELEASE=1 go test -count=1 ./scorecard  # gagal: 58 dimensi belum terukur
+DAMNBOT_RELEASE=1 go test -count=1 ./scorecard  # gagal: 40 dimensi belum terukur
 ```
 
 `TestScorecardGate` membangun ulang artefak dan membandingkan setiap baris
