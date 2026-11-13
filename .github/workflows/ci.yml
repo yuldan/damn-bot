@@ -187,7 +187,8 @@ jobs:
       # `test timed out after 20m0s`; F9 installer membuat `internal/e2e` ubuntu 1320 s (run
       # 43224709334) dan juga panic 20m tanpa `--- FAIL`. Default 20m tetap untuk lokal/windows
       # (Makefile `TEST_TIMEOUT ?= 20m`); asersi/`t.Skip` tidak berubah.
-      TEST_TIMEOUT: ${{ (startsWith(matrix.os, 'macos') || startsWith(matrix.os, 'ubuntu')) && '30m' || '20m' }}
+      # Windows hetzner runner can hit the 20m cmd/damnbot timeout; keep job timeout 35m.
+      TEST_TIMEOUT: ${{ (startsWith(matrix.os, 'macos') || startsWith(matrix.os, 'ubuntu') || startsWith(matrix.os, 'windows')) && '30m' || '20m' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
