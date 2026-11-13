@@ -61,7 +61,7 @@ func newInstallerFixture(t *testing.T) *installerFixture {
 		routes:  map[string][]byte{},
 		hits:    map[string]int{},
 	}
-	fx.data = filepath.Join(fx.home, ".local", "share", "damnbot")
+	fx.data = installStateDir(fx.home)
 	fx.bin = filepath.Join(fx.home, "bin")
 	for rel, body := range map[string]string{
 		".bashrc":                  "# user bash\n",
@@ -119,6 +119,25 @@ func newInstallerFixture(t *testing.T) *installerFixture {
 	}))
 	t.Cleanup(fx.srv.Close)
 	return fx
+}
+
+// installStateDir mirrors install.sh's state directory: Linux honours
+// XDG_DATA_HOME, Darwin always uses Application Support (XDG is ignored), and
+// Windows uses install.ps1 (the POSIX installer skips there).
+func installStateDir(home string) string {
+	if runtime.GOOS == "darwin" {
+		return filepath.Join(home, "Library", "Application Support", "damnbot")
+	}
+	return filepath.Join(home, ".local", "share", "damnbot")
+}
+
+// installAsset is the archive name install.sh selects for this runner.
+func installAsset(version string) string {
+	ext := ".tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = ".zip"
+	}
+	return "damnbot_" + version + "_" + runtime.GOOS + "_" + runtime.GOARCH + ext
 }
 
 func (fx *installerFixture) put(path string, body []byte) {
@@ -187,7 +206,7 @@ func TestInstallerRejectsTamper(t *testing.T) {
 	cases := map[string]func(*installerFixture){
 		"archive byte changed": func(fx *installerFixture) {
 			fx.mu.Lock()
-			key := "/v" + fx.version + "/damnbot_" + fx.version + "_linux_amd64.tar.gz"
+			key := "/v" + fx.version + "/" + installAsset(fx.version)
 			body := append([]byte(nil), fx.routes[key]...)
 			fx.mu.Unlock()
 			body[len(body)/2] ^= 0xff

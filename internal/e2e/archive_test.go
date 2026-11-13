@@ -8,7 +8,24 @@ import (
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/secret"
 )
+
+// provisionFileBackupKey writes a file-backed backup key into cfgDir before
+// the child starts. Without it the child provisions on first use and, on macOS
+// CI, probes a keychain that cannot work with the harness' synthetic HOME
+// (ADR-124 fails closed); the portable archive itself does not require the OS
+// keychain, so pin the file backend deterministically on every runner.
+func provisionFileBackupKey(t *testing.T, cfgDir string) {
+	t.Helper()
+	st, err := secret.New(secret.Options{ConfigDir: cfgDir, BackendPresent: func() bool { return false }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Backup(t.Context()); err != nil {
+		t.Fatalf("provision file backup key: %v", err)
+	}
+}
 
 // TestArchivePortableBinary drives the whole GAP-OPS-05 flow through the real
 // binary: `sessions backup create --portable` writes a DMBK1 archive and
@@ -24,6 +41,7 @@ func TestArchivePortableBinary(t *testing.T) { //nolint:gocyclo // one linear en
 	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	provisionFileBackupKey(t, cfgDir)
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte("[ui]\nreply_language = \"auto\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +121,7 @@ func TestArchivePortableBinaryRefusals(t *testing.T) {
 	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	provisionFileBackupKey(t, cfgDir)
 	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte("api_key = \"ghp_"+strings.Repeat("A", 36)+"\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

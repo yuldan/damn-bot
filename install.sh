@@ -22,34 +22,34 @@ fetch() { # <url> <out>
 	elif command -v wget >/dev/null 2>&1; then wget -q -O "$2" "$1"
 	else die "curl or wget is required"; fi
 }
+OPENSSL=openssl; for c in /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl /opt/homebrew/Cellar/openssl@3/*/bin/openssl /usr/local/Cellar/openssl@3/*/bin/openssl; do if [ -x "$c" ]; then OPENSSL=$c; break; fi; done
 hash() { # <file> -> hex sha256
 	if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
 	else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }
-# verify_signature <file> <minisig>: ed25519 over BLAKE2b-512 (alg ED) or the
-# file itself (legacy Ed), plus the trusted-comment global signature.
+verify_ed() { $OPENSSL pkeyutl -verify -rawin -pubin -inkey "$1" -in "$2" -sigfile "$3" >/dev/null 2>&1 || $OPENSSL pkeyutl -verify -pubin -inkey "$1" -in "$2" -sigfile "$3" >/dev/null 2>&1; }
 verify_signature() {
-	need openssl
+	[ -x "$OPENSSL" ] || command -v "$OPENSSL" >/dev/null 2>&1 || die "missing required tool: openssl"
 	f=$1 s=$2
 	[ "$(wc -l <"$s")" -ge 4 ] || die "malformed signature file"
-	sed -n '2p' "$s" | openssl base64 -d -A >"$tmp/sig"
+	sed -n '2p' "$s" | $OPENSSL base64 -d -A >"$tmp/sig"
 	sed -n '3p' "$s" | sed 's/^trusted comment: //' | tr -d '\r\n' >"$tmp/trusted"
-	sed -n '4p' "$s" | openssl base64 -d -A >"$tmp/global"
+	sed -n '4p' "$s" | $OPENSSL base64 -d -A >"$tmp/global"
 	[ "$(wc -c <"$tmp/sig")" -eq 74 ] && [ "$(wc -c <"$tmp/global")" -eq 74 ] || die "malformed signature"
-	printf '%s' "$PUBKEY" | openssl base64 -d -A >"$tmp/pub"
+	printf '%s' "$PUBKEY" | $OPENSSL base64 -d -A >"$tmp/pub"
 	[ "$(wc -c <"$tmp/pub")" -eq 42 ] || die "pinned public key is not a minisign key"
 	printf '\060\052\060\005\006\003\053\145\160\003\041\000' >"$tmp/der"
 	dd if="$tmp/pub" bs=1 skip=10 count=32 2>/dev/null >>"$tmp/der"
-	{ printf '%s\n' '-----BEGIN PUBLIC KEY-----'; openssl base64 -A -in "$tmp/der" | fold -w 64; printf '\n%s\n' '-----END PUBLIC KEY-----'; } >"$tmp/pub.pem"
+	{ printf '%s\n' '-----BEGIN PUBLIC KEY-----'; $OPENSSL base64 -A -in "$tmp/der" | fold -w 64; printf '\n%s\n' '-----END PUBLIC KEY-----'; } >"$tmp/pub.pem"
 	dd if="$tmp/sig" bs=1 skip=0 count=2 2>/dev/null >"$tmp/alg"
-	if [ "$(cat "$tmp/alg")" = ED ]; then openssl dgst -blake2b512 -binary -out "$tmp/msg" "$f"
+	if [ "$(cat "$tmp/alg")" = ED ]; then $OPENSSL dgst -blake2b512 -binary -out "$tmp/msg" "$f"
 	else cp "$f" "$tmp/msg"; fi
 	dd if="$tmp/sig" bs=1 skip=10 count=64 2>/dev/null >"$tmp/sig.bin"
-	openssl pkeyutl -verify -rawin -pubin -inkey "$tmp/pub.pem" -in "$tmp/msg" -sigfile "$tmp/sig.bin" >/dev/null 2>&1 ||
+	verify_ed "$tmp/pub.pem" "$tmp/msg" "$tmp/sig.bin" ||
 		die "signature verification failed for $f"
 	cat "$tmp/sig.bin" "$tmp/trusted" >"$tmp/gmsg"
 	dd if="$tmp/global" bs=1 skip=10 count=64 2>/dev/null >"$tmp/gsig"
-	openssl pkeyutl -verify -rawin -pubin -inkey "$tmp/pub.pem" -in "$tmp/gmsg" -sigfile "$tmp/gsig" >/dev/null 2>&1 ||
+	verify_ed "$tmp/pub.pem" "$tmp/gmsg" "$tmp/gsig" ||
 		die "trusted comment signature failed for $f"
 }
 json() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"; }

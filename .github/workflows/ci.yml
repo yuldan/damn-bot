@@ -179,17 +179,25 @@ jobs:
     # run 43196971160): ubuntu dibatalkan 25m15s dua kali tanpa `--- FAIL` setelah suite e2e installer
     # bertambah; Windows 35, macOS 40, target lain 35.
     # Run 43356954927: ubuntu cancelled at 35m15s; windows 35 / macos 40 stay.
-    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 35 || (startsWith(matrix.os, 'macos') && 40 || 45) }}
+    # Amandemen ADR-324 (F9 OS matrix, run 43344573841 & 43356361601): macos-15-intel tidak pernah
+    # mencetak `--- FAIL`; 40m dan 50m hanya membatalkan suite yang masih berjalan. Di run
+    # 43356361601 `cmd/damnbot` selesai 1.702 s dan `internal/e2e` masih berjalan saat 50m.
+    # macOS 90, Windows 35, target lain 45.
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 35 || (startsWith(matrix.os, 'macos') && 90 || 45) }}
     env:
       CGO_ENABLED: ${{ matrix.cgo }} # -race butuh cgo; build rilis tetap CGO_ENABLED=0 (job static, portability)
       # ADR-324 amandemen (batas infrastruktur, bukan gate tes): plafon `go test -timeout` per binary
       # paket dinaikkan untuk macOS dan ubuntu. `cmd/damnbot` di `macos-15-intel` selesai 1065,132 s
       # (SHA c46d06e3, run 41962495294) tetapi SHA f1c9504c (run 41968483834, attempt 1&2) panic
       # `test timed out after 20m0s`; F9 installer membuat `internal/e2e` ubuntu 1320 s (run
-      # 43224709334) dan juga panic 20m tanpa `--- FAIL`. Default 20m tetap untuk lokal/windows
+      # 43224709334) dan juga panic 20m tanpa `--- FAIL`. Run F9 OS matrix 43344573841 mengulang
+      # panic 20m0s di windows-latest tanpa satu pun `--- FAIL` (cmd/damnbot masih berjalan, 1.200 s);
+      # Windows kini memakai plafon yang sama dengan macOS/ubuntu. Default 20m tetap untuk lokal
       # (Makefile `TEST_TIMEOUT ?= 20m`); asersi/`t.Skip` tidak berubah.
       # Windows hetzner runner can hit the 20m cmd/damnbot timeout; keep job timeout 35m.
-      TEST_TIMEOUT: ${{ (startsWith(matrix.os, 'macos') || startsWith(matrix.os, 'ubuntu') || startsWith(matrix.os, 'windows')) && '30m' || '20m' }}
+      # run 43356361601: cmd/damnbot macOS Intel 1.702 s (28,4m) dan internal/e2e masih berjalan
+      # saat job 50m dibatalkan; macOS 60m per binary, ubuntu/windows 30m, lokal 20m.
+      TEST_TIMEOUT: ${{ startsWith(matrix.os, 'macos') && '60m' || ((startsWith(matrix.os, 'ubuntu') || startsWith(matrix.os, 'windows')) && '30m' || '20m') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -219,7 +227,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier == 'full'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Amandemen ADR-324 (bukti run 43344573841): job dibatalkan tepat 15m saat masih mencetak
+    # paket `ok` (internal/setup, tanpa satu pun `--- FAIL`); suite `-bench=. -benchtime=1x`
+    # butuh margin lebih dari cap lama.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -753,9 +764,19 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      # Satu step per leg dengan nilai literal, bukan `${{ matrix.qemu }}`: gate
+      # TestF9OSMatrix membaca YAML statis dan menolak input yang masih berupa
+      # ekspresi. Leg linux/arm hanya mendaftarkan arm, android/arm64 hanya arm64.
+      - name: Daftarkan QEMU arm (linux/arm)
+        if: matrix.qemu == 'arm'
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
         with:
-          platforms: ${{ matrix.qemu }}
+          platforms: arm
+      - name: Daftarkan QEMU arm64 (android/arm64)
+        if: matrix.qemu == 'arm64'
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        with:
+          platforms: arm64
       - name: Kompilasi test binary inti (${{ matrix.target }})
         run: scripts/os-matrix-qemu.sh build "${{ matrix.target }}"
       - name: Jalankan suite inti di QEMU (${{ matrix.target }})

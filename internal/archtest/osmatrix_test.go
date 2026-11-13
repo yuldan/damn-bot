@@ -129,19 +129,7 @@ func qemuWiringProblems(ci wfDoc, script string) []string {
 			out = append(out, "step os-matrix-qemu tidak memuat "+want)
 		}
 	}
-	var qemuAction bool
-	for _, step := range job.Steps {
-		if strings.HasPrefix(step.Uses, "docker/setup-qemu-action@") {
-			qemuAction = true
-			platforms, isString := step.With["platforms"].(string)
-			if !isString || !strings.Contains(platforms, "arm") {
-				out = append(out, "docker/setup-qemu-action tanpa platforms arm/arm64")
-			}
-		}
-	}
-	if !qemuAction {
-		out = append(out, "docker/setup-qemu-action tidak dipin di job os-matrix-qemu")
-	}
+	out = append(out, qemuPlatformProblems(job)...)
 	// Script harus menjalankan (bukan hanya mengompilasi) paket inti di arch target.
 	for _, want := range []string{
 		"go test", "-c -o", "-tags", "-test.count=1", "./internal/ctxdb/...", "./internal/exec/...",
@@ -152,6 +140,115 @@ func qemuWiringProblems(ci wfDoc, script string) []string {
 		}
 	}
 	return out
+}
+
+// qemuPlatformProblems menuntut satu step `docker/setup-qemu-action` literal
+// per leg: nilai `platforms` tidak boleh berupa ekspresi `${{ … }}`, dan step
+// yang menjaga arch X harus benar-benar mendaftarkan platforms X. Pasangan
+// langkah↔leg berasal dari matrix `qemu` milik baris target yang sama, jadi
+// gate tidak sekadar mencari substring "arm" di YAML mana pun.
+func qemuPlatformProblems(job wfJob) []string {
+	literal, out := qemuLiteralSteps(job)
+	for _, target := range f9QEMUTargets() {
+		arch := qemuArch(target)
+		if qemu, ok := jobMatrixField(job, target, "qemu"); !ok || qemu != arch {
+			out = append(out, "matrix os-matrix-qemu "+target+" tidak memakai qemu: "+arch)
+		}
+		if literal[arch] != arch {
+			out = append(out, "tidak ada step setup-qemu literal platforms "+arch+" untuk "+target)
+		}
+	}
+	return out
+}
+
+// qemuLiteralSteps maps each guarded arch to the literal `platforms` value of
+// its setup step and reports steps whose input is still an expression, has no
+// guard, or registers the wrong arch.
+func qemuLiteralSteps(job wfJob) (map[string]string, []string) {
+	var out []string
+	var qemuActions int
+	literal := map[string]string{}
+	for _, step := range job.Steps {
+		if !strings.HasPrefix(step.Uses, "docker/setup-qemu-action@") {
+			continue
+		}
+		qemuActions++
+		platforms, ok := step.With["platforms"].(string)
+		if !ok || platforms == "" || strings.Contains(platforms, "${{") {
+			out = append(out, "docker/setup-qemu-action platforms harus literal arm/arm64 (bukan ekspresi matrix)")
+			continue
+		}
+		if strings.TrimSpace(step.If) == "" {
+			out = append(out, "step docker/setup-qemu-action tanpa guard matrix.qemu")
+			continue
+		}
+		for _, arch := range []string{"arm", "arm64"} {
+			if !strings.Contains(step.If, "matrix.qemu == '"+arch+"'") {
+				continue
+			}
+			if platforms != arch {
+				out = append(out, "step QEMU "+arch+" memakai platforms "+platforms+", want "+arch)
+			}
+			literal[arch] = platforms
+		}
+	}
+	if qemuActions == 0 {
+		out = append(out, "docker/setup-qemu-action tidak dipin di job os-matrix-qemu")
+	}
+	return literal, out
+}
+
+func qemuArch(target string) string {
+	return target[strings.IndexByte(target, '/')+1:]
+}
+
+// jobMatrixField reads one scalar field of the strategy.matrix.include row
+// whose `target` matches. Dynamic matrices (fromJSON) have no rows.
+func jobMatrixField(job wfJob, target, field string) (string, bool) {
+	matrix, ok := job.Strategy.Matrix.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	include, ok := matrix["include"].([]any)
+	if !ok {
+		return "", false
+	}
+	for _, entry := range include {
+		row, ok := entry.(map[string]any)
+		if !ok || row["target"] != target {
+			continue
+		}
+		v, ok := row[field].(string)
+		return v, ok
+	}
+	return "", false
+}
+
+// TestQEMUPlatformWiringRejectsExpressions is the negative control for
+// qemuPlatformProblems: an upstream expression is not "literal enough", and a
+// step that registers the wrong arch must not satisfy the other leg.
+func TestQEMUPlatformWiringRejectsExpressions(t *testing.T) {
+	t.Parallel()
+	job := func(steps ...wfStep) wfJob {
+		j := wfJob{Steps: steps}
+		j.Strategy.Matrix = map[string]any{"include": []any{
+			map[string]any{"target": "linux/arm", "qemu": "arm"},
+			map[string]any{"target": "android/arm64", "qemu": "arm64"},
+		}}
+		return j
+	}
+	step := func(arch, platforms string) wfStep {
+		return wfStep{Uses: "docker/setup-qemu-action@v3", If: "matrix.qemu == '" + arch + "'", With: map[string]any{"platforms": platforms}}
+	}
+	if got := qemuPlatformProblems(job(step("arm", "${{ matrix.qemu }}"), step("arm64", "arm64"))); len(got) == 0 {
+		t.Fatal("expression platforms accepted; want a literal arm/arm64 rejection")
+	}
+	if got := qemuPlatformProblems(job(step("arm", "arm64"), step("arm64", "arm64"))); len(got) == 0 {
+		t.Fatal("arm step registering arm64 accepted; want a mismatch rejection")
+	}
+	if got := qemuPlatformProblems(job(step("arm", "arm"), step("arm64", "arm64"))); len(got) != 0 {
+		t.Fatalf("literal per-leg wiring rejected: %v", got)
+	}
 }
 
 // makefileTargets membaca daftar `TARGETS := …` (E-39).
@@ -217,6 +314,7 @@ type wfJob struct {
 
 type wfStep struct {
 	Name string         `yaml:"name"`
+	If   string         `yaml:"if"`
 	Run  string         `yaml:"run"`
 	Uses string         `yaml:"uses"`
 	With map[string]any `yaml:"with"`

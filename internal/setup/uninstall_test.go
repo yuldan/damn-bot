@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -313,5 +314,62 @@ func TestInstallManifest(t *testing.T) {
 	}
 	if got.Version != "1.2.3" || len(got.Files) != 1 || got.Files[0].Path != bin {
 		t.Fatalf("manifest round-trip = %+v", got)
+	}
+}
+
+// TestUninstallPurgeData covers --purge-data end to end: both state dirs are
+// removed after the recorded files, the manifest is gone, and the report says
+// purged instead of kept.
+func TestUninstallPurgeData(t *testing.T) {
+	home := t.TempDir()
+	data := filepath.Join(home, "data", "damnbot")
+	cfg := filepath.Join(home, "config", "damnbot")
+	bin := filepath.Join(home, "bin", "damnbot")
+	mustWrite(t, filepath.Join(data, "damnbot.db"), "db", 0o600)
+	mustWrite(t, filepath.Join(cfg, "config.toml"), "cfg", 0o600)
+	mustWrite(t, bin, "binary", 0o755)
+	manifest := filepath.Join(data, ManifestName)
+	m := &Manifest{
+		Schema: 1, Version: "1.2.3", StateDir: data, InstalledAt: "now",
+		Files: []File{{Path: bin, Kind: "binary", SHA256After: hashOf(t, bin)}},
+		Dirs:  []string{filepath.Dir(bin)},
+	}
+	if err := WriteManifest(manifest, m); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	rep, err := Uninstall(&Options{ManifestPath: manifest, DataDir: data, ConfigDir: cfg, HomeDir: home, PurgeData: true, Out: &out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Purged {
+		t.Fatalf("report not purged: %+v", rep)
+	}
+	for _, dir := range []string{data, cfg} {
+		if _, serr := os.Stat(dir); !os.IsNotExist(serr) {
+			t.Fatalf("%s still present after --purge-data: %v", dir, serr)
+		}
+	}
+	if strings.Contains(out.String(), "kept; use --purge-data") {
+		t.Fatalf("purge reported as kept:\n%s", out.String())
+	}
+}
+
+// TestPurgeRefusesUnsafeDirs keeps --purge-data from ever removing HOME, an
+// ancestor of HOME, a relative path, or a filesystem root.
+func TestPurgeRefusesUnsafeDirs(t *testing.T) {
+	home := t.TempDir()
+	for name, dir := range map[string]string{
+		"relative": "data",
+		"root":     string(filepath.Separator),
+		"home":     home,
+		"ancestor": filepath.Dir(home),
+	} {
+		if err := purge(dir, home, io.Discard); err == nil {
+			t.Errorf("purge(%s) accepted %q", name, dir)
+		}
+	}
+	if err := purge("", home, io.Discard); err != nil {
+		t.Fatalf("empty dir = %v, want a no-op", err)
 	}
 }
