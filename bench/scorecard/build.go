@@ -15,6 +15,9 @@ import (
 // ArtefactPath is the published RC scorecard path (SCORECARD §2.6).
 const ArtefactPath = "scorecard/results/2026-11-13-8fab87144e.json"
 
+// ToolingPath is the committed code-quality/security/behaviour measurement.
+const ToolingPath = "bench/scorecard/results/tooling-8fab87144e.json"
+
 // Build rebuilds the RC artefact from committed phase artifacts; every number
 // has its source SHA-256 recorded, and a missing measurement gets a reason.
 func Build(root, date, damnbotCommit string) (*Artifact, error) {
@@ -233,6 +236,42 @@ func (b *builder) measure() error {
 		Hermes: new(b.concurrentErrors(f2, "hermes")), Damnbot: new(b.concurrentErrors(f2, "damnbot")),
 		Source: []string{f2}, Detail: "SQLITE_BUSY/error lain + integritas; 0 untuk kedua agen",
 	})
+	// Code quality/security/behaviour: one committed tooling artefact.
+	tool := ToolingPath
+	addTool := func(d *Dimension, path ...string) {
+		v := b.must(tool, path...)
+		d.Source = []string{tool}
+		d.Hermes, d.Damnbot = new(0.0), new(v)
+		b.put(d)
+	}
+	mk := func(name string, rule Rule, target float64, unit, detail string, paths ...string) {
+		d := &Dimension{Name: name, Rule: rule, Target: target, Unit: unit, Detail: detail}
+		addTool(d, paths...)
+	}
+	mk("Siklus import / komentar \"hindari circular import\"", RuleAbsMax, 0, "siklus", "TestImportGraph", "code_quality", "import_cycles")
+	mk("Broad catch (`except Exception` / error diabaikan)", RuleAbsMax, 0, "temuan", "errcheck via make lint", "code_quality", "broad_catch")
+	mk("State global mutable", RuleAbsMax, 0, "temuan", "gochecknoglobals via make lint", "code_quality", "global_mutable")
+	mk("Temuan lint", RuleAbsMax, 0, "temuan", "make lint", "code_quality", "lint_issues")
+	mk("Dependency langsung / CGO", RuleAbsMax, 28, "dependency", "go list -m non-indirect; CGO 0", "code_quality", "direct_deps")
+	mk("Kode mati", RuleAbsMax, 0, "fungsi", "make deadcode 3 GOOS", "code_quality", "deadcode")
+	mk("Secret redaction", RuleAbsMax, 0, "kebocoran", "TestRedactionAndZero + TestRecordingsNoKey", "security", "redaction_leaks")
+	mk("Akses gateway orang asing", RuleAbsMax, 0, "tool/LLM call", "E8 tests", "security", "foreign_gateway_calls")
+	mk("Data at-rest", RuleAbsMax, 0, "credential plaintext", "at-rest tests", "security", "at_rest_plaintext")
+	mk("Supply chain", RuleAbsMax, 0, "temuan reachable", "govulncheck 3 modul; direct deps 24", "security", "vulns")
+	mk("Undo universal", RuleAbsMin, 100, "%", "TestUndo* byte restore", "behavior", "undo_restore_percent")
+	mk("Preview aksi berbahaya", RuleAbsMin, 100, "%", "TestPreviewBeforeDangerous", "behavior", "preview_dangerous_percent")
+	mk("Plan mode", RuleAbsMin, 100, "% deviasi", "TestPlanModeDeviationMatrix", "behavior", "plan_deviation_percent")
+	mk("Budget guard", RuleAbsMax, 0, "LLM call setelah cap", "TestBudgetGuard*", "behavior", "budget_calls_after_cap")
+	mk("Migrasi dari hermes", RuleAbsMin, 5, "fixture", "5 state DB fixture", "migration", "fixtures")
+	mk("Dukungan OS", RuleAbsMin, 8, "target", "Makefile TARGETS", "inventory", "os_targets")
+	// Special cases with a hermes baseline.
+	b.put(&Dimension{Name: "LOC per fitur", Rule: RuleLower, Unit: "LOC/baris", Hermes: new(1162.0),
+		Damnbot: new(b.must(tool, "code_quality", "source_loc") / 837), Source: []string{tool},
+		Detail: "source LOC / 837 baris penyebut gate (SPEC §8)"})
+	b.put(&Dimension{Name: "Rasio test:source", Rule: RuleLower, Unit: "rasio", Hermes: new(1.48),
+		Damnbot: new(b.must(tool, "code_quality", "test_source_ratio")), Source: []string{tool},
+		Detail: "target 0,80–1,20; diukur make loc-ratio"})
+
 	// §1.5 Inventory: counts from the committed tables/catalogs.
 	providers := "docs/PROVIDERS.md"
 	b.put(&Dimension{

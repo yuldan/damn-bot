@@ -1,0 +1,43 @@
+{
+ "meta": {
+  "date": "2026-11-13T00:00:00Z",
+  "damnbot_commit": "8fab87144e",
+  "method": "commands/tests run on the RC tree; each field names its source"
+ },
+ "code_quality": {
+  "source_loc": 161151,
+  "test_loc": 149446,
+  "test_source_ratio": 0.93,
+  "lint_issues": 0,
+  "deadcode": 0,
+  "import_cycles": 0,
+  "broad_catch": 0,
+  "global_mutable": 0,
+  "direct_deps": 24,
+  "cgo": 0,
+  "source": "make loc-ratio; make lint; make deadcode; TestImportGraph; TestDirectDeps"
+ },
+ "security": {
+  "redaction_leaks": 0,
+  "foreign_gateway_calls": 0,
+  "at_rest_plaintext": 0,
+  "vulns": 0,
+  "source": "TestRedactionAndZero; TestAtRestUnknownSource; E8 tests; govulncheck 3 modul (0 temuan)"
+ },
+ "migration": {
+  "fixtures": 5,
+  "state_db_fixtures": 5,
+  "source": "internal/e2e/testdata/hermes/state*.db via TestImportHermesSessions*"
+ },
+ "behavior": {
+  "undo_restore_percent": 100,
+  "preview_dangerous_percent": 100,
+  "plan_deviation_percent": 100,
+  "budget_calls_after_cap": 0,
+  "source": "TestUndo* (journal); TestPreviewBeforeDangerous; TestPlanModeDeviationMatrix/DenyAllMutating; TestBudgetGuard*"
+ },
+ "inventory": {
+  "os_targets": 8,
+  "source": "Makefile TARGETS"
+ }
+}
