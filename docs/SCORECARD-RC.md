@@ -1,15 +1,19 @@
-# SCORECARD RC F9 — artefak terpublikasi (belum lulus P20)
+# SCORECARD RC F9 — artefak terpublikasi (P20 dire-fase ke F10, ADR-356)
 
 Artefak mesin: [`bench/scorecard/results/2026-11-13-8fab87144e.json`](../bench/scorecard/results/2026-11-13-8fab87144e.json).
 Gate: `TestScorecardGate` (`bench/scorecard/scorecard_test.go`); artefak dibangun
 ulang oleh tes yang sama (`SCORECARD_UPDATE=1`). Basis: `8fab87144e`, hermes `868b9f244f`.
 
-Status: **P20 BELUM lulus**. Artefak ini memuat 43 dimensi terukur dan 31
-dimensi `not_measured`; **6 pelanggaran pada dimensi terukur**: fungsi terpanjang
-132 > 80, kompleksitas 40 > 15, retry 38 > 1, klasifikasi error string 1 > 0,
-flake 72% > 0,1%, dan CI p90 32,62 > 12 menit. Baris agregat F9
-"Artefak rilis & scorecard" tetap `BELUM` (lihat
-[`F9-ACCEPTANCE.md`](F9-ACCEPTANCE.md) §1). Tidak ada target yang diturunkan.
+Status: **P20 dire-fase ke F10 (ADR-356)**. Owner menyetujui Opsi A pada 2026-11-13:
+baris agregat F9 "Artefak rilis & scorecard" **tidak** diklaim `LULUS`; statusnya
+`N/A — re-phased to F10 (ADR-356; P20 RC)` (lihat [`F9-ACCEPTANCE.md`](F9-ACCEPTANCE.md) §1
+dan [`DECISIONS.md`](DECISIONS.md) ADR-356). Artefak ini memuat **43 dimensi terukur
+dan 31 `not_measured`**, dengan **6 pelanggaran pada dimensi terukur**: fungsi
+terpanjang 132 > 80, kompleksitas 40 > 15, retry 38 > 1, klasifikasi error string
+1 > 0, flake 72% (18/25 nightly) > 0,1%, dan CI p90 32,62 > 12 menit. Bukti positif
+tidak disembunyikan: first token 6,178 ms vs hermes 39,407 ms = **6,38×** (margin
+inti ≥5× terpenuhi) dan 16 dimensi pembanding hermes lulus. Tidak ada target yang
+diturunkan dan tidak ada angka yang dikarang.
 
 ## Dimensi terukur
 
@@ -89,9 +93,29 @@ hermes 66,276 s; first token/startup memakai artefak final `8fab87144e`.
 
 ## Speed parity
 
-`TestF9SpeedParity` masih SKIP: belum ada `bench/speed/results/damnbot-*.json`.
-Baseline hermes mengukur 163 operasi (80 CLI, 51 slash, 25 tool, 7 py); harness
-Damn-Bot untuk operasi yang sama belum ada, jadi tidak ada angka yang dikarang.
+`TestF9SpeedParity` masih SKIP/gagal: hanya **3 dari 163** operasi hermes yang punya
+pengukuran Damn-Bot dengan protokol sama (`bench/speed/results/damnbot-8fab87144e.json`:
+`TOOL-045` patch 5,238 ms, `TOOL-046` read 0,509 ms, `TOOL-047` search 10,519 ms; sumber
+`bench/codetools/results/f1-7d0f6bd.json`). `TOOL-045` juga **regresi** terhadap hermes
+3,091 ms. Sisa 160 ID belum diukur dengan protokol itu; tidak ada angka yang dikarang.
+
+## Komitmen F10 (ADR-356)
+
+Re-fase ini memindahkan penagihan P20 ke F10, bukan menutupnya. F10 wajib menutup:
+
+1. **Seluruh 74 dimensi** SCORECARD §1.1–§1.8 (0 `not_measured`), termasuk RC
+   head-to-head Q23-RC, soak 24 jam/1.000 turn/200 kill, VM bersih 10 Mbit/s,
+   harness code-tools, `Error informatif` (2 penilai manusia), dan scorecard mingguan.
+2. **Enam pelanggaran** sampai ambangnya: fungsi ≤80, kompleksitas ≤15, retry 1,
+   klasifikasi error string 0, flake ≤0,1%, CI PR p90 ≤12 menit.
+3. **P28 160 ID** sisanya dengan protokol `bench/speed`/`BenchmarkSpeedParity` yang sama,
+   plus regresi `TOOL-045` (5,238 ms vs hermes 3,091 ms) ditutup.
+4. Publikasi ulang artefak RC dan baris agregat `LULUS` hanya lewat PR F10 yang membuat
+   `DAMNBOT_RELEASE=1 go test ./scorecard` dan `TestF9SpeedParity` hijau.
+
+Artefak: [`bench/scorecard/results/2026-11-13-8fab87144e.json`](../bench/scorecard/results/2026-11-13-8fab87144e.json),
+[`bench/speed/results/damnbot-8fab87144e.json`](../bench/speed/results/damnbot-8fab87144e.json),
+`bench/scorecard/results/tooling-8fab87144e.json`. Keputusan: [`DECISIONS.md`](DECISIONS.md) ADR-356.
 
 ## Regenerasi
 
