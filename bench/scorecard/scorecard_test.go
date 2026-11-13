@@ -33,7 +33,7 @@ func TestScorecardGate(t *testing.T) {
 		t.Fatalf("dimensi SCORECARD §1.1–1.8 = %d, want 74 (tabel berubah; perbarui gate + artefak)", len(canonical))
 	}
 	if os.Getenv("SCORECARD_UPDATE") == "1" {
-		fresh, berr := Build(repoRoot, "2026-11-12T00:00:00Z", "aeb4dc65")
+		fresh, berr := Build(repoRoot, "2026-11-13T00:00:00Z", "8fab87144e")
 		if berr != nil {
 			t.Fatal(berr)
 		}
