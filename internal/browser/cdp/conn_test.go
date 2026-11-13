@@ -162,13 +162,18 @@ func TestReconnectOnce(t *testing.T) {
 	url := serve(t, func(ctx context.Context, ws *websocket.Conn) {
 		n := connections.Add(1)
 		id, method := read(ctx, t, ws)
-		writeReply(ctx, t, ws, id, `{"value":`+strconv.FormatInt(int64(n), 10)+`}`)
 		if method == "A" {
+			writeReply(ctx, t, ws, id, `{"value":`+strconv.FormatInt(int64(n), 10)+`}`)
+			// Read B on the doomed socket, then drop it before replying. This
+			// triggers reconnect from the in-flight call deterministically
+			// instead of racing the client's next write against the close.
+			_, _ = read(ctx, t, ws)
 			if err := ws.Close(websocket.StatusNormalClosure, "drop"); err != nil {
 				t.Errorf("drop: %v", err)
 			}
 			return
 		}
+		writeReply(ctx, t, ws, id, `{"value":`+strconv.FormatInt(int64(n), 10)+`}`)
 		drain(ctx, ws)
 	})
 	conn, err := Dial(context.Background(), url, 2*time.Second)

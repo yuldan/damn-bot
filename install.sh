@@ -26,8 +26,8 @@ hash() { # <file> -> hex sha256
 	if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
 	else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }
-# verify_signature <file> <minisig>: ed25519 over BLAKE2b-512 (alg ED) or the
-# file itself (legacy Ed), plus the trusted-comment global signature.
+# verify_signature <file> <minisig>: ed25519 over BLAKE2b-512 (ED) or the file (legacy), plus the trusted-comment signature.
+verify_ed() { openssl pkeyutl -verify -rawin -pubin -inkey "$1" -in "$2" -sigfile "$3" >/dev/null 2>&1 || openssl pkeyutl -verify -pubin -inkey "$1" -in "$2" -sigfile "$3" >/dev/null 2>&1; }
 verify_signature() {
 	need openssl
 	f=$1 s=$2
@@ -45,11 +45,11 @@ verify_signature() {
 	if [ "$(cat "$tmp/alg")" = ED ]; then openssl dgst -blake2b512 -binary -out "$tmp/msg" "$f"
 	else cp "$f" "$tmp/msg"; fi
 	dd if="$tmp/sig" bs=1 skip=10 count=64 2>/dev/null >"$tmp/sig.bin"
-	openssl pkeyutl -verify -rawin -pubin -inkey "$tmp/pub.pem" -in "$tmp/msg" -sigfile "$tmp/sig.bin" >/dev/null 2>&1 ||
+	verify_ed "$tmp/pub.pem" "$tmp/msg" "$tmp/sig.bin" ||
 		die "signature verification failed for $f"
 	cat "$tmp/sig.bin" "$tmp/trusted" >"$tmp/gmsg"
 	dd if="$tmp/global" bs=1 skip=10 count=64 2>/dev/null >"$tmp/gsig"
-	openssl pkeyutl -verify -rawin -pubin -inkey "$tmp/pub.pem" -in "$tmp/gmsg" -sigfile "$tmp/gsig" >/dev/null 2>&1 ||
+	verify_ed "$tmp/pub.pem" "$tmp/gmsg" "$tmp/gsig" ||
 		die "trusted comment signature failed for $f"
 }
 json() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"; }

@@ -39,6 +39,14 @@ function Write-Pem([byte[]]$Raw, [string]$Path) {
     [IO.File]::WriteAllText($Path, "-----BEGIN PUBLIC KEY-----`n$b64`n-----END PUBLIC KEY-----`n")
 }
 
+function Test-Ed25519([string]$Exe, [string]$Pem, [string]$Msg, [string]$Sig) {
+    & $Exe pkeyutl -verify -rawin -pubin -inkey $Pem -in $Msg -sigfile $Sig 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { return $true }
+    # LibreSSL's pkeyutl has no -rawin; Ed25519 there consumes the file as the message.
+    & $Exe pkeyutl -verify -pubin -inkey $Pem -in $Msg -sigfile $Sig 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
 function Verify-Minisig([string]$File, [string]$Sig) {
     $lines = @(Get-Content -LiteralPath $Sig)
     if ($lines.Count -lt 4) { Fail "malformed signature file: $Sig" }
@@ -60,9 +68,7 @@ function Verify-Minisig([string]$File, [string]$Sig) {
         } else { Copy-Item -LiteralPath $File -Destination $msg }
         $sigFile = Join-Path $work 'sig.bin'
         [IO.File]::WriteAllBytes($sigFile, [byte[]]$sigRaw[10..73])
-        $global:LASTEXITCODE = 0
-        & $openssl.Source pkeyutl -verify -rawin -pubin -inkey $pem -in $msg -sigfile $sigFile | Out-Null
-        if ($LASTEXITCODE -ne 0) { Fail "signature verification failed for $File" }
+        if (-not (Test-Ed25519 $openssl.Source $pem $msg $sigFile)) { Fail "signature verification failed for $File" }
         $globalMsg = Join-Path $work 'globalmsg'
         $trusted = $lines[2] -replace '^trusted comment: ', ''
         $comment = [Text.Encoding]::UTF8.GetBytes($trusted)
@@ -72,9 +78,7 @@ function Verify-Minisig([string]$File, [string]$Sig) {
         [IO.File]::WriteAllBytes($globalMsg, $all)
         $globalSig = Join-Path $work 'global.bin'
         [IO.File]::WriteAllBytes($globalSig, [byte[]]$globalRaw[10..73])
-        $global:LASTEXITCODE = 0
-        & $openssl.Source pkeyutl -verify -rawin -pubin -inkey $pem -in $globalMsg -sigfile $globalSig | Out-Null
-        if ($LASTEXITCODE -ne 0) { Fail "trusted comment signature failed for $File" }
+        if (-not (Test-Ed25519 $openssl.Source $pem $globalMsg $globalSig)) { Fail "trusted comment signature failed for $File" }
         return
     }
     $minisign = Get-Command minisign -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
