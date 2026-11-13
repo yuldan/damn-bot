@@ -1,0 +1,620 @@
+{
+ "meta": {
+  "phase": "F9",
+  "date": "2026-11-12T00:00:00Z",
+  "hermes_commit": "868b9f244f5aa3ad238e494048046fe4f29c28ba",
+  "damnbot_commit": "aeb4dc65",
+  "evalset": "evalset/v1",
+  "harness": "bench/scorecard: agregasi artefak fase terukur; 0 LLM call",
+  "sources_sha256": {
+   "bench/budget/results/hermes-868b9f244f.json": "249a98e366a35e88e8fdfbc5e38f4885bde39cf9294794e1b9a260f60309b4ab",
+   "bench/f2/results/hermes-868b9f244f-F2.json": "7131b62d3b1c4ae2fdfc4cab5209d53387fe9a02b80fea41fc5b8bf58d476407",
+   "bench/f3/results/damnbot-6d01e7a1d5-F3.json": "b833fbc833066a5fc63eef28e14fa34b17195f9d30d3375106a7613aafbfa618",
+   "bench/f3/results/hermes-868b9f244f-F3.json": "8e6829aab7fab99b33095a376f5558f2cece3863602d8fb463f16904332eedfc",
+   "bench/f4/results/damnbot-4c1e69ba-F4.json": "5d9d6e6ee71b5c50bdde5871dcbfcb9e176fcd5c6b1f52ecafbbe253f73f8fed",
+   "bench/f4/results/hermes-868b9f244f-F4.json": "eb6c76abdcfa4abeb7b7b903953802cb09aa96ed19722cf579d7d5e0660fd446",
+   "bench/scorecard/not_measured.json": "72baceca6eabe22fc11b124d929205bc9b33a2131ce82a4ef83d41a6c63779ca",
+   "bench/speed/results/hermes-868b9f244f-F6.json": "7bb783884287bcb0b3cbf58c9a9e9cae63c8e3d685e9c432b1f99cfc4f0f9615",
+   "docs/FEATURE-PARITY.md": "418c6ddc99b6b3868e2629b551ebea85b4b84d4c1894eeb6f7e8c02388543108",
+   "internal/assemble/testdata/p1/all-modules.request.json": "309e45abcd148c16c398da7a3603d253a708ed623cba1043a40ecadaf8a74193"
+  }
+ },
+ "dimensions": {
+  "Akses gateway orang asing": {
+   "name": "Akses gateway orang asing",
+   "section": "1.6 Keamanan",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "tidak ada artefak bench RC untuk dimensi keamanan ini"
+  },
+  "Akurasi routing skill": {
+   "name": "Akurasi routing skill",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Background token": {
+   "name": "Background token",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Bahasa UI": {
+   "name": "Bahasa UI",
+   "section": "1.5 Cakupan \u0026 ekosistem",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "dimensi inventaris statis; angka gate ada di suite fase masing-masing, bukan artefak bench RC"
+  },
+  "Baris config minimum": {
+   "name": "Baris config minimum",
+   "section": "1.4 Ukuran, instalasi, UX",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "butuh VM bersih 10 Mbit/s untuk angka gate; artefak nollm mencatat install_time_s workstation, bukan VM RC"
+  },
+  "Biaya per task": {
+   "name": "Biaya per task",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Broad catch (`except Exception` / error diabaikan)": {
+   "name": "Broad catch (`except Exception` / error diabaikan)",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Budget guard": {
+   "name": "Budget guard",
+   "section": "1.8 Fitur pembeda (tidak ada di hermes)",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "test perilaku ada, tetapi belum ada artefak angka RC 100%/0 untuk dimensi ini"
+  },
+  "CPU idle": {
+   "name": "CPU idle",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": false,
+   "rule": "lower",
+   "unit": "%",
+   "hermes": 1.4,
+   "damnbot": 0.23332952640266824,
+   "source": [
+    "bench/f4/results/damnbot-4c1e69ba-F4.json",
+    "bench/f4/results/hermes-868b9f244f-F4.json"
+   ],
+   "detail": "target absolut ≤0,5% x86; sampel 60 s yang sama"
+  },
+  "Cache hit rate": {
+   "name": "Cache hit rate",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Code tools": {
+   "name": "Code tools",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "artefak code-tools terakhir memakai corpus/host berbeda dan mencatat regresi; tidak boleh dibandingkan sebagai angka RC"
+  },
+  "Crash/hang rate": {
+   "name": "Crash/hang rate",
+   "section": "1.3 Stabilitas \u0026 ketahanan",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "soak 24 jam/1.000 turn dan chaos 200 kill belum dijalankan pada artefak F9; yang ada hanya profil CI 50 turn/50 kill"
+  },
+  "Data at-rest": {
+   "name": "Data at-rest",
+   "section": "1.6 Keamanan",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "tidak ada artefak bench RC untuk dimensi keamanan ini"
+  },
+  "Dependency langsung / CGO": {
+   "name": "Dependency langsung / CGO",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Dukungan OS": {
+   "name": "Dukungan OS",
+   "section": "1.5 Cakupan \u0026 ekosistem",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "dimensi inventaris statis; angka gate ada di suite fase masing-masing, bukan artefak bench RC"
+  },
+  "Edit salah lokasi": {
+   "name": "Edit salah lokasi",
+   "section": "1.3 Stabilitas \u0026 ketahanan",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "tidak ada artefak harness terukur untuk dimensi ini di bench/*/results"
+  },
+  "Error informatif": {
+   "name": "Error informatif",
+   "section": "1.4 Ukuran, instalasi, UX",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "menunggu 2 penilai manusia (F3 §2.2); skor proxy bukan gate"
+  },
+  "Error tertelan": {
+   "name": "Error tertelan",
+   "section": "1.3 Stabilitas \u0026 ketahanan",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "tidak ada artefak harness terukur untuk dimensi ini di bench/*/results"
+  },
+  "Exec spawn overhead": {
+   "name": "Exec spawn overhead",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "tidak ada artefak harness terukur untuk dimensi ini di bench/*/results"
+  },
+  "Fakta basi": {
+   "name": "Fakta basi",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Fallback tak terlihat": {
+   "name": "Fallback tak terlihat",
+   "section": "1.3 Stabilitas \u0026 ketahanan",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "tidak ada artefak harness terukur untuk dimensi ini di bench/*/results"
+  },
+  "Feature parity": {
+   "name": "Feature parity",
+   "section": "1.5 Cakupan \u0026 ekosistem",
+   "core": true,
+   "rule": "absolute_min",
+   "target": 837,
+   "unit": "baris",
+   "hermes": 854,
+   "damnbot": 837,
+   "source": [
+    "docs/FEATURE-PARITY.md"
+   ],
+   "detail": "penyebut gate = total − dropped-with-approval; target 837/837 (SPEC §8)"
+  },
+  "File terbesar (non-test / test)": {
+   "name": "File terbesar (non-test / test)",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "First token di UI": {
+   "name": "First token di UI",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": true,
+   "rule": "lower_max_ratio",
+   "max_ratio": 0.2,
+   "unit": "ms p50",
+   "hermes": 39.407,
+   "damnbot": 10.032,
+   "source": [
+    "bench/f3/results/damnbot-6d01e7a1d5-F3.json",
+    "bench/f3/results/hermes-868b9f244f-F3.json"
+   ],
+   "detail": "T0 fake provider → token terlihat di TUI"
+  },
+  "Fixed overhead": {
+   "name": "Fixed overhead",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": true,
+   "rule": "lower_max_ratio",
+   "max_ratio": 0.35,
+   "unit": "token o200k",
+   "hermes": 16843,
+   "damnbot": 2809,
+   "source": [
+    "bench/budget/results/hermes-868b9f244f.json",
+    "internal/assemble/testdata/p1/all-modules.request.json"
+   ],
+   "detail": "hermes = system prompt + schema default (dengan AGENTS.md); damnbot = request all-modules"
+  },
+  "Flake rate": {
+   "name": "Flake rate",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Fungsi terpanjang / \u003e 80 baris": {
+   "name": "Fungsi terpanjang / \u003e 80 baris",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Idle RSS": {
+   "name": "Idle RSS",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": false,
+   "rule": "lower_max_ratio",
+   "max_ratio": 0.3,
+   "unit": "MB",
+   "hermes": 210.4,
+   "damnbot": 24.5703125,
+   "source": [
+    "bench/f4/results/damnbot-4c1e69ba-F4.json",
+    "bench/f4/results/hermes-868b9f244f-F4.json"
+   ],
+   "detail": "serve + Telegram long-poll, 60 s"
+  },
+  "Image preflight": {
+   "name": "Image preflight",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": false,
+   "rule": "lower",
+   "unit": "ms",
+   "hermes": 453.5357360000489,
+   "damnbot": 265.000032,
+   "source": [
+    "bench/speed/results/hermes-868b9f244f-F6.json"
+   ],
+   "detail": "12 MP decode+resize+encode; target absolut 150 ms hanya sah di Q14 (ADR-323) dan tidak diklaim di sini"
+  },
+  "Implementasi retry": {
+   "name": "Implementasi retry",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Kebocoran goroutine": {
+   "name": "Kebocoran goroutine",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Klaim selesai tanpa bukti": {
+   "name": "Klaim selesai tanpa bukti",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Klasifikasi error via string": {
+   "name": "Klasifikasi error via string",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Kode mati": {
+   "name": "Kode mati",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Kompleksitas siklomatik maks / \u003e 15": {
+   "name": "Kompleksitas siklomatik maks / \u003e 15",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Konkurensi": {
+   "name": "Konkurensi",
+   "section": "1.3 Stabilitas \u0026 ketahanan",
+   "core": false,
+   "rule": "equal",
+   "unit": "error",
+   "hermes": 0,
+   "damnbot": 0,
+   "source": [
+    "bench/f2/results/hermes-868b9f244f-F2.json"
+   ],
+   "detail": "SQLITE_BUSY/error lain + integritas; 0 untuk kedua agen"
+  },
+  "LOC per fitur": {
+   "name": "LOC per fitur",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Langkah setup": {
+   "name": "Langkah setup",
+   "section": "1.4 Ukuran, instalasi, UX",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "butuh VM bersih 10 Mbit/s untuk angka gate; artefak nollm mencatat install_time_s workstation, bukan VM RC"
+  },
+  "Long-session stabilitas": {
+   "name": "Long-session stabilitas",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "MCP": {
+   "name": "MCP",
+   "section": "1.5 Cakupan \u0026 ekosistem",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "dimensi inventaris statis; angka gate ada di suite fase masing-masing, bukan artefak bench RC"
+  },
+  "Migrasi dari hermes": {
+   "name": "Migrasi dari hermes",
+   "section": "1.4 Ukuran, instalasi, UX",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "tidak ada artefak 5 fixture ~/.hermes pada RC"
+  },
+  "Overhead agent per iterasi": {
+   "name": "Overhead agent per iterasi",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Peak RSS": {
+   "name": "Peak RSS",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "soak 24 jam/1.000 turn dan chaos 200 kill belum dijalankan pada artefak F9; yang ada hanya profil CI 50 turn/50 kill"
+  },
+  "Pemulihan setelah `kill -9`": {
+   "name": "Pemulihan setelah `kill -9`",
+   "section": "1.3 Stabilitas \u0026 ketahanan",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "soak 24 jam/1.000 turn dan chaos 200 kill belum dijalankan pada artefak F9; yang ada hanya profil CI 50 turn/50 kill"
+  },
+  "Plan mode": {
+   "name": "Plan mode",
+   "section": "1.8 Fitur pembeda (tidak ada di hermes)",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "test perilaku ada, tetapi belum ada artefak angka RC 100%/0 untuk dimensi ini"
+  },
+  "Platform chat": {
+   "name": "Platform chat",
+   "section": "1.5 Cakupan \u0026 ekosistem",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "dimensi inventaris statis; angka gate ada di suite fase masing-masing, bukan artefak bench RC"
+  },
+  "Preview aksi berbahaya": {
+   "name": "Preview aksi berbahaya",
+   "section": "1.8 Fitur pembeda (tidak ada di hermes)",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "test perilaku ada, tetapi belum ada artefak angka RC 100%/0 untuk dimensi ini"
+  },
+  "Prompt-injection suite": {
+   "name": "Prompt-injection suite",
+   "section": "1.6 Keamanan",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Proses yatim / perintah hang": {
+   "name": "Proses yatim / perintah hang",
+   "section": "1.3 Stabilitas \u0026 ketahanan",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "tidak ada artefak harness terukur untuk dimensi ini di bench/*/results"
+  },
+  "Provider": {
+   "name": "Provider",
+   "section": "1.5 Cakupan \u0026 ekosistem",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "dimensi inventaris statis; angka gate ada di suite fase masing-masing, bukan artefak bench RC"
+  },
+  "Rasio test:source": {
+   "name": "Rasio test:source",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Recall memori lintas sesi (\"ga pikun\")": {
+   "name": "Recall memori lintas sesi (\"ga pikun\")",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Scorecard mingguan": {
+   "name": "Scorecard mingguan",
+   "section": "1.8 Fitur pembeda (tidak ada di hermes)",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "job scorecard-weekly ada; belum ada artefak run mingguan (aktivasi setelah RC)"
+  },
+  "Secret redaction": {
+   "name": "Secret redaction",
+   "section": "1.6 Keamanan",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "tidak ada artefak bench RC untuk dimensi keamanan ini"
+  },
+  "Self-healing": {
+   "name": "Self-healing",
+   "section": "1.3 Stabilitas \u0026 ketahanan",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "soak 24 jam/1.000 turn dan chaos 200 kill belum dijalankan pada artefak F9; yang ada hanya profil CI 50 turn/50 kill"
+  },
+  "Siklus import / komentar \"hindari circular import\"": {
+   "name": "Siklus import / komentar \"hindari circular import\"",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Skill tersedia": {
+   "name": "Skill tersedia",
+   "section": "1.5 Cakupan \u0026 ekosistem",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "dimensi inventaris statis; angka gate ada di suite fase masing-masing, bukan artefak bench RC"
+  },
+  "Startup": {
+   "name": "Startup",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": true,
+   "rule": "lower_max_ratio",
+   "max_ratio": 0.1,
+   "unit": "ms p50",
+   "hermes": 1368.273,
+   "damnbot": 42.507,
+   "source": [
+    "bench/f3/results/damnbot-6d01e7a1d5-F3.json",
+    "bench/f3/results/hermes-868b9f244f-F3.json"
+   ],
+   "detail": "frame pertama TUI; target 10x (SPEC P12/F3)"
+  },
+  "State global mutable": {
+   "name": "State global mutable",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Supply chain": {
+   "name": "Supply chain",
+   "section": "1.6 Keamanan",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "tidak ada artefak bench RC untuk dimensi keamanan ini"
+  },
+  "Task success rate": {
+   "name": "Task success rate",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Task wall-clock end-to-end": {
+   "name": "Task wall-clock end-to-end",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Temuan lint": {
+   "name": "Temuan lint",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Token input per task": {
+   "name": "Token input per task",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Token output per task": {
+   "name": "Token output per task",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Token skill per turn": {
+   "name": "Token skill per turn",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": false,
+   "rule": "lower_max_ratio",
+   "max_ratio": 0.2,
+   "unit": "rasio vs hermes",
+   "hermes": 1,
+   "damnbot": 0.07501995211492418,
+   "source": [
+    "bench/f2/results/hermes-868b9f244f-F2.json"
+   ],
+   "detail": "rasio token index/isi skill; corpora berbeda, jadi yang dibandingkan adalah biaya arsitektural (F2/ADR-164)"
+  },
+  "Tool call invalid / halusinasi": {
+   "name": "Tool call invalid / halusinasi",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Tool error recovery": {
+   "name": "Tool error recovery",
+   "section": "1.1 Token, biaya, kualitas jawaban",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)"
+  },
+  "Ukuran install": {
+   "name": "Ukuran install",
+   "section": "1.4 Ukuran, instalasi, UX",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "butuh VM bersih 10 Mbit/s untuk angka gate; artefak nollm mencatat install_time_s workstation, bukan VM RC"
+  },
+  "Undo universal": {
+   "name": "Undo universal",
+   "section": "1.8 Fitur pembeda (tidak ada di hermes)",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "test perilaku ada, tetapi belum ada artefak angka RC 100%/0 untuk dimensi ini"
+  },
+  "Voice end-to-end": {
+   "name": "Voice end-to-end",
+   "section": "1.2 Kinerja (lihat juga §3 Speed parity gate)",
+   "core": false,
+   "rule": "lower",
+   "unit": "ms (terburuk overhead/TTS)",
+   "hermes": 1.5969410014804453,
+   "damnbot": 0.076,
+   "source": [
+    "bench/speed/results/hermes-868b9f244f-F6.json"
+   ],
+   "detail": "target ≤200 ms overhead dan ≤300 ms TTS; fake provider, playback no-op"
+  },
+  "Waktu CI PR": {
+   "name": "Waktu CI PR",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "not_measured": "gate kualitas kode hidup di make lint/loc/deadcode; belum ada artefak angka RC yang dipublikasikan"
+  },
+  "Waktu build bersih / inkremental": {
+   "name": "Waktu build bersih / inkremental",
+   "section": "1.7 Kualitas kode \u0026 proses engineering",
+   "core": false,
+   "rule": "lower",
+   "unit": "detik p50 (clean)",
+   "hermes": 66.27642277197447,
+   "damnbot": 29.140395105,
+   "source": [
+    "bench/f3/results/damnbot-6d01e7a1d5-F3.json",
+    "bench/f3/results/hermes-868b9f244f-F3.json"
+   ],
+   "detail": "inkremental: hermes 4.756 s vs damnbot 1.698 s"
+  },
+  "Waktu install dari nol": {
+   "name": "Waktu install dari nol",
+   "section": "1.4 Ukuran, instalasi, UX",
+   "core": true,
+   "rule": "lower",
+   "not_measured": "butuh VM bersih 10 Mbit/s untuk angka gate; artefak nollm mencatat install_time_s workstation, bukan VM RC"
+  }
+ }
+}
