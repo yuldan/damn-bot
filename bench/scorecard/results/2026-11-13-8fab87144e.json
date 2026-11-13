@@ -16,7 +16,7 @@
    "bench/f4/results/hermes-868b9f244f-F4.json": "eb6c76abdcfa4abeb7b7b903953802cb09aa96ed19722cf579d7d5e0660fd446",
    "bench/scorecard/not_measured.json": "72baceca6eabe22fc11b124d929205bc9b33a2131ce82a4ef83d41a6c63779ca",
    "bench/speed/results/hermes-868b9f244f-F6.json": "7bb783884287bcb0b3cbf58c9a9e9cae63c8e3d685e9c432b1f99cfc4f0f9615",
-   "docs/FEATURE-PARITY.md": "418c6ddc99b6b3868e2629b551ebea85b4b84d4c1894eeb6f7e8c02388543108",
+   "docs/FEATURE-PARITY.md": "4574f1594a26dd939291062e0934352163e4e52a84ffa7b18083f96794db134c",
    "docs/PROVIDERS.md": "7f16f0b42a021c5ef7cd36399fa7ca4b6790fb50c339f3e7e99e70967114c3e1",
    "internal/assemble/testdata/p1/all-modules.request.json": "309e45abcd148c16c398da7a3603d253a708ed623cba1043a40ecadaf8a74193",
    "internal/skills/catalog/skills.tsv": "60570e0f5ec1d5036493bdd133ea468384e42d37c5fd092105f44d85619d942f"

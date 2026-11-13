@@ -567,7 +567,7 @@ Komposisi `TestEditAccuracySuite` (330 kasus): CRLF/EOL campuran 30, UTF-8 BOM 1
 | CT-12 | grep terindeks C2 | p95 ≤ 100 ms | `BenchmarkGrepIndexedC2` |
 | CT-13 | build indeks C2 | ≤ 120 s; disk ≤ 0,5× teks | `BenchmarkIndexBuildC2` |
 | CT-14 | heap puncak grep C2 | ≤ 96 MB | `TestCodeToolsMemCap` |
-| CT-20 | akurasi edit | ≥ 330 kasus (termasuk 5 guard sentinel, ADR-071), 100%, 0 lokasi salah, 0 perubahan tak diminta, read-back verify | `TestEditAccuracySuite`, `TestWriteReadBack` |
+| CT-20 | akurasi edit | ≥ 330 kasus (termasuk 5 guard sentinel, ADR-071), 100%, 0 lokasi salah, 0 perubahan tak diminta, read-back verify | `TestEditAccuracySuite`, `TestWriteReadbackVerify` |
 | CT-21 | parity match-set vs rg | 0 selisih / 200 kueri | `TestGrepParityRg` |
 | CT-22 | determinisme | byte-identik, 5 nilai GOMAXPROCS × 100 run | `TestCodeToolsDeterministic` |
 | CT-23 | konformansi ignore | ≥ 500 kasus, 0 selisih | `TestGitignoreConformance` |

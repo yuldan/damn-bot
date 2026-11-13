@@ -209,9 +209,9 @@ func fsTag(s string) string {
 	return fmt.Sprintf("%x", sum[:4])
 }
 
-// TestACPClientFSReadBuffer proves the agent reads the client's buffer (not
+// TestACPClientFSUnsaved proves the agent reads the client's buffer (not
 // the disk) and computes the tag from it.
-func TestACPClientFSReadBuffer(t *testing.T) {
+func TestACPClientFSUnsaved(t *testing.T) {
 	e := newEnv(t)
 	const disk, buffer = "disk content\n", "buffer content\n"
 	if err := os.WriteFile(filepath.Join(e.Workdir, "a.txt"), []byte(disk), 0o600); err != nil {
@@ -270,9 +270,9 @@ func TestACPClientFSFallbackEvent(t *testing.T) {
 	}
 }
 
-// TestACPClientFSStaleTag proves a buffer changed after the read refuses the
+// TestACPStaleTagNoOverwrite proves a buffer changed after the read refuses the
 // edit with stale_tag and never writes the buffer or the disk.
-func TestACPClientFSStaleTag(t *testing.T) {
+func TestACPStaleTagNoOverwrite(t *testing.T) {
 	e := newEnv(t)
 	const disk, first, second = "disk\n", "buffer original\n", "buffer edited by the user\n"
 	path := filepath.Join(e.Workdir, "a.txt")

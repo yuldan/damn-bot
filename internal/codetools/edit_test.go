@@ -67,9 +67,9 @@ func TestEditFormat(t *testing.T) {
 	}
 }
 
-// TestWriteReadBack is CT-20/TOOL-03: every write is read back and its
+// TestWriteReadbackVerify is CT-20/TOOL-03: every write is read back and its
 // sha256 compared; new files get files.new_eol, no BOM, parents created.
-func TestWriteReadBack(t *testing.T) {
+func TestWriteReadbackVerify(t *testing.T) {
 	t.Parallel()
 	v := newEnv(t)
 	ctx := context.Background()
