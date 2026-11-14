@@ -1,0 +1,54 @@
+{
+ "meta": {
+  "phase": "F9",
+  "test": "TestF9Soak24h",
+  "profile": "acceptance-24h-1000t",
+  "mode": "24h",
+  "date": "2026-11-14T19:54:59Z",
+  "duration_seconds": 86432.519863784,
+  "turns": 1000,
+  "interval_ms": 86400,
+  "platforms": 3,
+  "provider_requests": 1000,
+  "damnbot_commit": "8fbafafa"
+ },
+ "surfaces": [
+  "telegram",
+  "webhook",
+  "api_server"
+ ],
+ "start": {
+  "rss_kb": 46680,
+  "goroutines": 23,
+  "fds": 24
+ },
+ "end": {
+  "rss_kb": 53056,
+  "goroutines": 21,
+  "fds": 23
+ },
+ "deltas": {
+  "goroutines": -2,
+  "fds": -1,
+  "rss_percent": 13.658954584404457
+ },
+ "transcript": {
+  "user_messages": 1000,
+  "turn_starts": 1000,
+  "turn_ends": 1000,
+  "crash_recovered": 0,
+  "integrity_check": "ok",
+  "placeholder_sends": 667,
+  "telegram_final_answers": 334,
+  "webhook_final_answers": 333
+ },
+ "gate": {
+  "goroutines_ok": true,
+  "fds_ok": true,
+  "rss_ok": true,
+  "messages_ok": true,
+  "integrity_ok": true,
+  "no_panic": true,
+  "pass": true
+ }
+}
