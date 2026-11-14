@@ -1,6 +1,6 @@
 # F9-ACCEPTANCE — Ledger acceptance F9 (hardening & rilis 1.0)
 
-Status: **ledger hidup** untuk `PHASE=F9` pada `origin/main` `3352ac29`. Status per baris ada pada kolom `Status`; setiap baris agregat §1 baru `LULUS` setelah semua anggotanya tertutup, kecuali baris yang dire-fase owner lewat ADR. Per 2026-11-13, **GAP-SWEEP 118/118**, **EDGE-CASES 166/166**, dan **OS matrix 8/8** sudah `LULUS`; **soak/chaos** tetap `BELUM` karena prasyaratnya belum lulus (bukti dan penghalangnya dicatat pada amandemen ADR-347 di `docs/DECISIONS.md`); dan baris **artefak rilis & scorecard** (P20) **dire-fase ke F10** lewat ADR-356 dengan status `N/A — re-phased to F10 (ADR-356; P20 RC)` — **bukan** `LULUS` — dengan bukti terukur (43 dimensi terukur, 31 `not_measured`, 6 pelanggaran, P28 3/163, first token 6,38×) tercatat di ADR-356 dan `docs/SCORECARD-RC.md`. Gate parity `LULUS` (lihat §1). Kriteria dan angka tidak berubah dari fase sebelumnya kecuali baris yang eksplisit berstatus `LULUS`. Satu baris hanya boleh berubah menjadi `LULUS` pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" (dan/atau artefak yang disebut) lalu tes/artefak itu lulus, atau menjadi `N/A` beralasan yang memenuhi §7. Baris agregat §1 hanya `LULUS` setelah semua anggotanya tertutup.
+Status: **ledger hidup** untuk `PHASE=F9` pada `origin/main` `3a5f727c`. Status per baris ada pada kolom `Status`; setiap baris agregat §1 baru `LULUS` setelah semua anggotanya tertutup, kecuali baris yang dire-fase owner lewat ADR. Per 2026-11-14, kelima baris agregat §1 yang dapat ditagih sudah `LULUS` — **gate parity 837/837**, **GAP-SWEEP 118/118**, **EDGE-CASES 166/166**, **OS matrix 8/8**, dan **soak/chaos 24 jam** (amandemen ADR-347 di `docs/DECISIONS.md`) — sementara baris **artefak rilis & scorecard** (P20) **dire-fase ke F10** lewat ADR-356 dengan status `N/A — re-phased to F10 (ADR-356; P20 RC)` — **bukan** `LULUS` — dengan bukti terukur (43 dimensi terukur, 31 `not_measured`, 6 pelanggaran, P28 3/163, first token 6,38×) tercatat di ADR-356 dan `docs/SCORECARD-RC.md`. Gate parity `LULUS` (lihat §1). `PHASE` tetap `F9` karena F9 fase terminal; penutupan diverifikasi pada `3a5f727c` (§9). Kriteria dan angka tidak berubah dari fase sebelumnya kecuali baris yang eksplisit berstatus `LULUS`. Satu baris hanya boleh berubah menjadi `LULUS` pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" (dan/atau artefak yang disebut) lalu tes/artefak itu lulus, atau menjadi `N/A` beralasan yang memenuhi §7. Baris agregat §1 hanya `LULUS` setelah semua anggotanya tertutup.
 
 Sumber normatif: ROADMAP F9 (`docs/ROADMAP.md:216-226`, termasuk acceptance gate 1.0 dan tabel "Adopsi GAP-SWEEP"), 5 baris parity berfase F9 (`docs/FEATURE-PARITY.md:713,949-952`; UI-018 dan OPS-029..032), 8 baris GAP F9 (SPEC §22.1: `SPEC.md` — GAP-SEC-19, GAP-SEC-22, GAP-SEC-28, GAP-OPS-03, GAP-OPS-05, GAP-INF-03, GAP-INF-10, dan GAP-INF-02), katalog EC (tidak ada entri F9; `docs/ROADMAP.md:54-67`), carryover F8 (`docs/F8-ACCEPTANCE.md:240-245`), gate parity 837/837 (SPEC §8, V-28/ADR-054), dan ADR-347 (program F9, penanda rilis, agregat). Nama paket dan plafon modul mengikuti ADR-330; budget F9 = **0 LOC Go produk** (ROADMAP F9; perbaikan hardening diserap budget modul fasenya).
 
@@ -112,3 +112,18 @@ Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 
 - OS matrix: **8** target E-39 = linux/{amd64,arm64,arm}, darwin/{amd64,arm64}, windows/{amd64,arm64}, android/arm64 (6 berrunner + 2 QEMU).
 - Budget F9: **0 LOC Go produk**; `maxModuleLOC` tetap **132.000** dan `maxCoreLOC` tetap sesuai ADR-344.
 - Ledger F8 ditutup pada `9c14575e` (167 baris data: 165 `LULUS` + 2 `N/A`; 7 agregat `LULUS`), lalu `PHASE` naik F8 → **F9**.
+
+## 9. Penutupan F9 (2026-11-14)
+
+F9 adalah fase terminal (ADR-347): tidak ada fase sesudahnya, sehingga `PHASE` tetap `F9` dan tidak ada kenaikan ke F10. Penutupan diverifikasi pada `origin/main` `3a5f727ccbaf421239531a7124c0b11afc24b81d` — merge commit PR #939 (soak/chaos) — dengan status §1: lima baris `LULUS` (gate parity 837/837, GAP 118/118, EC 166/166, OS matrix 8/8, soak/chaos) dan satu baris `N/A — re-phased to F10 (ADR-356; P20 RC)`; tidak ada baris ledger yang masih terbuka.
+
+| Gate | Perintah | Hasil pada `3a5f727c` |
+|---|---|---|
+| Acceptance fase | `DAMNBOT_RELEASE=1 make phase-acceptance` | PASS — seluruh paket `ok` |
+| Ledger F9 | `DAMNBOT_RELEASE=1 go test -tags goolm -count=1 -run 'TestF9LedgerClosed\|TestF9LedgerGateRules\|TestF9ParityDeferred184' ./internal/archtest` | `ok` |
+| Lint | `make lint` | `0 issues` |
+| LOC | `make loc` | `TOTAL 162013 / 190000`, semua plafon modul `ok` |
+| Ukuran binary | `make size-check` | full 43.503.778 B / 52.000.000 B; minimal 22.073.506 B / 22.100.000 B |
+| Dead code | `make deadcode` | `0 fungsi tak terjangkau` (linux/darwin/windows) |
+
+Catatan eksekusi: host worktree tidak menyediakan PowerShell (`pwsh`/`powershell`), sehingga `TestInstallerPowerShell` dijalankan sebagai host non-CI (test itu sendiri hanya `skip` di host non-CI dan menuntut interpreter di CI); runner CI ber-PowerShell tetap mengeksekusi jalur `install.ps1` yang sama dan tidak ada tes yang dilonggarkan.
