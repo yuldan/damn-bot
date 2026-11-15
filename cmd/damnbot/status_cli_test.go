@@ -92,8 +92,16 @@ func TestStatusCLI(t *testing.T) {
 }
 
 func TestStatusCLIJSONSession(t *testing.T) { //nolint:gocyclo // one CLI round trip across text, JSON, and a missing session
-	dataDir, _ := isolateStatusHome(t)
-	seedStatusDB(t, dataDir, "sess-status", "fake/model")
+	isolateStatusHome(t)
+	loader, lerr := config.New(config.OS())
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	paths, perr := loader.Paths("")
+	if perr != nil {
+		t.Fatal(perr)
+	}
+	seedStatusDB(t, paths.DataDir, "sess-status", "fake/model")
 	code, out, errOut := runArgs(t, "status", "--json")
 	if code != 0 {
 		t.Fatalf("status --json = %d %q", code, errOut)
@@ -134,16 +142,16 @@ func TestStatusCLIJSONSession(t *testing.T) { //nolint:gocyclo // one CLI round 
 // TestStatusCLIInvalidConfig: an unreadable config is a fail row and a
 // non-zero exit, while the other components are still reported.
 func TestStatusCLIInvalidConfig(t *testing.T) {
-	_, configDir := isolateStatusHome(t)
-	if err := os.MkdirAll(configDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	isolateStatusHome(t)
 	loader, err := config.New(config.OS())
 	if err != nil {
 		t.Fatal(err)
 	}
 	paths, err := loader.Paths("")
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(paths.ConfigFile()), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(paths.ConfigFile(), []byte("[loop\n"), 0o600); err != nil {
