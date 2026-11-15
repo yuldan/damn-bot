@@ -80,7 +80,8 @@ func TestMCPAddValidation(t *testing.T) {
 		{[]string{"add", "demo", "--url", "https://h/mcp", "--timeout", "0"}, "--timeout must be between 1 and 600"},
 		{[]string{"add", "demo", "--url", "https://h/mcp", "--client-secret", "plaintext"}, "--client-secret must be a keychain:<id> reference"},
 		{[]string{"add", "demo", "--command", "srv", "--issuer", "https://as.example"}, "--issuer is only valid with --url"},
-		{[]string{"nope"}, "add needs exactly one server name"},
+		{[]string{"nope"}, "unknown subcommand"},
+		{[]string{"add"}, "add needs exactly one server name"},
 	}
 	for _, tc := range cases {
 		if code, _, errOut := runMCPArgs(t, tc.args...); code != 2 || !strings.Contains(errOut, tc.want) {

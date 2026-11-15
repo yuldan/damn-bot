@@ -78,8 +78,8 @@ func mcpAdd(args []string, stdout, stderr io.Writer) int {
 		clientSecret: *clientSecret, trust: *trust, timeout: *timeout,
 		argv: argv, scopes: scopes, readOnly: readOnly,
 	}
-	if err := f.validate(pos); err != nil {
-		return mcpUsageErr(stderr, "%s", err)
+	if verr := f.validate(pos); verr != nil {
+		return mcpUsageErr(stderr, "%s", verr)
 	}
 	loader, _, paths, err := openMCPConfig()
 	if err != nil {
