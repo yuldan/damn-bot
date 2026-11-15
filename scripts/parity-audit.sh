@@ -18,8 +18,9 @@ if [[ ! -f "$doc" ]]; then
 	exit 1
 fi
 
-# Deferred184 (ADR-350): 121 deferred ADR-349 + 63 residual ADR-349. Harus sama
-# dengan internal/archtest/f9_parity_deferred_test.go; script hanya membaca.
+# Deferred184 (ADR-350, dipin F10 oleh ADR-357): 121 deferred ADR-349 + 63
+# residual ADR-349. Harus sama dengan internal/archtest/f10_parity_test.go;
+# script hanya membaca.
 DEFERRED184="
 AUTO-021 AUTO-022 AUTO-024 AUTO-023
 CLI-003 CLI-004 CLI-005 CLI-007 CLI-008 CLI-010 CLI-013 CLI-020 CLI-021 CLI-022

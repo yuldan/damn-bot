@@ -18,7 +18,7 @@ const AcceptanceEnv = "DAMNBOT_PHASE_ACCEPTANCE"
 
 // Gate is the running phase read from PHASE.
 type Gate struct {
-	cur        int  // 1..9
+	cur        int  // 1..10
 	acceptance bool // AcceptanceEnv=1
 }
 
@@ -74,7 +74,7 @@ func readPhase(dir string) ([]byte, error) {
 	return b, nil
 }
 
-// Parse validates PHASE content: exactly one line "F1".."F9", ending in LF,
+// Parse validates PHASE content: exactly one line "F1".."F10", ending in LF,
 // CRLF (a Windows checkout without .gitattributes) or nothing.
 func Parse(s string) (Gate, error) {
 	n, err := num(strings.TrimSuffix(strings.TrimSuffix(s, "\n"), "\r"))
@@ -85,8 +85,11 @@ func Parse(s string) (Gate, error) {
 }
 
 func num(p string) (int, error) {
+	if len(p) == 3 && p == "F10" {
+		return 10, nil
+	}
 	if len(p) != 2 || p[0] != 'F' || p[1] < '1' || p[1] > '9' {
-		return 0, fmt.Errorf("fase %q bukan F1..F9", p)
+		return 0, fmt.Errorf("fase %q bukan F1..F10", p)
 	}
 	return int(p[1] - '0'), nil
 }
@@ -109,8 +112,10 @@ func (g Gate) Item(tb testing.TB, id, phase, status string) bool {
 		tb.Errorf("PHASE GAGAL %s: status %q, want covered, n/a or pending:%s", id, status, phase)
 	case g.acceptance && p <= g.cur:
 		tb.Errorf("PHASE GAGAL %s: phase acceptance F%d: item %s still pending", id, g.cur, phase)
-	case g.cur == 9:
-		tb.Errorf("PHASE GAGAL %s: pending at PHASE F9 (ADR-077)", id)
+	case g.cur >= 9:
+		// F9 is closed (ADR-347); F10 closes the program (ADR-357). From F9 on
+		// no catalog row may stay pending, so F10's parser cannot relax F9.
+		tb.Errorf("PHASE GAGAL %s: pending at PHASE F%d (ADR-077)", id, g.cur)
 	case p < g.cur:
 		tb.Errorf("PHASE GAGAL %s: phase %s < PHASE F%d must be covered", id, phase, g.cur)
 	}

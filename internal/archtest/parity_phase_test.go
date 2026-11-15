@@ -210,7 +210,7 @@ const (
 
 // phaseClosed reports whether PHASE is past the phase named by done.
 func phaseClosed(phase, done string) bool {
-	order := []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"}
+	order := []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10"}
 	return slices.Index(order, strings.TrimSpace(phase)) > slices.Index(order, done)
 }
 

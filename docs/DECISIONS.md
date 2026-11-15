@@ -6990,6 +6990,8 @@ F9-DEFERRED-184: UI-009 UI-013 UI-025 UI-027 UI-028 UI-001
 ```
 
 - Amandemen (ADR-350, 2026-11-12): agregat §1 "Gate parity 837/837" di `docs/F9-ACCEPTANCE.md` ditutup menjadi `LULUS` setelah #917 (re-fase) bersama #910/#911 (installer) dan #913/#914/#915 (backfill) bergabung di main `4aad646f`. Bukti: `go test ./internal/archtest -run 'TestParityPhaseColumn|TestF9ParityDeferred184' -count=1` ok dan `scripts/parity-audit.sh` melaporkan total=854, planned=0, LULUS=653, N/A=184, dropped=17, `Deferred184` n/a=184. Tidak ada angka gate yang berubah.
+- Amandemen (ADR-357, fondasi F10): pin 184 dipindahkan dari `TestF9ParityDeferred184` ke `TestF10ParityPinned184`/`TestF10ParityClosed184` (`internal/archtest/f10_parity_test.go`) dengan daftar ID literal yang sama. F10 mengizinkan baris kembali `LULUS` lewat tes bernama atau `N/A` ber-ADR; denominator 854/837, fase F1–F5, dan jumlah per fase tidak berubah.
+
 ## ADR-351 — Referensi docs tergenerasi, link checker offline, dan banner sha terjemahan (GAP-INF-10)
 
 **Status:** Accepted 2026-11-12 (F9 GAP-INF-10; melengkapi ADR-347 dan E-83).
@@ -7101,3 +7103,93 @@ F9-DEFERRED-184: UI-009 UI-013 UI-025 UI-027 UI-028 UI-001
 **Konsekuensi.** (+) F9 menutup dengan status jujur: satu baris agregat `N/A` yang menyebut prasyarat dan fase target, sementara bukti terukur (43 dimensi, 6 pelanggaran, P28 3/163, first token 6,38×) tetap tercatat, bertaut, dan dapat direproduksi. (+) Rilis 1.0 tidak mengklaim P20 lulus. (−) F10 memikul 74 dimensi + 6 pelanggaran + P28 160 ID + soak/VM/Q23-RC; kegagalan menutupnya memblokir klaim P20 dan karena itu wajib jadi blocker rilis F10, bukan carryover lagi.
 
 **Bukti.** Artefak `bench/scorecard/results/2026-11-13-8fab87144e.json` (43 terukur/31 `not_measured`, 6 pelanggaran; sumber termasuk `bench/scorecard/results/tooling-8fab87144e.json`), `bench/speed/results/damnbot-8fab87144e.json` (3/163; sumber `bench/codetools/results/f1-7d0f6bd.json`), tabel dan alasan di `docs/SCORECARD-RC.md`, serta §1/§8 `docs/F9-ACCEPTANCE.md`. Gate: `DAMNBOT_RELEASE=1 go test -count=1 -run 'TestF9LedgerClosed|TestF9LedgerGateRules' ./internal/archtest` menerima baris `N/A` beralasan; `cd bench && DAMNBOT_RELEASE=1 go test -count=1 ./scorecard` **tetap gagal** pada 31 `not_measured` + 6 pelanggaran, sesuai status yang dicatat di sini.
+
+- Amandemen (ADR-357, fondasi F10): penagihan P20 pindah ke `docs/F10-ACCEPTANCE.md` (G1–G6, 74 dimensi, 163 operasi speed, tiga pengecualian eksternal). Gate penutupan F10 memakai `DAMNBOT_F10_RELEASE=1` (atau `PHASE=F10`) dan tidak menurunkan target ADR-356; `PHASE` tetap `F9`.
+
+## ADR-357 — Program F10: closure P20, parity 184, dan regresi F9
+
+**Status:** Accepted 2026-11-15 (fondasi F10; melanjutkan ADR-347, ADR-350, dan
+ADR-356). `PHASE` tetap `F9`; F10 adalah fase closure pasca-1.0, bukan kenaikan
+fase produk. Persetujuan owner untuk setiap `N/A` eksternal dicatat sebagai
+amandemen ADR ini, bukan diasumsikan.
+
+**Konteks.** F9 ditutup pada `3a5f727c` (ADR-347) dengan lima agregat `LULUS`
+(parity 837/837, GAP-SWEEP 118/118, EDGE-CASES 166/166, OS matrix 8/8,
+soak/chaos 24 jam) dan satu agregat P20 yang dire-fase ke F10
+(`N/A — re-phased to F10 (ADR-356; P20 RC)`). P20 masih mencatat **74 dimensi:
+37 `LULUS`, 6 pelanggaran, 31 `not_measured`**, P28 baru **3/163** operasi, dan
+**184 baris parity F1–F5** masih `N/A — re-phased to F10 (ADR-350)` (121
+deferred + 63 residual). Parser `PHASE` hanya menerima `F1..F9`, sehingga F10
+tidak dapat menjadi fase formal tanpa perubahan parser dan gate. F10 juga
+mewarisi blocker eksternal yang tidak dapat disediakan repo: VM bersih
+10 Mbit/s (4 dimensi), dua penilai manusia independen (`Error informatif`), dan
+model frontier + anggaran untuk Q23-RC (16 dimensi).
+
+**Keputusan.**
+
+1. **Scope F10.** F10 menutup (a) P20: 74/74 dimensi terukur, 0 `not_measured`,
+   0 pelanggaran, target SCORECARD §1–§3 tidak diturunkan; (b) 184 baris parity
+   ADR-350: `LULUS` dengan tes bernama atau `N/A — <alasan> (ADR owner)`, 0
+   `planned`, 0 status re-fase; (c) regresi F9: lima agregat `LULUS` tidak boleh
+   turun; (d) invariant rilis P1–P29, `TestChangelogPerTag`,
+   `make lint loc size-check deadcode`, dan artefak RC/speed/h2h yang
+   dipublikasikan ulang. ROADMAP `Pasca-1.0` (replay, model racing, Telegram
+   Mini App, sinkron E2E) tetap di luar F10.
+2. **Gate F10 (G1–G6).** G1 `TestScorecardGate` (`DAMNBOT_RELEASE=1`) 74/74;
+   G2 `TestF9SpeedParity`/`BenchmarkSpeedParity/<ID>` 163/163 dan `TOOL-045`
+   tidak lagi regresi; G3 `TestF10ParityPinned184` + `TestF10ParityClosed184`
+   + `TestParityPhaseColumn`; G4 `make phase-acceptance` + lima gate agregat F9;
+   G5 suite invariant dan lint/loc/size/deadcode; G6 regenerasi artefak dengan
+   SHA-256. Definisi selesai F10 = G1–G6 hijau pada commit rilis yang sama,
+   dengan `DAMNBOT_RELEASE=1` dan tanpa target/ambang yang diturunkan.
+3. **Ledger hidup.** `docs/F10-ACCEPTANCE.md` memuat enam gate, inventaris
+   P20 74 baris, parity 184 (satu baris agregat yang bertaut ke daftar ADR-350),
+   lima regresi F9, tiga pengecualian eksternal, perintah bukti, dan definisi
+   `N/A` F10. `TestF10LedgerClosed` menolak `BELUM`, `N/A` telanjang, inventaris
+   P20 yang tidak 74, parity pinned yang belum tertutup, dan regresi F9;
+   `TestF10LedgerGateRules` adalah kontrol negatif. Gate **nonaktif** selama
+   `PHASE=F9` dan `DAMNBOT_F10_RELEASE` belum diset, dan aktif bila penanda itu
+   diset atau `PHASE` menjadi `F10`.
+4. **Mekanisme fase.** `internal/testutil/phase` menerima `F1..F10` (termasuk
+   CRLF); `FirstClosedPhase = 9` mempertahankan aturan F9 bahwa tidak ada baris
+   katalog yang boleh `pending` dari F9 onward, sehingga penambahan parser F10
+   tidak melemahkan gate F9. `PHASE` **tidak** dinaikkan pada ADR ini; kenaikan
+   ke F10 hanya boleh dilakukan setelah ledger, parser, dan gate hijau.
+5. **Pin parity 184.** `TestF9ParityDeferred184` diganti
+   `TestF10ParityPinned184` (daftar literal 184 ID yang sama, tanpa duplikat):
+   setiap baris wajib tetap F1–F5; status sah `planned`,
+   `N/A — re-phased to F10 (ADR-350)` selama ledger hidup, `LULUS` dengan tes
+   bernama di kolom Catatan, atau `N/A — <alasan ≥ 8 karakter> (ADR owner)`.
+   Saat gate penutupan aktif, `planned`/re-fase ditolak, dan
+   `dropped-with-approval` pada baris pinned ditolak. Denominator 854/837,
+   `TestParityPhaseColumn`, jumlah per fase, dan 17 baris dropped tidak berubah.
+6. **Pengecualian eksternal.** VM bersih 10 Mbit/s, dua penilai manusia, dan
+   Q15/frontier Q23-RC hanya boleh menjadi `N/A` bila owner menyetujui ADR yang
+   menyebut prasyarat, baris/dimensi terkena, dan komitmen target tidak turun.
+   Tanpa persetujuan itu barisnya tetap `BELUM`; gate penutupan menolak `N/A`
+   tanpa `(ADR …)`.
+7. **Anggaran LOC.** Fondasi ini menambah 0 LOC Go produk. Satu baris infra
+   `testutil` di `loc.budget` naik **200 → 202** karena parser F10 terukur 202
+   dengan `scripts/loc-check.sh budget`; baris `internal/testutil*` adalah infra
+   yang tidak masuk Σ core, sehingga `maxCoreLOC`/`maxModuleLOC` dan TOTAL tidak
+   berubah. PR fitur F10 wajib mengukur LOC per slice dan menetapkan alokasi
+   lewat ADR anggaran (nomor bebas, mis. ADR-358) sebelum PR fitur pertama;
+   angka LOC fitur tidak boleh dikarang.
+8. **Larangan menurunkan target.** Tidak boleh mengubah ambang SCORECARD,
+   menambah `t.Skip` tanpa alasan, memakai `N/A` untuk menyembunyikan kegagalan,
+   atau menurunkan denominator 74/163/184/837. Re-fase ADR-350/ADR-356 adalah
+   pemindahan penagihan, bukan penutupan.
+
+**Konsekuensi.** (+) F10 memiliki definisi, gate, ledger, dan pin mesin sebelum
+satu pun PR fitur; P20/184 tidak bisa ditutup dengan status re-fase atau `N/A`
+telanjang. (+) Parser menerima F10 tanpa melemahkan F9 dan tanpa menaikkan
+`PHASE` prematur. (−) Selama gate penutupan aktif, F10 tetap merah sampai 74
+dimensi, 163 operasi speed, 184 baris parity, tiga pengecualian eksternal, dan
+artefak rilis tertutup; itu memang tujuannya.
+
+**Bukti.** `go test ./internal/archtest ./internal/testutil/phase -count=1`;
+`DAMNBOT_F10_RELEASE=1 go test -run 'TestF10LedgerClosed|TestF10ParityClosed184' ./internal/archtest`
+sengaja gagal sampai ledger ditutup. Artefak angka: `bench/scorecard/results/2026-11-13-8fab87144e.json`,
+`bench/speed/results/damnbot-8fab87144e.json`, `docs/SCORECARD-RC.md`,
+`docs/F9-ACCEPTANCE.md`, `docs/FEATURE-PARITY.md`.
+
