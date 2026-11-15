@@ -13,11 +13,49 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/mcp"
 )
 
+// mcpAddFlags carries one `mcp add` invocation past flag parsing.
+type mcpAddFlags struct {
+	name                           string
+	url, command                   string
+	issuer, clientID, clientSecret string
+	trust                          string
+	timeout                        int
+	argv, scopes, readOnly         []string
+}
+
+// validate checks the flat flag set; each branch keeps its original message.
+func (f *mcpAddFlags) validate(pos []string) error {
+	if len(pos) != 1 {
+		return errors.New("add needs exactly one server name")
+	}
+	f.name = pos[0]
+	if !validMCPName(f.name) {
+		return errors.New("server name must match ^[a-z0-9][a-z0-9_-]{0,47}$")
+	}
+	if (f.url == "") == (f.command == "") {
+		return errors.New("add needs exactly one of --url or --command")
+	}
+	if f.trust != "untrusted" && f.trust != "full" {
+		return errors.New("--trust must be untrusted or full")
+	}
+	if f.timeout < 1 || f.timeout > 600 {
+		return errors.New("--timeout must be between 1 and 600")
+	}
+	if f.issuer != "" && f.command != "" {
+		return errors.New("--issuer is only valid with --url")
+	}
+	if f.clientSecret != "" && !strings.HasPrefix(f.clientSecret, "keychain:") {
+		return errors.New("--client-secret must be a keychain:<id> reference")
+	}
+	return nil
+}
+
 // mcpAdd writes one validated [modules.mcp.servers.<name>] section atomically.
-func mcpAdd(args []string, stdout, stderr io.Writer) int { //nolint:gocognit,gocyclo // flat flag validation is one sequence
+func mcpAdd(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("mcp add", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	url := fs.String("url", "", "Streamable HTTP endpoint")
@@ -35,46 +73,24 @@ func mcpAdd(args []string, stdout, stderr io.Writer) int { //nolint:gocognit,goc
 	if err != nil {
 		return 2
 	}
-	if len(pos) != 1 {
-		return mcpUsageErr(stderr, "add needs exactly one server name")
+	f := mcpAddFlags{
+		url: *url, command: *command, issuer: *issuer, clientID: *clientID,
+		clientSecret: *clientSecret, trust: *trust, timeout: *timeout,
+		argv: argv, scopes: scopes, readOnly: readOnly,
 	}
-	name := pos[0]
-	if !validMCPName(name) {
-		return mcpUsageErr(stderr, "server name must match ^[a-z0-9][a-z0-9_-]{0,47}$")
-	}
-	if (*url == "") == (*command == "") {
-		return mcpUsageErr(stderr, "add needs exactly one of --url or --command")
-	}
-	if *trust != "untrusted" && *trust != "full" {
-		return mcpUsageErr(stderr, "--trust must be untrusted or full")
-	}
-	if *timeout < 1 || *timeout > 600 {
-		return mcpUsageErr(stderr, "--timeout must be between 1 and 600")
-	}
-	if *issuer != "" && *command != "" {
-		return mcpUsageErr(stderr, "--issuer is only valid with --url")
-	}
-	if *clientSecret != "" && !strings.HasPrefix(*clientSecret, "keychain:") {
-		return mcpUsageErr(stderr, "--client-secret must be a keychain:<id> reference")
-	}
-	var flatScopes []string
-	for _, s := range scopes {
-		for part := range strings.SplitSeq(s, ",") {
-			if part = strings.TrimSpace(part); part != "" {
-				flatScopes = append(flatScopes, part)
-			}
-		}
+	if err := f.validate(pos); err != nil {
+		return mcpUsageErr(stderr, "%s", err)
 	}
 	loader, _, paths, err := openMCPConfig()
 	if err != nil {
 		return mcpFail(stderr, "add", err)
 	}
-	body, err := mcpAddBody(name, *url, *command, argv, *issuer, *clientID, *clientSecret, flatScopes, *trust, *timeout, readOnly)
+	body, err := mcpAddBody(f.name, f.url, f.command, f.argv, f.issuer, f.clientID, f.clientSecret, mcpFlattenScopes(f.scopes), f.trust, f.timeout, f.readOnly)
 	if err != nil {
 		return mcpUsageErr(stderr, "%s", cleanLine(err.Error()))
 	}
 	path := paths.ConfigFile()
-	merged, err := appendTOMPSection(path, name, body)
+	merged, err := appendTOMPSection(path, f.name, body)
 	if err != nil {
 		return mcpFail(stderr, "add", err)
 	}
@@ -87,8 +103,21 @@ func mcpAdd(args []string, stdout, stderr io.Writer) int { //nolint:gocognit,goc
 	if err := writeAtomicFile(path, ".config.toml.mcp-*", merged); err != nil {
 		return mcpFail(stderr, "add", err)
 	}
-	sessionsPrintf(stdout, "added mcp server %s to %s\n", name, path)
+	sessionsPrintf(stdout, "added mcp server %s to %s\n", f.name, path)
 	return 0
+}
+
+// mcpFlattenScopes trims the repeatable/comma-separated --scope flag.
+func mcpFlattenScopes(scopes []string) []string {
+	var flat []string
+	for _, s := range scopes {
+		for part := range strings.SplitSeq(s, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				flat = append(flat, part)
+			}
+		}
+	}
+	return flat
 }
 
 // mcpAddBody renders one config section; every value is strconv.Quote'd.
@@ -141,8 +170,22 @@ func mcpAddBody(name, url, command string, argv []string, issuer, clientID, clie
 	return b.String(), nil
 }
 
+// mcpListRow is one `mcp list` record; the JSON tags are the output contract.
+type mcpListRow struct {
+	Name      string          `json:"name"`
+	Transport string          `json:"transport"`
+	URL       string          `json:"url,omitempty"`
+	Command   []string        `json:"command,omitempty"`
+	Trust     string          `json:"trust"`
+	TimeoutS  int             `json:"timeout_s"`
+	OAuth     bool            `json:"oauth"`
+	Issuer    string          `json:"issuer,omitempty"`
+	Scope     string          `json:"scope,omitempty"`
+	Auth      *mcpTokenStatus `json:"auth,omitempty"`
+}
+
 // mcpList prints servers and credential state; it never prints a secret.
-func mcpList(args []string, stdout, stderr io.Writer) int { //nolint:gocognit,gocyclo // one report loop and two output modes
+func mcpList(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("mcp list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "machine-readable output")
@@ -156,39 +199,7 @@ func mcpList(args []string, stdout, stderr io.Writer) int { //nolint:gocognit,go
 	if err != nil {
 		return mcpFail(stderr, "list", err)
 	}
-	type row struct {
-		Name      string          `json:"name"`
-		Transport string          `json:"transport"`
-		URL       string          `json:"url,omitempty"`
-		Command   []string        `json:"command,omitempty"`
-		Trust     string          `json:"trust"`
-		TimeoutS  int             `json:"timeout_s"`
-		OAuth     bool            `json:"oauth"`
-		Issuer    string          `json:"issuer,omitempty"`
-		Scope     string          `json:"scope,omitempty"`
-		Auth      *mcpTokenStatus `json:"auth,omitempty"`
-	}
-	servers := cliMCPServers(&cfg)
-	rows := make([]row, 0, len(servers))
-	for i := range servers {
-		srv := &servers[i]
-		r := row{Name: srv.Name, Transport: "stdio", Command: srv.Command, Trust: string(srv.Trust), TimeoutS: srv.TimeoutS}
-		if srv.URL != "" {
-			r.Transport, r.URL = "http", srv.URL
-		}
-		if srv.OAuth != nil {
-			r.OAuth, r.Issuer = true, srv.OAuth.Issuer
-			ref := ""
-			if section := cfg.Modules.MCP.Servers[srv.Name]; section.OAuth != nil {
-				ref = section.OAuth.ClientSecret
-			}
-			if tokens, terr := openMCPTokens(context.Background(), *srv, ref, true, io.Discard); terr == nil {
-				status := tokens.PeekStatus(context.Background())
-				r.Auth, r.Scope = &status, status.Scope
-			}
-		}
-		rows = append(rows, r)
-	}
+	rows := mcpListRows(&cfg)
 	if *asJSON {
 		raw, err := json.Marshal(rows)
 		if err != nil {
@@ -200,6 +211,43 @@ func mcpList(args []string, stdout, stderr io.Writer) int { //nolint:gocognit,go
 		sessionsPrintf(stdout, "no mcp servers configured\n")
 		return 0
 	}
+	mcpListPrint(stdout, rows)
+	return 0
+}
+
+func mcpListRows(cfg *config.Config) []mcpListRow {
+	servers := cliMCPServers(cfg)
+	rows := make([]mcpListRow, 0, len(servers))
+	for i := range servers {
+		rows = append(rows, mcpListRowFor(cfg, &servers[i]))
+	}
+	return rows
+}
+
+// mcpListRowFor renders one server; a credential probe failure leaves Auth nil.
+func mcpListRowFor(cfg *config.Config, srv *mcp.Server) mcpListRow {
+	r := mcpListRow{Name: srv.Name, Transport: "stdio", Command: srv.Command, Trust: string(srv.Trust), TimeoutS: srv.TimeoutS}
+	if srv.URL != "" {
+		r.Transport, r.URL = "http", srv.URL
+	}
+	if srv.OAuth == nil {
+		return r
+	}
+	r.OAuth, r.Issuer = true, srv.OAuth.Issuer
+	ref := ""
+	if section := cfg.Modules.MCP.Servers[srv.Name]; section.OAuth != nil {
+		ref = section.OAuth.ClientSecret
+	}
+	tokens, err := openMCPTokens(context.Background(), *srv, ref, true, io.Discard)
+	if err != nil {
+		return r
+	}
+	status := tokens.PeekStatus(context.Background())
+	r.Auth, r.Scope = &status, status.Scope
+	return r
+}
+
+func mcpListPrint(stdout io.Writer, rows []mcpListRow) {
 	for i := range rows {
 		r := &rows[i]
 		target := r.URL
@@ -217,7 +265,6 @@ func mcpList(args []string, stdout, stderr io.Writer) int { //nolint:gocognit,go
 		sessionsPrintf(stdout, "%s\t%s\t%s\ttrust=%s timeout=%ds%s\n",
 			r.Name, r.Transport, cleanLine(target), r.Trust, r.TimeoutS, auth)
 	}
-	return 0
 }
 
 // mcpRemove revokes the credential, then deletes the section and its subtables.

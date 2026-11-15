@@ -69,18 +69,22 @@ func TestMCPAddListRemove(t *testing.T) { //nolint:gocyclo // one CLI round trip
 
 func TestMCPAddValidation(t *testing.T) {
 	mcpTestHome(t)
-	cases := [][]string{
-		{"add", "Bad_Name", "--url", "https://h/mcp"},
-		{"add", "demo"},
-		{"add", "demo", "--url", "https://h/mcp", "--command", "srv"},
-		{"add", "demo", "--url", "https://h/mcp", "--timeout", "0"},
-		{"add", "demo", "--url", "https://h/mcp", "--client-secret", "plaintext"},
-		{"add", "demo", "--command", "srv", "--issuer", "https://as.example"},
-		{"nope"},
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"add", "Bad_Name", "--url", "https://h/mcp"}, "server name must match"},
+		{[]string{"add", "demo"}, "add needs exactly one of --url or --command"},
+		{[]string{"add", "demo", "--url", "https://h/mcp", "--command", "srv"}, "add needs exactly one of --url or --command"},
+		{[]string{"add", "demo", "--url", "https://h/mcp", "--trust", "weird"}, "--trust must be untrusted or full"},
+		{[]string{"add", "demo", "--url", "https://h/mcp", "--timeout", "0"}, "--timeout must be between 1 and 600"},
+		{[]string{"add", "demo", "--url", "https://h/mcp", "--client-secret", "plaintext"}, "--client-secret must be a keychain:<id> reference"},
+		{[]string{"add", "demo", "--command", "srv", "--issuer", "https://as.example"}, "--issuer is only valid with --url"},
+		{[]string{"nope"}, "add needs exactly one server name"},
 	}
-	for _, args := range cases {
-		if code, _, _ := runMCPArgs(t, args...); code != 2 {
-			t.Errorf("%q = %d, want 2", args, code)
+	for _, tc := range cases {
+		if code, _, errOut := runMCPArgs(t, tc.args...); code != 2 || !strings.Contains(errOut, tc.want) {
+			t.Errorf("%q = %d err=%q, want 2 %q", tc.args, code, errOut, tc.want)
 		}
 	}
 }
