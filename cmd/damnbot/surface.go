@@ -86,6 +86,7 @@ func surface() []surfaceEntry {
 		monitoringSurface(),
 		{Name: "doctor", Summary: "Checks, repair, diagnostics, maintenance", Phase: phaseF3, Run: runDoctor, Usage: doctorUsage},
 		{Name: "update", Summary: "Atomic self-update with rollback and channels", Phase: phaseF3, Run: runUpdate, Usage: updateUsage},
+		{Name: "verify", Summary: "Detect a project's run recipe and smoke-test it", Phase: phaseF3, Run: runVerify, Usage: verifyUsage},
 		{Name: "version", Summary: "Version, commit, DB schema, compiled-in modules", Phase: phaseF1, Run: runVersion, Builtin: true},
 	}
 	entries = append(entries, mcpSurface()...)

@@ -7199,6 +7199,18 @@ sengaja gagal sampai ledger ditutup. Artefak angka: `bench/scorecard/results/202
 `bench/speed/results/damnbot-8fab87144e.json`, `docs/SCORECARD-RC.md`,
 `docs/F9-ACCEPTANCE.md`, `docs/FEATURE-PARITY.md`.
 
+**Amandemen 2026-11-15 (ADR-357, parity wave 1/B3):** CLI-033 dan OPS-025
+kembali `LULUS` lewat `damnbot verify` (deteksi resep go/cargo/node/pytest/make/
+just; eksekusi hanya `--run`, argv literal, timeout) dan tes
+`TestDetectVerifyRecipe`/`TestVerifyCLIRunSmoke` (`cmd/damnbot/verify_cli_test.go`).
+`--run` adalah permukaan exec, jadi ia memakai keputusan trust yang sama dengan
+`run` (`workspaceTrusted`): workspace yang tidak terdaftar ditolak **sebelum**
+proses anak dimulai (`TestVerifyRunRequiresTrust`), sementara deteksi manifes
+read-only tetap boleh dijalankan di workspace untrusted. Tidak ada dependency,
+migrasi, baris `MODULE`, atau kenaikan plafon; kode berada di `cmd/damnbot` dan
+`docs/reference/CLI.md` diperbarui untuk gate `TestCLIDocsMatchHelp`. Verifikasi
+`make loc`/lint diserahkan ke CI.
+
 ## ADR-358 — Klasifikasi error duplikat bertipe dan kenaikan `ctxdb` +7 (P20/F10)
 
 **Status:** Accepted 2026-11-15 (F10/P20). Menutup pelanggaran absolut "Klasifikasi error via string" tanpa menurunkan ambang, dan menaikkan plafon LOC core untuk kode yang benar-benar ditambahkan. Nomor 357 dipakai ADR fondasi F10 (ADR-357, berada lebih dulu di pohon ini); 358 dipilih agar tidak bertabrakan dengan blok ADR yang lebih baru di cabang lain.

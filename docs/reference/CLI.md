@@ -52,6 +52,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `damnbot undo` | Universal undo and coding-checkpoint rollback |
 | `damnbot update` | Atomic self-update with rollback and channels |
 | `damnbot usage` | Ledger, budget guard, insights |
+| `damnbot verify` | Detect a project's run recipe and smoke-test it |
 | `damnbot version` | Version, commit, DB schema, compiled-in modules |
 | `damnbot webhook` | Webhook subscriptions: subscribe, list, remove, test |
 | `damnbot whatsapp` | WhatsApp setup: Cloud API, Web only behind --accept-ban-risk |
@@ -132,6 +133,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--config` | `runScorecard` | `` | config.toml path |
 | `--config` | `runServeOpen` | `` | config.toml path |
 | `--config` | `runUpdate` | `` | config file |
+| `--config` | `runVerify` | `` | config file (default: the active profile) |
 | `--config` | `serveFlagSet` | `` | config.toml path (default: profile path) |
 | `--config` | `serveSessionsList` | `` | config.toml path |
 | `--config` | `serveSessionsRevoke` | `` | config.toml path |
@@ -271,6 +273,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--json` | `runDoctor` | `` |  |
 | `--json` | `runMonitoring` | `` | print the status as JSON |
 | `--json` | `runScorecard` | `` | print the result as JSON |
+| `--json` | `runVerify` | `` | machine-readable report |
 | `--json` | `scanKanbanGlobals` | `` |  |
 | `--json` | `skillFlag` | `` |  |
 | `--key` | `mcpCatalog` | `` | base64 ed25519 public key (overrides config) |
@@ -332,6 +335,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--owner` | `splitHubFlags` | `` |  |
 | `--p` | `runFlagSet` | `` | prompt (also accepted as positional text) |
 | `--parallel` | `parseEvalBatch` | `` | bounded concurrency (1..32) |
+| `--path` | `runVerify` | `.` | project directory to inspect |
 | `--peer` | `peerDM` | `` | registered peer id |
 | `--peer-id` | `memorySetup` | `` | peer id |
 | `--phone-number-id` | `whatsAppCloudSetup` | `` | Meta phone-number id (numeric) |
@@ -366,6 +370,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--rollback` | `runUpdate` | `` | restore the previous binary from pending.json |
 | `--root` | `projectCreate` | `` |  |
 | `--route` | `parseEvalBatch` | `` | provider route label for the ledger |
+| `--run` | `runVerify` | `` | execute the detected recipe as a smoke test |
 | `--schedule` | `runCron` | `` | 5-field cron expression |
 | `--scope` | `authLogin` | `` | space- or comma-separated scopes |
 | `--scope` | `mcpAdd` | `` | OAuth scope (repeatable; comma-separated accepted) |
@@ -391,6 +396,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--thread` | `runSend` | `` | optional thread/topic id |
 | `--timeout` | `apiServerFlagSet` | `` | per-turn deadline |
 | `--timeout` | `mcpAdd` | `` | per-call timeout in seconds (1..600) |
+| `--timeout` | `runVerify` | `` | smoke-test timeout |
 | `--times` | `parseLoopArgs` | `` |  |
 | `--token-file` | `memorySetup` | `` | 0600 file holding an API token to store |
 | `--token-ref` | `peerAdd` | `` | environment variable holding the bearer token |
