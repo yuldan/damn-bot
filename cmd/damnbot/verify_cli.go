@@ -84,29 +84,35 @@ func runVerify(args []string, stdout, stderr io.Writer) int {
 		say(stderr, "verify: no run recipe found in %s\n", root)
 		return 1
 	}
-	if !*run {
-		if *asJSON {
+	return verifyDispatch(recipe, rep, *run, *timeout, *configPath, *asJSON, stdout, stderr)
+}
+
+// verifyDispatch owns the run/refuse decision so runVerify stays within the
+// cognitive-complexity gate. The trust check runs before any execution.
+func verifyDispatch(recipe verifyRecipe, rep verifyReport, wantRun bool, timeout time.Duration, configPath string, asJSON bool, stdout, stderr io.Writer) int {
+	if !wantRun {
+		if asJSON {
 			return writeVerifyJSON(stdout, rep)
 		}
 		verifyHuman(stdout, rep, 0, false)
 		return 0
 	}
-	trusted, terr := verifyWorkspaceTrust(*configPath, root)
+	trusted, terr := verifyWorkspaceTrust(configPath, rep.Path)
 	if terr != nil {
 		say(stderr, "verify: trust: %s\n", cleanLine(terr.Error()))
 		return 1
 	}
 	if !trusted {
 		rep.Refused = "untrusted workspace"
-		if *asJSON {
+		if asJSON {
 			return writeVerifyJSON(stdout, rep)
 		}
-		say(stderr, "verify: %s is not a trusted workspace; --run refused (register it with `damnbot skills trust`)\n", root)
+		say(stderr, "verify: %s is not a trusted workspace; --run refused (register it with `damnbot skills trust`)\n", rep.Path)
 		return 1
 	}
-	result, rerr := executeVerifyRecipe(root, recipe, *timeout, stdout, stderr)
+	result, rerr := executeVerifyRecipe(rep.Path, recipe, timeout, stdout, stderr)
 	rep.Run = &result
-	if *asJSON {
+	if asJSON {
 		code := writeVerifyJSON(stdout, rep)
 		if rerr != nil || !result.OK {
 			return 1
