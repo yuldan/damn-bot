@@ -83,6 +83,7 @@ func surface() []surfaceEntry {
 		{Name: "kanban", Summary: "Collaboration board", Phase: phaseF7, Run: runKanban, Usage: kanbanUsage},
 		{Name: "usage", Summary: "Ledger, budget guard, insights", Phase: phaseF3, Run: runUsageCommand, Usage: usageUsage},
 		{Name: "prompt-size", Summary: "Byte breakdown of the system prompt and tool schemas", Phase: phaseF3, Run: runPromptSize, Usage: promptSizeUsage},
+		{Name: "status", Summary: "Component, session, model, token, and context status", Phase: phaseF3, Run: runStatus, Usage: statusUsage},
 		evalSurface(),
 		monitoringSurface(),
 		{Name: "doctor", Summary: "Checks, repair, diagnostics, maintenance", Phase: phaseF3, Run: runDoctor, Usage: doctorUsage},

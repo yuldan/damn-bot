@@ -483,9 +483,20 @@ func (c *Commands) status(ctx context.Context, t *Ticket, _ Command) CommandResu
 			tzName = zone
 		}
 	}
-	return CommandResult{Handled: true, Reply: fmt.Sprintf(
+	reply := fmt.Sprintf(
 		"status: up %s, queue %d, active turns %d, emergency stop %s, mode %s, version %s%s%s, tz %s",
-		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, stop, modeName(st.SafeMode), version, home, waiting, tzName)}
+		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, stop, modeName(st.SafeMode), version, home, waiting, tzName)
+	if detail, ok := c.runtime.(StatusDetail); ok && t != nil {
+		if ss, serr := detail.SessionStatus(ctx, &t.Scope); serr == nil && ss.SessionID != "" {
+			model := ss.Model
+			if model == "" {
+				model = "unknown"
+			}
+			reply += fmt.Sprintf("; session %s, model %s, tokens %d/%d, context %d/%d",
+				ss.SessionID, model, ss.InputTokens, ss.OutputTokens, ss.ContextUsed, ss.ContextLimit)
+		}
+	}
+	return CommandResult{Handled: true, Reply: reply}
 }
 
 // TimeZones is the per-identity IANA zone of PROV-03. Implemented by the

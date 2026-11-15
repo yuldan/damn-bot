@@ -7230,6 +7230,18 @@ baris surface baru dan empat baris `docs/reference/CLI.md` yang digenerate;
 build `minimal` memakai stub `prompt-size` seperti command berat lain (P13).
 Tanpa dependency, migrasi, config key, atau plafon baru.
 
+**Amandemen 2026-11-15 (ADR-357, parity wave 1/B1):** CLI-022, OPS-012, dan
+SLASH-038 kembali `LULUS`. `damnbot status [--json] [--session ID]` adalah satu
+agregator read-only (version, config, data, database, cron, gateway, skills,
+plus sesi/model/token/konteks); gateway `/status` memakai seam opsional
+`gateway.StatusDetail`/`SessionStatus` di atas store serve, dan TUI `/status`
+membaca state yang sama tanpa I/O. Bukti `TestStatusCLI`,
+`TestStatusCLIJSONSession`, `TestStatusCLIInvalidConfig`,
+`TestStatusIncludesSessionDetail`, `TestSlashStatus`, dan
+`TestSlashStatusUnknownWindow`; satu baris surface baru dan tiga baris
+`docs/reference/CLI.md` yang digenerate. Tanpa dependency, migrasi, config key,
+atau plafon baru.
+
 ## ADR-358 — Klasifikasi error duplikat bertipe dan kenaikan `ctxdb` +7 (P20/F10)
 
 **Status:** Accepted 2026-11-15 (F10/P20). Menutup pelanggaran absolut "Klasifikasi error via string" tanpa menurunkan ambang, dan menaikkan plafon LOC core untuk kode yang benar-benar ditambahkan. Nomor 357 dipakai ADR fondasi F10 (ADR-357, berada lebih dulu di pohon ini); 358 dipilih agar tidak bertabrakan dengan blok ADR yang lebih baru di cabang lain.
