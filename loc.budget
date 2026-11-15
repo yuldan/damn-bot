@@ -1,7 +1,7 @@
 # Budget LOC Go non-test per paket (ENGINEERING §2.4 E-19, tabel core; scc --no-gen, kolom Code).
 # Format: <grup> <LOC maks> <direktori...>. Sebuah file dihitung ke grup dengan prefix direktori terpanjang.
-# Σ core resmi (budgetCoreSum, jumlah cap baris core non-MODULE/non-infra) = 57.671;
-# plafon maxCoreLOC (repometa_test) = 57.700, headroom 29. Angka ini harus sama dengan
+# Σ core resmi (budgetCoreSum, jumlah cap baris core non-MODULE/non-infra) = 57.691;
+# plafon maxCoreLOC (repometa_test) = 57.700, headroom 9. Angka ini harus sama dengan
 # docs/ENGINEERING.md (baris Total core + prosa), regex budget_doc_test, dan marker arch-budgetsum.
 # ADR-110 (amandemen REVIEW-F1-SEC8 LP8-16..20): loop 1500 -> 1800 (pairing setiap hasil tool +
 # redaksi lintas-delta; terukur 1.757; Σ core 35.200 -> 35.500 <= 47.000).
@@ -66,6 +66,7 @@ provider/credpool  240 internal/provider/credpool
 # ADR-324 amandemen (sharding test + flake, 2026-11-15): body terpotong klien SIGKILL
 # tidak lagi dihitung pelanggaran skrip; 182 -> 190 = 187 terukur scc + headroom 3;
 # Σ core 57.663 -> 57.671 (headroom 29).
+# ADR-360: netx 1900 -> 1920 (Schedule/Transient + mode lokal; terukur 1916), Σ core 57.671 -> 57.691 <= maxCoreLOC 57.700 (headroom 9).
 provider/providertest 190 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 provider/anthropic  645 internal/provider/anthropic
@@ -91,7 +92,7 @@ provider/registry  660 internal/provider/registry
 provider/auth     1230 internal/provider/auth
 # ADR-323 P8a fetch: egress registry `doctor-tools-fetch` +5 LOC terukur
 # (1884); netx 1879 -> 1890, Sigma core 56.700 -> 56.711, plafon 56.800.
-netx              1900 internal/netx
+netx              1920 internal/netx
 netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).

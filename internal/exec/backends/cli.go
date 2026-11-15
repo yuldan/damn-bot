@@ -241,11 +241,14 @@ const spawnAttempts = 5
 // start must build a fresh *exec.Cmd on every call: a Cmd whose Start failed
 // is not reusable.
 func startSpawn(ctx context.Context, start func() error) error {
-	return retry.Do(ctx, retry.Policy{
+	if err := retry.Do(ctx, retry.Policy{
 		Attempts:  spawnAttempts,
 		Schedule:  func(n int, _ error) time.Duration { return 25 * time.Millisecond << (n - 1) },
 		Transient: isETXTBSY,
 	}, func(context.Context, int) error {
 		return start()
-	})
+	}); err != nil {
+		return fmt.Errorf("spawn: %w", err)
+	}
+	return nil
 }

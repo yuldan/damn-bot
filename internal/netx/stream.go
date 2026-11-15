@@ -107,7 +107,7 @@ func (s *Stream) Close() error {
 	return nil
 }
 
-// Retry exposes the server's SSE reconnection delay, if any.
+// ReconnectDelay exposes the server's SSE reconnection delay, if any.
 func (s *Stream) ReconnectDelay() (time.Duration, bool) { return s.p.ReconnectDelay() }
 
 // watchdogErr prefers the watchdog cause when the request was aborted by

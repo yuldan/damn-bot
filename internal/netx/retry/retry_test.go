@@ -174,6 +174,7 @@ func TestRetryCancel(t *testing.T) {
 // TestRetryLocalPolicy pins the local retry mode (Policy.Transient): Schedule
 // sets the delay, the operation error comes back unchanged, and a dead
 // context wins over the attempt budget.
+//nolint:gocyclo // one assertion block per local-mode contract
 func TestRetryLocalPolicy(t *testing.T) {
 	t.Parallel()
 	transient := errors.New("sharing violation")

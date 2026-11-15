@@ -7295,3 +7295,5 @@ key, atau plafon baru.
 **Bukti.** `TestRetryLocalPolicy`, `TestRetryRename`, `TestRetrySpawn*`, `TestExecRetry*`, `TestImportGraph`; audit AST: `retry.backoff` pusat plus tiga nama helper connectors sampai PR lanjutan mendarat.
 
 **Amendemen (pemecahan PR #949).** Supaya PR tetap ≤600 baris Go non-test, #949 hanya memuat parameter `Policy`, migrasi spawn ETXTBSY, dan penamaan API/helper. Connectors (#953), codetools, ctxdb, testutil, dan update pindah ke PR lanjutan dengan percobaan/delay masing-masing; audit pada #949 membaca 11 dan target 1 tercapai setelah seluruh PR lanjutan mendarat.
+
+**Amendemen (budget LOC).** `retry.Policy.Schedule`/`Transient` menambah ~16 baris kode di `internal/netx`; cap `netx` naik 1900 → 1920 (terukur 1916) dan Σ core 57.671 → 57.691 ≤ `maxCoreLOC` 57.700 (headroom 9). Tidak ada plafon gabungan yang berubah.

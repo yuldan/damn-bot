@@ -83,6 +83,8 @@ func (e *Error) FailureClass() Class { return e.Class }
 // Retry-After hint (≤ 30 s) or the jittered backoff (1 s, 4 s); any other
 // class, a cancelled ctx, or an open circuit returns at once. op receives the
 // 1-based attempt number. The result is nil or an *Error.
+//
+//nolint:gocognit // local and network return paths share one attempt loop; splitting hides the attempt state
 func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int) error) error {
 	limit := p.Attempts
 	if limit <= 0 {

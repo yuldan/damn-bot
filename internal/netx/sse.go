@@ -57,7 +57,7 @@ func NewSSEParser(r io.Reader, maxEvent int) *SSEParser {
 	return &SSEParser{r: r, max: maxEvent, buf: make([]byte, sseInitialBuf), retry: -1}
 }
 
-// Retry returns the last valid "retry" field value; ok is false if none.
+// ReconnectDelay returns the last valid "retry" field value; ok is false if none.
 func (p *SSEParser) ReconnectDelay() (d time.Duration, ok bool) { return p.retry, p.retry >= 0 }
 
 // Next returns the next event. At the end of input it returns io.EOF; a

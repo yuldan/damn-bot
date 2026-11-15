@@ -155,7 +155,7 @@ func (o *Outbox) Sent(ctx context.Context, id int64, ref string, at time.Time) e
 	return nil
 }
 
-// Retry re-queues a failed delivery with the next_at of NextAttempt. The row is
+// Reschedule re-queues a failed delivery with the next_at of NextAttempt. The row is
 // updated, never re-inserted, so the outbox length is unchanged.
 func (o *Outbox) Reschedule(ctx context.Context, id int64, attempt int, cause string, retryAfter time.Duration, at time.Time) (time.Time, error) {
 	next := NextAttempt(at, attempt, retryAfter)
