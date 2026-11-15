@@ -52,8 +52,9 @@ type Policy struct {
 	// cannot run inside a synctest bubble (real sockets) inject a fake.
 	Wait func(ctx context.Context, d time.Duration) error
 	// Schedule overrides the SPEC delay curve for local retries (filesystem,
-	// process spawn); n is the failed attempt, 1-based. nil = SPEC curve.
-	Schedule func(n int) time.Duration
+	// process spawn); n is the failed attempt, 1-based, and err its error.
+	// nil = SPEC curve.
+	Schedule func(n int, err error) time.Duration
 	// Retryable marks a local retry: the error classes do not apply, op's
 	// error is handed back unchanged (never wrapped in [Error]) so callers
 	// keep using errors.Is, and a dead ctx returns its cause.
@@ -144,7 +145,7 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 // asks for more than MaxRetryAfter.
 func (p Policy) delay(n int, err error) (time.Duration, bool) {
 	if p.Schedule != nil {
-		return p.Schedule(n), true
+		return p.Schedule(n, err), true
 	}
 	var ra ServerHint
 	if errors.As(err, &ra) && ra.RetryAfter() > 0 {

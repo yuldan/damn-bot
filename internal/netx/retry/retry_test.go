@@ -185,7 +185,7 @@ func TestRetryLocalPolicy(t *testing.T) {
 		return Policy{
 			Attempts:  3,
 			Retryable: local,
-			Schedule:  func(n int) time.Duration { return time.Duration(n) * 10 * time.Millisecond },
+			Schedule:  func(n int, _ error) time.Duration { return time.Duration(n) * 10 * time.Millisecond },
 			Wait: func(_ context.Context, d time.Duration) error {
 				waits = append(waits, d)
 				return nil
