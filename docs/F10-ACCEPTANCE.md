@@ -140,10 +140,10 @@ boleh kembali `LULUS` lewat tes bernama, tetapi tidak boleh hilang, berubah fase
 |---|---|---|---|---|
 | F10-PARITY-184 | Parity F1–F5 dire-fase ADR-350 (121 deferred + 63 residual) | 184 | `TestF10ParityPinned184`, `TestF10ParityClosed184` | BELUM |
 
-Progres wave 1/B3 (2026-11-15): **2 baris `LULUS`** — CLI-033 dan OPS-025;
-**182 baris** masih terbuka. Bukti nama tes dan path ada di kolom Catatan
-[`FEATURE-PARITY.md`](FEATURE-PARITY.md); baris agregat ini tetap `BELUM` sampai
-184/184 tertutup.
+Progres wave 1 (2026-11-15): **4 baris `LULUS`** — CLI-033, CLI-064, OPS-005,
+OPS-025; **180 baris** masih terbuka. Bukti nama tes dan path ada di kolom
+Catatan [`FEATURE-PARITY.md`](FEATURE-PARITY.md); baris agregat ini tetap
+`BELUM` sampai 184/184 tertutup.
 
 Rincian per prefix (tidak menambah baris parity berfase F10):
 
