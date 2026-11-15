@@ -1,7 +1,7 @@
 # Budget LOC Go non-test per paket (ENGINEERING §2.4 E-19, tabel core; scc --no-gen, kolom Code).
 # Format: <grup> <LOC maks> <direktori...>. Sebuah file dihitung ke grup dengan prefix direktori terpanjang.
-# Σ core resmi (budgetCoreSum, jumlah cap baris core non-MODULE/non-infra) = 57.663;
-# plafon maxCoreLOC (repometa_test) = 57.700, headroom 37. Angka ini harus sama dengan
+# Σ core resmi (budgetCoreSum, jumlah cap baris core non-MODULE/non-infra) = 57.671;
+# plafon maxCoreLOC (repometa_test) = 57.700, headroom 29. Angka ini harus sama dengan
 # docs/ENGINEERING.md (baris Total core + prosa), regex budget_doc_test, dan marker arch-budgetsum.
 # ADR-110 (amandemen REVIEW-F1-SEC8 LP8-16..20): loop 1500 -> 1800 (pairing setiap hasil tool +
 # redaksi lintas-delta; terukur 1.757; Σ core 35.200 -> 35.500 <= 47.000).
@@ -63,7 +63,10 @@ provider          2900 internal/provider
 # + event credential_rotated; provider 2145 -> 2358 (terukur 2358).
 # Sigma core 54.315 -> 54.525; plafon core 54.400 -> 54.600.
 provider/credpool  240 internal/provider/credpool
-provider/providertest 182 internal/provider/providertest
+# ADR-324 amandemen (sharding test + flake, 2026-11-15): body terpotong klien SIGKILL
+# tidak lagi dihitung pelanggaran skrip; 182 -> 190 = 187 terukur scc + headroom 3;
+# Σ core 57.663 -> 57.671 (headroom 29).
+provider/providertest 190 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 provider/anthropic  645 internal/provider/anthropic
 provider/gemini   1040 internal/provider/gemini

@@ -6439,6 +6439,8 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 
 **Dampak amandemen.** Job `test` PR: **2 → 16 instance** (8 shard × 2 target), jadi total job PR Go ≈ **33**; durasi job diperkirakan **~9,5–11 mnt** (bobot shard terbesar 567 s dari tabel + checkout/setup/kompilasi/TestMain). Runner-menit CPU tidak bertambah secara material (kerja tes sama, hanya dipartisi; kompilasi/TestMain per shard menambah overhead kecil). `push main` smoke tidak berubah (tidak menjalankan `test`). Tier `full` menjadi 8 shard × 6 target = **48 instance `test`**; nightly flake **1 → 16 instance**. Angka durasi adalah estimasi dari tabel bobot, bukan klaim run; verifikasi dilakukan pada run PR pertama setelah amandemen ini.
 
+**Amandemen plafon `provider/providertest`.** Perbaikan akar flake `TestRunKilledMidTurn` membuat server fake provider berhenti menghitung body yang terpotong klien `SIGKILL` sebagai pelanggaran skrip (tidak mengonsumsi respons terjadwal dan tidak `Errorf`), sehingga paket terukur **187** baris scc. Plafon baris itu karena itu dinaikkan **182 → 190** (headroom 3) dan dicatat, bukan ditekan di bawah angka terukur: Σ core **57.663 → 57.671** ≤ `maxCoreLOC` **57.700** (headroom 29), `maxCoreLOC` tidak berubah; `loc.budget`, `docs/ENGINEERING.md`, dan komentar `maxCoreLOC` disinkronkan.
+
 ## ADR-325 — Plafon binary `minimal` 22,1 MB untuk perbaikan identitas file CT27-5
 
 
