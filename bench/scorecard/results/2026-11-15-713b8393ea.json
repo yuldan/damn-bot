@@ -3,7 +3,7 @@
   "phase": "F9",
   "date": "2026-11-15T00:00:00Z",
   "hermes_commit": "868b9f244f5aa3ad238e494048046fe4f29c28ba",
-  "damnbot_commit": "0001e301",
+  "damnbot_commit": "713b8393ea",
   "evalset": "evalset/v1",
   "harness": "bench/scorecard: agregasi artefak fase terukur; 0 LLM call",
   "sources_sha256": {
@@ -17,7 +17,7 @@
    "bench/f9/results/chaos-200kills-0001e301-F9.json": "4abc22ae8fa4575efb74663d346d3786b0784a7ba75920cd737d3c9bb4796c9e",
    "bench/f9/results/soak-acceptance-24h-1000t-8fbafafa-F9.json": "15bc95262dbdde49597149393c83a02ac28882b779cdfd9bbc98670ca875e5a2",
    "bench/scorecard/not_measured.json": "9968c134c957e18ab58be9b84a5acc4a4b13cc1365efeb063762b46a1ad66b3a",
-   "bench/scorecard/results/error-string-0001e301.json": "f1f5c6e6f1dea9237cb73a7b49f8bd5087b814f9fa2a8398a5602049cb2b3bf4",
+   "bench/scorecard/results/error-string-713b8393ea.json": "afab85b2feaa156f3ea0d2b2c85f1a9bd60c0dd65e8fe67bb18640238c85610a",
    "bench/scorecard/results/tooling-8fab87144e.json": "dfae66d98328b7f454247df660c11a1137c6af9a7c215ff0ee26b396e7ca8021",
    "bench/speed/results/hermes-868b9f244f-F6.json": "7bb783884287bcb0b3cbf58c9a9e9cae63c8e3d685e9c432b1f99cfc4f0f9615",
    "docs/FEATURE-PARITY.md": "4574f1594a26dd939291062e0934352163e4e52a84ffa7b18083f96794db134c",
@@ -395,7 +395,7 @@
    "hermes": 129,
    "damnbot": 0,
    "source": [
-    "bench/scorecard/results/error-string-0001e301.json"
+    "bench/scorecard/results/error-string-713b8393ea.json"
    ],
    "detail": "0 produksi (P20: cron_store.go memakai ctxdb.ErrDuplicate; TestNoErrorStringClassification); 1 allowlist E-21 (ctxdb/errors.go exact RAISE text); hermes 41 + 88"
   },

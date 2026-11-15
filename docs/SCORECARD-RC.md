@@ -1,8 +1,8 @@
 # SCORECARD RC F9 — artefak terpublikasi (P20 dire-fase ke F10, ADR-356)
 
-Artefak mesin: [`bench/scorecard/results/2026-11-15-0001e301.json`](../bench/scorecard/results/2026-11-15-0001e301.json).
+Artefak mesin: [`bench/scorecard/results/2026-11-15-713b8393ea.json`](../bench/scorecard/results/2026-11-15-713b8393ea.json).
 Gate: `TestScorecardGate` (`bench/scorecard/scorecard_test.go`); artefak dibangun
-ulang oleh tes yang sama (`SCORECARD_UPDATE=1`). Basis: `0001e301` (pohon final; sumber soak 24 jam tetap `8fbafafa` dan dicatat per baris), hermes `868b9f244f`.
+ulang oleh tes yang sama (`SCORECARD_UPDATE=1`). Basis: `713b8393ea` (pohon produk P20; sumber soak 24 jam tetap `8fbafafa`, chaos `0001e301`, tooling `8fab87144e`, dan dicatat per baris), hermes `868b9f244f`.
 
 Status: **P20 dire-fase ke F10 (ADR-356)**. Owner menyetujui Opsi A pada 2026-11-13:
 baris agregat F9 "Artefak rilis & scorecard" **tidak** diklaim `LULUS`; statusnya
@@ -126,7 +126,7 @@ eksekusinya ada di [`F10-ACCEPTANCE.md`](F10-ACCEPTANCE.md); F10 wajib menutup:
 4. Publikasi ulang artefak RC dan baris agregat `LULUS` hanya lewat PR F10 yang membuat
    `DAMNBOT_RELEASE=1 go test ./scorecard` dan `TestF9SpeedParity` hijau.
 
-Artefak: [`bench/scorecard/results/2026-11-15-0001e301.json`](../bench/scorecard/results/2026-11-15-0001e301.json),
+Artefak: [`bench/scorecard/results/2026-11-15-713b8393ea.json`](../bench/scorecard/results/2026-11-15-713b8393ea.json),
 [`bench/speed/results/damnbot-713b8393ea.json`](../bench/speed/results/damnbot-713b8393ea.json),
 `bench/scorecard/results/tooling-8fab87144e.json`. Keputusan: [`DECISIONS.md`](DECISIONS.md) ADR-356.
 

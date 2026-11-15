@@ -1,7 +1,7 @@
 {
  "meta": {
   "date": "2026-11-15T00:00:00Z",
-  "damnbot_commit": "0001e301",
+  "damnbot_commit": "713b8393ea",
   "method": "go/ast scan of non-test main-module files for strings.Contains(x.Error(), ...); enforced by TestNoErrorStringClassification"
  },
  "classifications": 0,

@@ -13,12 +13,12 @@ import (
 )
 
 // ArtefactPath is the published RC scorecard path (SCORECARD §2.6).
-// BasisCommit is the final tree the artifact attests to. The soak rows come
-// from the named source artifacts (24 h soak at 8fbafafa, 200-kill chaos at
-// 0001e301); every source digest is rebuilt here.
+// BasisCommit is the P20 product tree the artifact attests to. The soak rows
+// come from the named source artifacts (24 h soak at 8fbafafa, 200-kill chaos
+// at 0001e301); every source digest is rebuilt here.
 const (
-	ArtefactPath = "scorecard/results/2026-11-15-0001e301.json"
-	BasisCommit  = "0001e301"
+	ArtefactPath = "scorecard/results/2026-11-15-713b8393ea.json"
+	BasisCommit  = "713b8393ea"
 	BasisDate    = "2026-11-15T00:00:00Z"
 	Soak24hPath  = "bench/f9/results/soak-acceptance-24h-1000t-8fbafafa-F9.json"
 	ChaosPath    = "bench/f9/results/chaos-200kills-0001e301-F9.json"
@@ -291,10 +291,12 @@ func (b *builder) measure() error {
 	mk("Kebocoran goroutine", RuleAbsMax, 0, "kebocoran",
 		"53 paket goleak.VerifyTestMain (ctxdb, exec, gateway, tui + 49); cmd dengan -tags goolm; 0 bocor; race di 4 paket kritis",
 		"code_quality", "goroutine_leaks")
-	errorString := "bench/scorecard/results/error-string-0001e301.json"
-	b.put(&Dimension{Name: "Klasifikasi error via string", Rule: RuleAbsMax, Target: 0, Unit: "temuan", Hermes: new(129.0),
+	errorString := "bench/scorecard/results/error-string-713b8393ea.json"
+	b.put(&Dimension{
+		Name: "Klasifikasi error via string", Rule: RuleAbsMax, Target: 0, Unit: "temuan", Hermes: new(129.0),
 		Damnbot: new(b.must(errorString, "classifications")), Source: []string{errorString},
-		Detail: "0 produksi (P20: cron_store.go memakai ctxdb.ErrDuplicate; TestNoErrorStringClassification); 1 allowlist E-21 (ctxdb/errors.go exact RAISE text); hermes 41 + 88"})
+		Detail: "0 produksi (P20: cron_store.go memakai ctxdb.ErrDuplicate; TestNoErrorStringClassification); 1 allowlist E-21 (ctxdb/errors.go exact RAISE text); hermes 41 + 88",
+	})
 	mk("Flake rate", RuleAbsMax, 0.1, "%",
 		"nightly make flake -count=20: 18/25 run gagal (18/20 yang dieksekusi), 5 cancelled, 2026-10-19..11-12; kategori internal/exec sweep dan exec/backends ETXTBSY",
 		"code_quality", "flake_rate_pct")
@@ -302,29 +304,41 @@ func (b *builder) measure() error {
 		"30 run ci pull_request selesai: p90 32,62 menit, median 25,35 (2026-11-12T16:43..11-13T00:51)",
 		"code_quality", "ci_p90_min")
 	mk("Exec spawn overhead", RuleAbsMax, 15, "ms p95", "BenchmarkShellSessionExec p95 1,202 ms (mean 750,784 µs/op)", "code_quality", "exec_spawn_ms")
-	b.put(&Dimension{Name: "File terbesar (non-test / test)", Rule: RuleAbsMax, Target: 800, Unit: "baris", Hermes: new(8392.0),
+	b.put(&Dimension{
+		Name: "File terbesar (non-test / test)", Rule: RuleAbsMax, Target: 800, Unit: "baris", Hermes: new(8392.0),
 		Damnbot: new(b.must(tool, "code_quality", "largest_file_lines")), Source: []string{tool},
 		Detail: fmt.Sprintf("non-test %d ≤ 800; test %d ≤ 1.500 (internal/browser/parity_test.go); hermes 8.392/23.074",
-			int(b.must(tool, "code_quality", "largest_file_lines")), int(b.must(tool, "code_quality", "largest_test_lines")))})
-	b.put(&Dimension{Name: "Fungsi terpanjang / > 80 baris", Rule: RuleAbsMax, Target: 80, Unit: "baris", Hermes: new(616.0),
+			int(b.must(tool, "code_quality", "largest_file_lines")), int(b.must(tool, "code_quality", "largest_test_lines"))),
+	})
+	b.put(&Dimension{
+		Name: "Fungsi terpanjang / > 80 baris", Rule: RuleAbsMax, Target: 80, Unit: "baris", Hermes: new(616.0),
 		Damnbot: new(b.must(tool, "code_quality", "longest_function_lines")), Source: []string{tool},
 		Detail: fmt.Sprintf("non-test: maks %d baris (cmd/damnbot/project_cli.go:71 projectCommand), %d fungsi >80; target ≤80/0; semua >80 ber-nolint funlen (E-52)",
-			int(b.must(tool, "code_quality", "longest_function_lines")), int(b.must(tool, "code_quality", "functions_over_80")))})
-	b.put(&Dimension{Name: "Kompleksitas siklomatik maks / > 15", Rule: RuleAbsMax, Target: 15, Unit: "nilai", Hermes: new(102.0),
+			int(b.must(tool, "code_quality", "longest_function_lines")), int(b.must(tool, "code_quality", "functions_over_80"))),
+	})
+	b.put(&Dimension{
+		Name: "Kompleksitas siklomatik maks / > 15", Rule: RuleAbsMax, Target: 15, Unit: "nilai", Hermes: new(102.0),
 		Damnbot: new(b.must(tool, "code_quality", "max_cyclomatic")), Source: []string{tool},
 		Detail: fmt.Sprintf("non-test: maks %d (cmd/damnbot/project_cli.go:71 projectCommand), %d fungsi >15; target ≤15/0",
-			int(b.must(tool, "code_quality", "max_cyclomatic")), int(b.must(tool, "code_quality", "functions_over_15")))})
-	b.put(&Dimension{Name: "Implementasi retry", Rule: RuleAbsMax, Target: 1, Unit: "fungsi", Hermes: new(169.0),
+			int(b.must(tool, "code_quality", "max_cyclomatic")), int(b.must(tool, "code_quality", "functions_over_15"))),
+	})
+	b.put(&Dimension{
+		Name: "Implementasi retry", Rule: RuleAbsMax, Target: 1, Unit: "fungsi", Hermes: new(169.0),
 		Damnbot: new(b.must(tool, "code_quality", "retry_functions")), Source: []string{tool},
 		Detail: fmt.Sprintf("%d fungsi non-test bernama retry/backoff; 1 kebijakan terpusat internal/netx/retry; %d tes; target 1",
-			int(b.must(tool, "code_quality", "retry_functions")), int(b.must(tool, "code_quality", "retry_tests")))})
+			int(b.must(tool, "code_quality", "retry_functions")), int(b.must(tool, "code_quality", "retry_tests"))),
+	})
 	// Special cases with a hermes baseline.
-	b.put(&Dimension{Name: "LOC per fitur", Rule: RuleLower, Unit: "LOC/baris", Hermes: new(1162.0),
+	b.put(&Dimension{
+		Name: "LOC per fitur", Rule: RuleLower, Unit: "LOC/baris", Hermes: new(1162.0),
 		Damnbot: new(b.must(tool, "code_quality", "source_loc") / 837), Source: []string{tool},
-		Detail: "source LOC / 837 baris penyebut gate (SPEC §8)"})
-	b.put(&Dimension{Name: "Rasio test:source", Rule: RuleLower, Unit: "rasio", Hermes: new(1.48),
+		Detail: "source LOC / 837 baris penyebut gate (SPEC §8)",
+	})
+	b.put(&Dimension{
+		Name: "Rasio test:source", Rule: RuleLower, Unit: "rasio", Hermes: new(1.48),
 		Damnbot: new(b.must(tool, "code_quality", "test_source_ratio")), Source: []string{tool},
-		Detail: "target 0,80–1,20; diukur make loc-ratio"})
+		Detail: "target 0,80–1,20; diukur make loc-ratio",
+	})
 
 	// §1.3 Stabilitas: the F9 soak/chaos artefacts are the measured source.
 	// Crash/hang = crashes + open turns (a hang never closes turn_end);
