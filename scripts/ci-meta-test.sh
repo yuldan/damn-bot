@@ -128,7 +128,7 @@ pr_commit() { git -C "$1" add -A && git -C "$1" -c user.name=meta -c user.email=
 prepare() { # <gate> <dir>
 	local d=$2
 	case $1 in
-	test | race | timing | fuzz | coverage | flake | perf | phase-acceptance)
+	test-shard | test | race | timing | fuzz | coverage | flake | perf | phase-acceptance)
 		# Pohon minimal yang lulus dan ter-cover penuh.
 		gofile "$d/internal/metaviolation/ok.go" <<'EOF'
 // Package metaviolation is the minimal tree for gate meta-tests (ADR-073).
@@ -232,7 +232,7 @@ import "net/http"
 var Client = &http.Client{}
 EOF
 		;;
-	test)
+	test-shard | test)
 		printf 'package metaviolation\n\nimport "testing"\n\nfunc TestMetaViolation(t *testing.T) { t.Fatal("pelanggaran sintetis") }\n' |
 			gofile "$d/internal/metaviolation/v_test.go"
 		;;
