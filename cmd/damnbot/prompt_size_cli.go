@@ -1,3 +1,5 @@
+//go:build !minimal
+
 package main
 
 import (
@@ -102,13 +104,13 @@ func measurePromptSize(ctx context.Context, cfg *config.Config, o *runOptions, m
 	if err != nil {
 		return promptSizeReport{}, fmt.Errorf("temp data dir: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(tmp) }()
+	defer func() { _ = os.RemoveAll(tmp) }() //nolint:errcheck // temporary measurement dir
 	red := redact.New(redact.Options{})
 	w, err := newRunWiring(ctx, cfg, tmp, modelRef, o, red, configDir, home, nil)
 	if err != nil {
 		return promptSizeReport{}, fmt.Errorf("wiring: %w", err)
 	}
-	defer func() { _ = w.fail(nil) }()
+	defer func() { _ = w.fail(nil) }() //nolint:errcheck // measurement closes the throwaway wiring
 	sel, err := toolset.Resolve(cfg.Toolsets, runtime.GOOS, availableNames(w.registry, w.modules))
 	if err != nil {
 		return promptSizeReport{}, fmt.Errorf("toolsets: %w", err)

@@ -1,3 +1,5 @@
+//go:build !minimal
+
 package main
 
 import (
@@ -34,7 +36,7 @@ func TestPromptSizeRequiresModel(t *testing.T) {
 // TestPromptSizeCLI measures the real run wiring: the stable prompt and every
 // declared tool schema, without touching the operator's data dir. This is the
 // named evidence for CLI-072/OPS-017.
-func TestPromptSizeCLI(t *testing.T) {
+func TestPromptSizeCLI(t *testing.T) { //nolint:gocyclo // one CLI round trip text + JSON
 	isolatePromptHome(t)
 	code, out, errOut := runArgs(t, "prompt-size", "--model", "openai/gpt-5")
 	if code != 0 {

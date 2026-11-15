@@ -7226,7 +7226,8 @@ sementara, lalu mengukur byte system prompt (stable + katalog deferred) dan
 setiap schema tool dengan `assemble.MarshalTools`; tanpa sesi, key, atau
 kredensial operator yang disentuh. Bukti `TestPromptSizeCLI` dan
 `TestPromptSizeRequiresModel` (`cmd/damnbot/prompt_size_cli_test.go`); satu
-baris surface baru dan empat baris `docs/reference/CLI.md` yang digenerate.
+baris surface baru dan empat baris `docs/reference/CLI.md` yang digenerate;
+build `minimal` memakai stub `prompt-size` seperti command berat lain (P13).
 Tanpa dependency, migrasi, config key, atau plafon baru.
 
 ## ADR-358 — Klasifikasi error duplikat bertipe dan kenaikan `ctxdb` +7 (P20/F10)
