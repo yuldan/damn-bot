@@ -7203,9 +7203,13 @@ sengaja gagal sampai ledger ditutup. Artefak angka: `bench/scorecard/results/202
 kembali `LULUS` lewat `damnbot verify` (deteksi resep go/cargo/node/pytest/make/
 just; eksekusi hanya `--run`, argv literal, timeout) dan tes
 `TestDetectVerifyRecipe`/`TestVerifyCLIRunSmoke` (`cmd/damnbot/verify_cli_test.go`).
-Tidak ada dependency, migrasi, baris `MODULE`, atau kenaikan plafon; kode berada
-di `cmd/damnbot` dan `docs/reference/CLI.md` diperbarui untuk gate
-`TestCLIDocsMatchHelp`. Verifikasi `make loc`/lint diserahkan ke CI.
+`--run` adalah permukaan exec, jadi ia memakai keputusan trust yang sama dengan
+`run` (`workspaceTrusted`): workspace yang tidak terdaftar ditolak **sebelum**
+proses anak dimulai (`TestVerifyRunRequiresTrust`), sementara deteksi manifes
+read-only tetap boleh dijalankan di workspace untrusted. Tidak ada dependency,
+migrasi, baris `MODULE`, atau kenaikan plafon; kode berada di `cmd/damnbot` dan
+`docs/reference/CLI.md` diperbarui untuk gate `TestCLIDocsMatchHelp`. Verifikasi
+`make loc`/lint diserahkan ke CI.
 
 ## ADR-358 — Klasifikasi error duplikat bertipe dan kenaikan `ctxdb` +7 (P20/F10)
 

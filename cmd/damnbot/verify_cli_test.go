@@ -6,7 +6,42 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/damnbot/damnbot/internal/config"
 )
+
+// isolateVerifyHome points config/data at a temp tree; trust is established
+// per test by writing <config>/trusted-projects.
+func isolateVerifyHome(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("APPDATA", filepath.Join(home, "config"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "data"))
+}
+
+// trustVerifyRoot registers root in the same store `damnbot skills trust`
+// writes. It must run after isolateVerifyHome.
+func trustVerifyRoot(t *testing.T, root string) {
+	t.Helper()
+	loader, err := config.New(config.OS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := loader.Paths("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.ConfigDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.ConfigDir, "trusted-projects"), []byte(root+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func writeVerifyFile(t *testing.T, dir, name, body string) {
 	t.Helper()
@@ -120,12 +155,14 @@ func TestVerifyCLIJSON(t *testing.T) {
 }
 
 // TestVerifyCLIRunSmoke executes the real detected recipe in a throwaway Go
-// module: the pass path is the parity acceptance for CLI-033/OPS-025.
+// module after the workspace is registered: the pass path is the parity
+// acceptance for CLI-033/OPS-025.
 func TestVerifyCLIRunSmoke(t *testing.T) {
-	t.Parallel()
+	isolateVerifyHome(t)
 	dir := t.TempDir()
+	trustVerifyRoot(t, dir)
 	writeVerifyFile(t, dir, "go.mod", "module example.com/verifypass\n\ngo 1.26.11\n")
-	writeVerifyFile(t, dir, "pass_test.go", "package verifypass\n\nimport \"testing\"\n\nfunc TestPass(t *testing.T) {}\n")
+	writeVerifyFile(t, dir, "pass_test.go", "package verifypass\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestPass(t *testing.T) {\n\tif err := os.WriteFile(\"ran.marker\", []byte(\"x\"), 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n")
 	code, out, errOut := runArgs(t, "verify", "--path", dir, "--run", "--timeout", "2m")
 	if code != 0 {
 		t.Fatalf("verify --run = %d out=%q err=%q", code, out, errOut)
@@ -133,15 +170,65 @@ func TestVerifyCLIRunSmoke(t *testing.T) {
 	if !strings.Contains(out, "smoke: pass") {
 		t.Fatalf("output = %q", out)
 	}
+	if _, err := os.Stat(filepath.Join(dir, "ran.marker")); err != nil {
+		t.Fatalf("trusted recipe did not execute: %v", err)
+	}
 }
 
 func TestVerifyCLIRunFailure(t *testing.T) {
-	t.Parallel()
+	isolateVerifyHome(t)
 	dir := t.TempDir()
+	trustVerifyRoot(t, dir)
 	writeVerifyFile(t, dir, "go.mod", "module example.com/verifyfail\n\ngo 1.26.11\n")
 	writeVerifyFile(t, dir, "fail_test.go", "package verifyfail\n\nimport \"testing\"\n\nfunc TestFail(t *testing.T) { t.Fatal(\"boom\") }\n")
 	code, out, _ := runArgs(t, "verify", "--path", dir, "--run", "--timeout", "2m")
 	if code != 1 || !strings.Contains(out, "smoke: fail") {
 		t.Fatalf("verify failing recipe = %d out=%q", code, out)
+	}
+}
+
+// TestVerifyRunRequiresTrust is the security negative control: --run refuses
+// an unregistered workspace before any child process starts (the recipe would
+// create ran.marker), while detection-only still works there.
+func TestVerifyRunRequiresTrust(t *testing.T) {
+	isolateVerifyHome(t)
+	dir := t.TempDir()
+	writeVerifyFile(t, dir, "go.mod", "module example.com/untrusted\n\ngo 1.26.11\n")
+	writeVerifyFile(t, dir, "marker_test.go", "package untrusted\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestMarker(t *testing.T) {\n\tif err := os.WriteFile(\"ran.marker\", []byte(\"x\"), 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n")
+	marker := filepath.Join(dir, "ran.marker")
+
+	code, out, errOut := runArgs(t, "verify", "--path", dir, "--run")
+	if code != 1 || !strings.Contains(errOut, "not a trusted workspace") {
+		t.Fatalf("untrusted --run = %d out=%q err=%q", code, out, errOut)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("untrusted recipe executed: %v", err)
+	}
+
+	code, out, _ = runArgs(t, "verify", "--path", dir, "--run", "--json")
+	if code != 1 {
+		t.Fatalf("untrusted --run --json = %d", code)
+	}
+	var rep verifyReport
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatalf("json: %v (%q)", err, out)
+	}
+	if rep.Refused != "untrusted workspace" || rep.Run != nil {
+		t.Fatalf("refusal report = %+v", rep)
+	}
+
+	code, out, errOut = runArgs(t, "verify", "--path", dir, "--json")
+	if code != 0 {
+		t.Fatalf("detection in untrusted workspace = %d %q", code, errOut)
+	}
+	rep = verifyReport{}
+	if err := json.Unmarshal([]byte(out), &rep); err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Found || rep.Recipe == nil || rep.Run != nil {
+		t.Fatalf("detection report = %+v", rep)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("detection executed a recipe: %v", err)
 	}
 }

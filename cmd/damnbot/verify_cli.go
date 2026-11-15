@@ -35,14 +35,15 @@ type verifyRun struct {
 
 // verifyReport is the --json document. Recipe is nil when no manifest matched.
 type verifyReport struct {
-	Path   string        `json:"path"`
-	Found  bool          `json:"found"`
-	Recipe *verifyRecipe `json:"recipe,omitempty"`
-	Run    *verifyRun    `json:"run,omitempty"`
+	Path    string        `json:"path"`
+	Found   bool          `json:"found"`
+	Recipe  *verifyRecipe `json:"recipe,omitempty"`
+	Run     *verifyRun    `json:"run,omitempty"`
+	Refused string        `json:"refused,omitempty"`
 }
 
 func verifyUsage(w io.Writer) {
-	say(w, "usage: damnbot verify [--path DIR] [--run] [--timeout 2m] [--json]\n")
+	say(w, "usage: damnbot verify [--path DIR] [--config FILE] [--run] [--timeout 2m] [--json]\n")
 }
 
 // runVerify implements `damnbot verify` (CLI-033, OPS-025): detect a project's
@@ -51,6 +52,7 @@ func runVerify(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	path := fs.String("path", ".", "project directory to inspect")
+	configPath := fs.String("config", "", "config file (default: the active profile)")
 	run := fs.Bool("run", false, "execute the detected recipe as a smoke test")
 	timeout := fs.Duration("timeout", 2*time.Minute, "smoke-test timeout")
 	asJSON := fs.Bool("json", false, "machine-readable report")
@@ -89,6 +91,19 @@ func runVerify(args []string, stdout, stderr io.Writer) int {
 		verifyHuman(stdout, rep, 0, false)
 		return 0
 	}
+	trusted, terr := verifyWorkspaceTrust(*configPath, root)
+	if terr != nil {
+		say(stderr, "verify: trust: %s\n", cleanLine(terr.Error()))
+		return 1
+	}
+	if !trusted {
+		rep.Refused = "untrusted workspace"
+		if *asJSON {
+			return writeVerifyJSON(stdout, rep)
+		}
+		say(stderr, "verify: %s is not a trusted workspace; --run refused (register it with `damnbot skills trust`)\n", root)
+		return 1
+	}
 	result, rerr := executeVerifyRecipe(root, recipe, *timeout, stdout, stderr)
 	rep.Run = &result
 	if *asJSON {
@@ -124,6 +139,23 @@ func verifyRoot(path string) (string, error) {
 		return "", fmt.Errorf("path %s is not a directory", path)
 	}
 	return filepath.Clean(abs), nil
+}
+
+// verifyWorkspaceTrust applies the same decision as `run`: a recipe executes
+// project code, so an unregistered workspace is refused before any child
+// process starts. Detection alone never calls this; reading manifests is safe
+// in an untrusted checkout.
+func verifyWorkspaceTrust(configPath, root string) (bool, error) {
+	o := runOptions{configPath: configPath}
+	cfg, _, configDir, home, err := loadRunEnv(&o)
+	if err != nil {
+		return false, fmt.Errorf("config: %w", err)
+	}
+	trusted, err := workspaceTrusted(&cfg, configDir, root, home)
+	if err != nil {
+		return false, fmt.Errorf("workspace: %w", err)
+	}
+	return trusted, nil
 }
 
 func verifyHuman(w io.Writer, rep verifyReport, durationMS int64, ran bool) {
@@ -187,8 +219,7 @@ func executeVerifyRecipe(root string, r verifyRecipe, timeout time.Duration, std
 		run.TimedOut, run.ExitCode = true, -1
 		return run, nil
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		run.ExitCode = exitErr.ExitCode()
 		return run, nil
 	}

@@ -133,6 +133,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--config` | `runScorecard` | `` | config.toml path |
 | `--config` | `runServeOpen` | `` | config.toml path |
 | `--config` | `runUpdate` | `` | config file |
+| `--config` | `runVerify` | `` | config file (default: the active profile) |
 | `--config` | `serveFlagSet` | `` | config.toml path (default: profile path) |
 | `--config` | `serveSessionsList` | `` | config.toml path |
 | `--config` | `serveSessionsRevoke` | `` | config.toml path |
@@ -272,6 +273,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--json` | `runDoctor` | `` |  |
 | `--json` | `runMonitoring` | `` | print the status as JSON |
 | `--json` | `runScorecard` | `` | print the result as JSON |
+| `--json` | `runVerify` | `` | machine-readable report |
 | `--json` | `scanKanbanGlobals` | `` |  |
 | `--json` | `skillFlag` | `` |  |
 | `--key` | `mcpCatalog` | `` | base64 ed25519 public key (overrides config) |
