@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/netx"
+	"github.com/damnbot/damnbot/internal/netx/retry"
 )
 
 // Framework bounds of SPEC §9.9. Every value is a hard cap: config can lower
@@ -120,24 +121,37 @@ func (d *Doer) JSON(ctx context.Context, r *Request, out any) (int, error) {
 	if r.Retry {
 		attempts += d.retries
 	}
-	var last *Error
-	for attempt := range attempts {
-		if attempt > 0 {
-			if err := d.sleep(ctx, d.backoff(attempt, last)); err != nil {
-				return 0, d.contextError(ctx, err)
+	status := 0
+	var lastOpErr error
+	err := retry.Do(ctx, retry.Policy{
+		Attempts: attempts,
+		Wait:     d.sleep,
+		Schedule: func(n int, err error) time.Duration {
+			var ce *Error
+			if errors.As(err, &ce) {
+				return d.delayFor(n, ce)
 			}
-		}
-		status, err := d.once(ctx, r, out)
-		if err == nil {
-			return status, nil
-		}
-		ce, ok := errors.AsType[*Error](err)
-		if !ok || !retryableStatus(ce.Status) || attempt == attempts-1 {
-			return status, err
-		}
-		last = ce
+			return d.delayFor(n, nil)
+		},
+		Retryable: func(err error) bool {
+			ce, ok := errors.AsType[*Error](err)
+			return ok && transientStatus(ce.Status)
+		},
+	}, func(context.Context, int) error {
+		var aerr error
+		status, aerr = d.once(ctx, r, out)
+		lastOpErr = aerr
+		return aerr
+	})
+	if err == nil {
+		return status, nil
 	}
-	return 0, last
+	if err != lastOpErr {
+		// The wait itself failed (or the context ended during it): no
+		// response status belongs to this call.
+		return 0, d.contextError(ctx, err)
+	}
+	return status, err
 }
 
 // once performs exactly one attempt inside the per-call deadline.
@@ -233,7 +247,7 @@ func (d *Doer) statusError(resp *http.Response) *Error {
 		code = codeInvalidArgs
 	}
 	e := &Error{Code: code, Status: resp.StatusCode}
-	if ra := retryAfter(resp.Header); ra > 0 {
+	if ra := afterHint(resp.Header); ra > 0 {
 		e.RetryAfter = int64(ra / time.Second)
 	}
 	if body := redactedBody(resp, maxErrorBody, d.redactor); body != "" {
@@ -266,9 +280,9 @@ func (d *Doer) contextError(_ context.Context, err error) *Error {
 	return &Error{Code: codeNetwork, Message: d.redactor.Redact(err.Error()), err: err}
 }
 
-// backoff returns the wait before the next attempt: the server's Retry-After
+// delayFor returns the wait before the next attempt: the server's Retry-After
 // when it sent one, otherwise a bounded exponential delay.
-func (d *Doer) backoff(attempt int, last *Error) time.Duration {
+func (d *Doer) delayFor(attempt int, last *Error) time.Duration {
 	if last != nil && last.RetryAfter > 0 {
 		return min(time.Duration(last.RetryAfter)*time.Second, maxRetryAfter)
 	}
@@ -276,12 +290,13 @@ func (d *Doer) backoff(attempt int, last *Error) time.Duration {
 	return min(delay, maxRetryAfter)
 }
 
-func retryableStatus(status int) bool {
+// transientStatus reports the statuses worth another attempt.
+func transientStatus(status int) bool {
 	return status == http.StatusTooManyRequests || status >= 500
 }
 
-// retryAfter parses the Retry-After header (seconds or HTTP date), capped.
-func retryAfter(h http.Header) time.Duration {
+// afterHint parses the Retry-After header (seconds or HTTP date), capped.
+func afterHint(h http.Header) time.Duration {
 	value := strings.TrimSpace(h.Get("Retry-After"))
 	if value == "" {
 		return 0
