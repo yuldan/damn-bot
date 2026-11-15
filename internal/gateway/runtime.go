@@ -44,6 +44,24 @@ type Runtime interface {
 	TopicSession(ctx context.Context, scope *Scope) (string, error)
 }
 
+// StatusDetail is the optional per-session detail of /status (SLASH-038).
+// Implementations report the caller's own session; the base Runtime status
+// stays machine-wide.
+type StatusDetail interface {
+	SessionStatus(ctx context.Context, scope *Scope) (SessionStatus, error)
+}
+
+// SessionStatus is the session/model/token/context block /status appends.
+// SessionID empty means the route has no session yet.
+type SessionStatus struct {
+	SessionID    string
+	Model        string
+	InputTokens  int64
+	OutputTokens int64
+	ContextUsed  int64
+	ContextLimit int64
+}
+
 // RuntimeStatus is the read-only daemon state /status answers with.
 type RuntimeStatus struct {
 	Uptime      time.Duration

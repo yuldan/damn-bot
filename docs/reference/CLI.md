@@ -38,6 +38,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `damnbot pets` | Terminal mascots: install, select, scale, doctor |
 | `damnbot plugins` | Plugin catalog Q18: list, show, verify |
 | `damnbot project` | Named multi-folder workspaces: create, use, folders, boards |
+| `damnbot prompt-size` | Byte breakdown of the system prompt and tool schemas |
 | `damnbot proxy` | Local OpenAI-compatible proxy: start, status, providers |
 | `damnbot resume` | Lift the emergency stop set by pause |
 | `damnbot review` | Memory and skill quarantine review |
@@ -49,9 +50,11 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `damnbot setup` | Setup wizard, credentials, uninstall |
 | `damnbot skills` | Local skills: list, install, update, trust |
 | `damnbot slack` | Slack integration helpers: app manifest with scopes and events |
+| `damnbot status` | Component, session, model, token, and context status |
 | `damnbot undo` | Universal undo and coding-checkpoint rollback |
 | `damnbot update` | Atomic self-update with rollback and channels |
 | `damnbot usage` | Ledger, budget guard, insights |
+| `damnbot verify` | Detect a project's run recipe and smoke-test it |
 | `damnbot version` | Version, commit, DB schema, compiled-in modules |
 | `damnbot webhook` | Webhook subscriptions: subscribe, list, remove, test |
 | `damnbot whatsapp` | WhatsApp setup: Cloud API, Web only behind --accept-ban-risk |
@@ -128,6 +131,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--config` | `runDump` | `` | config.toml path (default: profile path) |
 | `--config` | `runFlagSet` | `` | config.toml path (default: profile path) |
 | `--config` | `runMemory` | `` | config path |
+| `--config` | `runPromptSize` | `` | config file (default: the active profile) |
 | `--config` | `runProxy` | `` | config path |
 | `--config` | `runScorecard` | `` | config.toml path |
 | `--config` | `runServeOpen` | `` | config.toml path |
@@ -270,7 +274,10 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--json` | `runCron` | `` | machine-readable output |
 | `--json` | `runDoctor` | `` |  |
 | `--json` | `runMonitoring` | `` | print the status as JSON |
+| `--json` | `runPromptSize` | `` | machine-readable breakdown |
 | `--json` | `runScorecard` | `` | print the result as JSON |
+| `--json` | `runStatus` | `` | machine-readable components |
+| `--json` | `runVerify` | `` | machine-readable report |
 | `--json` | `scanKanbanGlobals` | `` |  |
 | `--json` | `skillFlag` | `` |  |
 | `--key` | `mcpCatalog` | `` | base64 ed25519 public key (overrides config) |
@@ -294,6 +301,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--model` | `parseEvalFlags` | `openai/gpt-5.4-mini` | provider/model |
 | `--model` | `runCron` | `` | run: provider/model reference |
 | `--model` | `runFlagSet` | `` | provider/model reference |
+| `--model` | `runPromptSize` | `` | provider/model whose prompt is measured |
 | `--model` | `runSetup` | `` | provider/model to write |
 | `--name` | `configProfilesImport` | `` | import under this profile name |
 | `--name` | `runCron` | `` | job name |
@@ -332,6 +340,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--owner` | `splitHubFlags` | `` |  |
 | `--p` | `runFlagSet` | `` | prompt (also accepted as positional text) |
 | `--parallel` | `parseEvalBatch` | `` | bounded concurrency (1..32) |
+| `--path` | `runVerify` | `.` | project directory to inspect |
 | `--peer` | `peerDM` | `` | registered peer id |
 | `--peer-id` | `memorySetup` | `` | peer id |
 | `--phone-number-id` | `whatsAppCloudSetup` | `` | Meta phone-number id (numeric) |
@@ -366,6 +375,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--rollback` | `runUpdate` | `` | restore the previous binary from pending.json |
 | `--root` | `projectCreate` | `` |  |
 | `--route` | `parseEvalBatch` | `` | provider route label for the ledger |
+| `--run` | `runVerify` | `` | execute the detected recipe as a smoke test |
 | `--schedule` | `runCron` | `` | 5-field cron expression |
 | `--scope` | `authLogin` | `` | space- or comma-separated scopes |
 | `--scope` | `mcpAdd` | `` | OAuth scope (repeatable; comma-separated accepted) |
@@ -377,6 +387,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--session` | `parseUndoFlags` | `` | session id (default: newest session with actions in this directory) |
 | `--session` | `parseWhyArgs` | `` | only this session id (optional) |
 | `--session` | `runFlagSet` | `` | resume an existing session id |
+| `--session` | `runStatus` | `` | session id (default: newest visible session) |
 | `--session-id` | `memorySetup` | `` | session id |
 | `--sha256` | `cuaRegister` | `` | expected SHA-256 of --source |
 | `--since` | `runInsights` | `` | first day (YYYY-MM-DD); overrides --days |
@@ -391,6 +402,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--thread` | `runSend` | `` | optional thread/topic id |
 | `--timeout` | `apiServerFlagSet` | `` | per-turn deadline |
 | `--timeout` | `mcpAdd` | `` | per-call timeout in seconds (1..600) |
+| `--timeout` | `runVerify` | `` | smoke-test timeout |
 | `--times` | `parseLoopArgs` | `` |  |
 | `--token-file` | `memorySetup` | `` | 0600 file holding an API token to store |
 | `--token-ref` | `peerAdd` | `` | environment variable holding the bearer token |

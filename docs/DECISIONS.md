@@ -7199,6 +7199,22 @@ sengaja gagal sampai ledger ditutup. Artefak angka: `bench/scorecard/results/202
 `bench/speed/results/damnbot-8fab87144e.json`, `docs/SCORECARD-RC.md`,
 `docs/F9-ACCEPTANCE.md`, `docs/FEATURE-PARITY.md`.
 
+**Amandemen 2026-11-15 (ADR-357, parity wave 1):** sembilan baris ADR-350
+kembali `LULUS` dengan tes bernama: CLI-022, CLI-033, CLI-064, CLI-072,
+OPS-005, OPS-012, OPS-017, OPS-025, dan SLASH-038 (rincian path:line ada di
+`docs/FEATURE-PARITY.md`). Satu agregator status dipakai CLI `damnbot status`
+dan gateway `/status` (seam `gateway.StatusDetail`; TUI `/status` membaca state
+yang sama), `damnbot prompt-size` memakai assembler `run` di data dir sementara,
+`damnbot verify` mendeteksi resep proyek dan mengeksekusinya hanya dengan
+`--run`, dan uninstall ditutup pada `setup --uninstall` berbasis manifest yang
+sudah ada tanpa implementasi kedua. Tidak ada baris `MODULE` baru, dependency,
+migrasi, atau kenaikan plafon; kode `cmd/damnbot` tidak berbaris per-paket dan
+tambahan `internal/gateway`/`internal/tui` tetap di bawah headroom Σ `MODULE`
+121 (verifikasi angka oleh CI `make loc`; host pengembangan tidak menjalankan
+gate berat pada wave ini). `docs/reference/CLI.md` memuat tiga perintah dan
+delapan baris flag baru; `TestCLIDocsMatchHelp` dan `TestF10ParityPinned184`
+tetap menjadi gate.
+
 ## ADR-358 — Klasifikasi error duplikat bertipe dan kenaikan `ctxdb` +7 (P20/F10)
 
 **Status:** Accepted 2026-11-15 (F10/P20). Menutup pelanggaran absolut "Klasifikasi error via string" tanpa menurunkan ambang, dan menaikkan plafon LOC core untuk kode yang benar-benar ditambahkan. Nomor 357 dipakai ADR fondasi F10 (ADR-357, berada lebih dulu di pohon ini); 358 dipilih agar tidak bertabrakan dengan blok ADR yang lebih baru di cabang lain.
