@@ -153,7 +153,7 @@ Deskripsi = teks `help` hermes (verbatim, dipotong 15 kata) agar dapat dicocokka
 | CLI-069 | `hermes serve` | Start the Hermes backend server (headless; powers the desktop app and remote backends) | `hermes_cli/subcommands/dashboard.py:95` | tersedia | extra `web` |  | F8 | LULUS |
 | CLI-070 | `hermes desktop` | Build and launch the native desktop app | `hermes_cli/subcommands/gui.py:10` | tersedia | Node.js, Electron | alias: gui | F8 | LULUS |
 | CLI-071 | `hermes logs` | View and filter Hermes log files | `hermes_cli/subcommands/logs.py:11` | tersedia | — |  | F3 | N/A — re-phased to F10 (ADR-350) |
-| CLI-072 | `hermes prompt-size` | Show a byte breakdown of the system prompt + tool schemas | `hermes_cli/subcommands/prompt_size.py:12` | tersedia | — |  | F3 | N/A — re-phased to F10 (ADR-350) |
+| CLI-072 | `hermes prompt-size` | Show a byte breakdown of the system prompt + tool schemas | `hermes_cli/subcommands/prompt_size.py:12` | tersedia | — | F10: TestPromptSizeCLI (cmd/damnbot/prompt_size_cli_test.go:37); byte stable+catalog+tool schema dari wiring run | F3 | LULUS |
 | CLI-073 | `hermes help` | Alias bantuan (ditangani khusus, bukan subparser) | `hermes_cli/main.py:2797` | tersedia | — | ada di `_BUILTIN_SUBCOMMANDS`, tidak via add_parser; F9: TestHelpRoot (cmd/damnbot/surface_test.go:136); help builtin di surface; topik & daftar perintah | F1 | LULUS |
 | CLI-074 | `hermes --version` / `version` | Tampilkan versi | `hermes_cli/main.py:2217` | tersedia | — | cmd_version; F9: TestVersionCommand (cmd/damnbot/surface_test.go:202); version builtin + alias --version | F1 | LULUS |
 | CLI-075 | Plugin-registered subcommands | Subcommand dari plugin (mis. `hermes photon`) | `hermes_cli/main.py:2825` | per plugin | — | deferred platform CLI (#54678) | F3 | N/A — re-phased to F10 (ADR-350) |
@@ -934,7 +934,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | OPS-014 | Billing / Nous subscription | Saldo, plan, topup Nous | `agent/billing_usage.py`, `hermes_cli/nous_billing.py`, `hermes_cli/nous_subscription.py` | on bila Nous | Nous Portal | `/topup`, `/subscription` | — | dropped-with-approval (NP-19) |
 | OPS-015 | Usage pricing / cost | Estimasi biaya per model | `agent/usage_pricing.py`, `hermes_cli/models_pricing.py` | on | models.dev data | F9: TestCost (internal/budget/budget_test.go:154); tabel harga + biaya di usage ledger | F3 | LULUS |
 | OPS-016 | Insights | Analitik penggunaan | `agent/insights.py` | opt-in | — | `hermes insights` | F8 | LULUS |
-| OPS-017 | Prompt size | Rincian byte system prompt + schema tool | `hermes_cli/prompt_size.py` | opt-in | — |  | F3 | N/A — re-phased to F10 (ADR-350) |
+| OPS-017 | Prompt size | Rincian byte system prompt + schema tool | `hermes_cli/prompt_size.py` | opt-in | — | F10: TestPromptSizeCLI (cmd/damnbot/prompt_size_cli_test.go:37); breakdown system+tools JSON | F3 | LULUS |
 | OPS-018 | Monitoring & OTLP export | Health gateway, export OTLP | `agent/monitoring/otlp_exporter.py`, `agent/monitoring/gateway_health.py` | off (`monitoring.export.otlp.enabled`) | extra `otlp` |  | F8 | LULUS |
 | OPS-019 | Telemetry shared metrics | Metrik bersama ke Nous | `hermes_cli/config_defaults.py:2328` | off | Network |  | — | dropped-with-approval (NP-19) |
 | OPS-020 | Batch runner | Jalankan prompt massal paralel → trajectory | `batch_runner.py`, `toolset_distributions.py` | opt-in (skrip) | — | research/RL data | F8 | LULUS |

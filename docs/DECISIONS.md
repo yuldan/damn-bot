@@ -7219,6 +7219,16 @@ mencetak diff unified. Bukti baru `TestF10UninstallDryRunKeepsChangedFile`
 (`cmd/damnbot/setup_uninstall_test.go`); tidak ada implementasi kedua, kode
 produk, dependency, migrasi, atau plafon baru.
 
+**Amandemen 2026-11-15 (ADR-357, parity wave 1/B2):** CLI-072 dan OPS-017
+kembali `LULUS` lewat `damnbot prompt-size [--model provider/model] [--config
+FILE] [--json]`. Perintah membangun wiring `run` yang sama di data dir
+sementara, lalu mengukur byte system prompt (stable + katalog deferred) dan
+setiap schema tool dengan `assemble.MarshalTools`; tanpa sesi, key, atau
+kredensial operator yang disentuh. Bukti `TestPromptSizeCLI` dan
+`TestPromptSizeRequiresModel` (`cmd/damnbot/prompt_size_cli_test.go`); satu
+baris surface baru dan empat baris `docs/reference/CLI.md` yang digenerate.
+Tanpa dependency, migrasi, config key, atau plafon baru.
+
 ## ADR-358 — Klasifikasi error duplikat bertipe dan kenaikan `ctxdb` +7 (P20/F10)
 
 **Status:** Accepted 2026-11-15 (F10/P20). Menutup pelanggaran absolut "Klasifikasi error via string" tanpa menurunkan ambang, dan menaikkan plafon LOC core untuk kode yang benar-benar ditambahkan. Nomor 357 dipakai ADR fondasi F10 (ADR-357, berada lebih dulu di pohon ini); 358 dipilih agar tidak bertabrakan dengan blok ADR yang lebih baru di cabang lain.
