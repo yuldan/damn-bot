@@ -16,7 +16,9 @@ import (
 // 2026-11-15): every shard of a fixed inventory must be non-empty, the union
 // must be exactly the inventory with no duplicate, and the same shard must be
 // stable across invocations. A regression here would silently drop tests from
-// the `test` matrix while ci-required still reports green.
+// the `test` matrix while ci-required still reports green. The fixture runs
+// with the smoke tier's narrowed PKGS set, so a focused-PKGS shortcut cannot
+// swallow the plan path (the `push: main` smoke regression).
 func TestTestShardPartition(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -49,6 +51,10 @@ func TestTestShardPartition(t *testing.T) {
 			"SHARD_INVENTORY="+invPath,
 			"SHARD_WEIGHTS="+weightPath,
 			"SHARD_PLAN_ONLY=1",
+			// The `push: main` smoke tier runs `make test PKGS="…"`; the plan
+			// path must win over that focused-PKGS shortcut or the whole list
+			// reaches `go test` as one argument ("matched no packages").
+			"PKGS=./cmd/... ./internal/archtest/...",
 		)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
