@@ -15,9 +15,12 @@ terpanjang 132 > 80, kompleksitas 40 > 15, retry 38 > 1, flake 72% (18/25 nightl
 `TestNoErrorStringClassification`). Tiga dimensi stabilitas terukur dari
 soak/chaos: crash/hang 0, kill -9 0/0/0, dan self-healing 0,597 s. `Peak RSS`
 tetap `not_measured`: artefak soak 24 jam/1.000 turn `8fbafafa` hanya merekam RSS
-awal/akhir, bukan `VmHWM`; harness kini menulis `peak_kb` (VmHWM) untuk run
-berikutnya, dan angka 98,5 MB dari soak 14,5 jam yang gagal (`9717027e`) tidak
-diklaim. Bukti positif
+awal/akhir, bukan `VmHWM`; harness kini menulis `peak_kb` (serve) dan
+`api_peak_kb` (anak api-server) pada tiap sampel (ADR-359), tetapi dua percobaan
+1 jam/1.000 turn berhenti pada 492 s (ack webhook timeout) dan 1.828 s (timeout
+tengah run) saat host bersama di atas ambang guard (load5 7,5–11,1 > 6,0), jadi
+tidak ada angka yang diklaim. Angka 98,5 MB dari soak 14,5 jam yang gagal
+(`9717027e`) juga tidak dipakai. Bukti positif
 tidak disembunyikan: first token 6,178 ms vs hermes 39,407 ms = **6,38×** (margin
 inti ≥5× terpenuhi) dan 16 dimensi pembanding hermes lulus. Tidak ada target yang
 diturunkan dan tidak ada angka yang dikarang.
@@ -70,7 +73,7 @@ Angka diambil ulang dari artefak fase (SHA-256 tercatat di `meta.sources_sha256`
 | Crash/hang rate [I] | 0 | 0 per 1.000 turn | 0 | lulus (soak 24 jam) |
 | Pemulihan setelah `kill -9` [I] | 0 | 0/0/0 (200 kill) | 0 | lulus |
 | Self-healing [I] | 10 s | 0,597 s maks (kill -9), 0,178 s reboot | ≤10 s | lulus |
-| Peak RSS | 211,5 MB (peak idle F4) | `not_measured` | ≤0,5× | belum terukur; artefak soak hanya RSS akhir, `peak_kb` (VmHWM) baru dicatat run berikutnya |
+| Peak RSS | 211,5 MB (peak idle F4) | `not_measured` | ≤0,5× | `peak_kb`/`api_peak_kb` (VmHWM) sudah direkam tiap sampel, tetapi belum ada run 1.000 turn yang sah (dua percobaan timeout saat host jenuh; guard load5 >6 menolak start) |
 
 Sumber: `bench/budget/results/hermes-868b9f244f.json`, `internal/assemble/testdata/p1/all-modules.request.json`,
 `bench/f2/results/hermes-868b9f244f-F2.json`, `bench/f3/results/{damnbot-8fab87144e,damnbot-6d01e7a1d5,hermes-868b9f244f}-F3.json`,

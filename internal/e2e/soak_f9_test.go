@@ -41,6 +41,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -58,7 +59,9 @@ const (
 	soakAcceptanceHours = 24
 	soakDefaultWindow   = time.Minute
 	soakRSSGrowthPct    = 20.0
-	soakFDSlack         = 2
+	// soakPeakRSSLimitKB is the P20 target: serve VmHWM over 1.000 turns ≤300 MB.
+	soakPeakRSSLimitKB = 300 * 1024
+	soakFDSlack        = 2
 	// soakIdleSettle exceeds net/http's 90 s IdleConnTimeout. Provider and
 	// Bot API keep-alive sockets (with their two server-side goroutines) are
 	// not a daemon leak and must expire before the FD/goroutine census.
@@ -183,7 +186,9 @@ type f9SoakMeta struct {
 
 type f9SoakSample struct {
 	RSSKB      int `json:"rss_kb"`
-	PeakKB     int `json:"peak_kb"` // VmHWM: process-lifetime peak RSS
+	PeakKB     int `json:"peak_kb"`     // VmHWM of serve: process-lifetime peak RSS
+	APIRSSKB   int `json:"api_rss_kb"`  // the api-server child, same data dir
+	APIPeakKB  int `json:"api_peak_kb"` // VmHWM of the api-server child
 	Goroutines int `json:"goroutines"`
 	FDs        int `json:"fds"`
 }
@@ -211,6 +216,7 @@ type f9SoakGate struct {
 	Goroutines bool `json:"goroutines_ok"`
 	FDs        bool `json:"fds_ok"`
 	RSS        bool `json:"rss_ok"`
+	Peak       bool `json:"peak_ok"`
 	Messages   bool `json:"messages_ok"`
 	Integrity  bool `json:"integrity_ok"`
 	NoPanic    bool `json:"no_panic"`
@@ -239,9 +245,10 @@ func TestF9Soak24h(t *testing.T) {
 	transcript := soakVerifyTranscript(t, rt.e.DataDir, plan.turns)
 	res := f9SoakResult(rt, plan, profile, started, start, end, panicFree, &transcript)
 	writeF9Artifact(t, "soak", profile, &res)
-	t.Logf("F9 soak: %d turns, goroutines %d→%d, fds %d→%d, rss %.1f→%.1f MB (%.1f%%), %s",
+	t.Logf("F9 soak: %d turns, goroutines %d→%d, fds %d→%d, rss %.1f→%.1f MB (%.1f%%), peak serve %.1f MB / api-server %.1f MB, %s",
 		plan.turns, start.Goroutines, end.Goroutines, start.FDs, end.FDs,
-		mb(start.RSSKB), mb(end.RSSKB), res.Deltas.RSSPct, transcript.Integrity)
+		mb(start.RSSKB), mb(end.RSSKB), res.Deltas.RSSPct,
+		mb(end.PeakKB), mb(end.APIPeakKB), transcript.Integrity)
 	if !res.Gate.Pass {
 		t.Fatalf("F9 soak gate failed: %+v", res.Gate)
 	}
@@ -287,11 +294,45 @@ func startF9Soak(t *testing.T, plan soakPlan) *f9SoakRuntime {
 	soakWaitReady(t, rt)
 	t.Cleanup(func() {
 		if t.Failed() {
+			// A stalled request is diagnosed from the process stacks: SIGQUIT
+			// makes the Go runtime dump every goroutine before it exits.
+			logDBLocks(t, e.DataDir)
+			_ = p.cmd.Process.Signal(unix.SIGQUIT)
+			_ = rt.api.cmd.Process.Signal(unix.SIGQUIT)
+			time.Sleep(2 * time.Second)
 			t.Logf("serve stderr:\n%s", p.stderr.String())
 			t.Logf("api-server stderr:\n%s", rt.api.stderr.String())
 		}
 	})
 	return rt
+}
+
+// logDBLocks prints the POSIX locks held on the soak DB. At a request stall
+// this is the evidence of which process still owns the SQLite write lock.
+func logDBLocks(t *testing.T, dir string) {
+	t.Helper()
+	fi, err := os.Stat(ctxdb.DBPath(dir))
+	if err != nil {
+		t.Logf("db stat: %v", err)
+		return
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return
+	}
+	raw, err := os.ReadFile("/proc/locks")
+	if err != nil {
+		t.Logf("read /proc/locks: %v", err)
+		return
+	}
+	needle := fmt.Sprintf(":%d ", st.Ino)
+	var held []string
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.Contains(line, needle) {
+			held = append(held, line)
+		}
+	}
+	t.Logf("db inode %d locks:\n%s", st.Ino, strings.Join(held, "\n"))
 }
 
 // seedSoakOwners makes every sender the profile uses an owner identity. The
@@ -341,11 +382,15 @@ func soakRunTurns(t *testing.T, rt *f9SoakRuntime, plan soakPlan) (start, end f9
 	t.Helper()
 	warmup := min(max(plan.turns/5, 2), 200, plan.turns)
 	gatewayDone := 0
+	started := time.Now()
 	for i := range plan.turns {
 		turnStart := time.Now()
 		gatewayDone = soakExecuteTurn(t, rt, i, plan, gatewayDone)
 		if i+1 == warmup {
 			start = soakStableSample(t, rt)
+		}
+		if (i+1)%25 == 0 {
+			t.Logf("F9 soak: turn %d/%d elapsed %s", i+1, plan.turns, time.Since(started).Round(time.Second))
 		}
 		soakPace(t, turnStart, plan.interval)
 	}
@@ -371,6 +416,7 @@ func soakExecuteTurn(t *testing.T, rt *f9SoakRuntime, turn int, plan soakPlan, g
 	interval := plan.interval
 	surface := turn % 3
 	marker := fmt.Sprintf("f9-soak-%d-%04d", surface, turn)
+	t.Logf("F9 soak turn %04d/%04d surface %d marker %s", turn+1, plan.turns, surface, marker)
 	answer := "soak-ok " + marker
 	rt.e.Server.Push(providertest.Text(answer))
 	want := turn + 1
@@ -546,6 +592,7 @@ func f9SoakResult(rt *f9SoakRuntime, plan soakPlan, profile string, started time
 		Goroutines: res.Deltas.Goroutines <= 0,
 		FDs:        res.Deltas.FDs <= soakFDSlack,
 		RSS:        res.Deltas.RSSPct < soakRSSGrowthPct,
+		Peak:       soakPeakOK(end.PeakKB, end.APIPeakKB),
 		Messages: transcript.UserMessages == plan.turns && transcript.TurnStarts == plan.turns &&
 			transcript.TurnEnds == plan.turns && transcript.Crashes == 0 &&
 			transcript.Placeholders == tgTurns+webhookTurns &&
@@ -554,8 +601,8 @@ func f9SoakResult(rt *f9SoakRuntime, plan soakPlan, profile string, started time
 		Integrity: transcript.Integrity == "ok",
 		NoPanic:   panicFree,
 	}
-	res.Gate.Pass = res.Gate.Goroutines && res.Gate.FDs && res.Gate.RSS && res.Gate.Messages &&
-		res.Gate.Integrity && res.Gate.NoPanic
+	res.Gate.Pass = res.Gate.Goroutines && res.Gate.FDs && res.Gate.RSS && res.Gate.Peak &&
+		res.Gate.Messages && res.Gate.Integrity && res.Gate.NoPanic
 	return res
 }
 
@@ -778,7 +825,15 @@ func soakSampleNow(t *testing.T, rt *f9SoakRuntime) f9SoakSample {
 		t.Fatalf("count serve fds: %v", err)
 	}
 	body := soakMetricsBody(t, rt.client, rt.p.addr)
-	return f9SoakSample{RSSKB: proc.rssKB, PeakKB: proc.peakKB, Goroutines: soakMetricInt(t, body, "damnbot_goroutines"), FDs: fds}
+	apiProc, err := sampleProc(rt.api.cmd.Process.Pid)
+	if err != nil {
+		t.Fatalf("sample api-server: %v", err)
+	}
+	return f9SoakSample{
+		RSSKB: proc.rssKB, PeakKB: proc.peakKB,
+		APIRSSKB: apiProc.rssKB, APIPeakKB: apiProc.peakKB,
+		Goroutines: soakMetricInt(t, body, "damnbot_goroutines"), FDs: fds,
+	}
 }
 
 // soakSampleQuiet waits up to 30 s for the accept-loop and turn workers to be
@@ -827,6 +882,14 @@ func soakRSSDeltaPct(startKB, endKB int) float64 {
 		return 0
 	}
 	return float64(endKB-startKB) / float64(startKB) * 100
+}
+
+// soakPeakOK is the P20 Peak RSS gate: both soak processes must have reported
+// a real VmHWM and stayed inside the 300 MB target. A zero peak means the
+// capture failed, which must never count as a pass.
+func soakPeakOK(serveKB, apiKB int) bool {
+	return serveKB > 0 && serveKB <= soakPeakRSSLimitKB &&
+		apiKB > 0 && apiKB <= soakPeakRSSLimitKB
 }
 
 // soakMetricsBody fetches /metrics over the shared client.

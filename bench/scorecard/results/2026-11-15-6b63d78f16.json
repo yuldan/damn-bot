@@ -16,7 +16,7 @@
    "bench/f4/results/hermes-868b9f244f-F4.json": "eb6c76abdcfa4abeb7b7b903953802cb09aa96ed19722cf579d7d5e0660fd446",
    "bench/f9/results/chaos-200kills-0001e301-F9.json": "4abc22ae8fa4575efb74663d346d3786b0784a7ba75920cd737d3c9bb4796c9e",
    "bench/f9/results/soak-acceptance-24h-1000t-8fbafafa-F9.json": "15bc95262dbdde49597149393c83a02ac28882b779cdfd9bbc98670ca875e5a2",
-   "bench/scorecard/not_measured.json": "9968c134c957e18ab58be9b84a5acc4a4b13cc1365efeb063762b46a1ad66b3a",
+   "bench/scorecard/not_measured.json": "0b90fe35d40d5a0deb64a82a1b588824a0769bde603f29af8b28bb1bc78ee8ac",
    "bench/scorecard/results/error-string-6b63d78f16.json": "244fac24d3e05511f5a7bae119e10afb9ab361c7a4cc1b86ceffe2221979682f",
    "bench/scorecard/results/tooling-8fab87144e.json": "dfae66d98328b7f454247df660c11a1137c6af9a7c215ff0ee26b396e7ca8021",
    "bench/speed/results/hermes-868b9f244f-F6.json": "7bb783884287bcb0b3cbf58c9a9e9cae63c8e3d685e9c432b1f99cfc4f0f9615",
@@ -508,7 +508,7 @@
    "rule": "lower_max_ratio",
    "max_ratio": 0.5,
    "unit": "MB",
-   "not_measured": "artefak soak 24 jam/1.000 turn `8fbafafa` belum merekam VmHWM (hanya RSS awal/akhir, bukan definisi metrik); harness kini menulis `peak_kb` (VmHWM) untuk run berikutnya. Angka 98,5 MB hanya berasal dari soak 14,5 jam yang gagal (`9717027e`), jadi tidak diklaim sebagai artefak sah"
+   "not_measured": "harness kini merekam VmHWM `peak_kb` (serve) dan `api_peak_kb` (anak api-server) pada tiap sampel, tetapi belum ada run 1.000 turn yang sah: dua percobaan profil 1 jam berhenti pada 492 s (ack webhook `context deadline exceeded`) dan 1.828 s (timeout di tengah run) saat host bersama jenuh, dan `agent-guard.sh check` menolak start \u003e30 menit (load5 7,5–11,1 \u003e 6,0). Angka tidak diklaim; artefak 24 jam `8fbafafa` tetap tidak merekam VmHWM."
   },
   "Pemulihan setelah `kill -9`": {
    "name": "Pemulihan setelah `kill -9`",

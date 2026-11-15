@@ -86,7 +86,7 @@ func postGenericWebhook(t *testing.T, client interface {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		t.Fatalf("post webhook: %v", err)
+		t.Fatalf("post webhook %s: %v", target, err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // test client; status is the assertion
 	if _, cerr := io.Copy(io.Discard, resp.Body); cerr != nil {
