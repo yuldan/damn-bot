@@ -124,9 +124,9 @@ func TestECPLAT014Send429PenalizesRetryAfter(t *testing.T) {
 
 	f.faultAt("sendMessage", 1, fakeFault{Status: 429, ServerDelay: 2, Times: 1})
 	_, err := a.Send(t.Context(), out)
-	wait, ok := ServerDelay(err)
+	wait, ok := AfterHint(err)
 	if !ok || wait != 2*time.Second {
-		t.Fatalf("ServerDelay(%v) = %v, %v; want 2s", err, wait, ok)
+		t.Fatalf("AfterHint(%v) = %v, %v; want 2s", err, wait, ok)
 	}
 	until, ok := throttle.deadline("7")
 	if !ok || !until.Equal(clock.Now().Add(wait)) {
