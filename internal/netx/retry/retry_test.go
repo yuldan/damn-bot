@@ -171,6 +171,73 @@ func TestRetryCancel(t *testing.T) {
 	})
 }
 
+// TestRetryLocalPolicy pins the local retry mode (Policy.Retryable): Schedule
+// sets the delay, the operation error comes back unchanged, and a dead
+// context wins over the attempt budget.
+func TestRetryLocalPolicy(t *testing.T) {
+	t.Parallel()
+	transient := errors.New("sharing violation")
+	permanent := errors.New("not permitted")
+	local := func(err error) bool { return errors.Is(err, transient) }
+	var waits []time.Duration
+	policy := func() Policy {
+		waits = nil
+		return Policy{
+			Attempts:  3,
+			Retryable: local,
+			Schedule:  func(n int) time.Duration { return time.Duration(n) * 10 * time.Millisecond },
+			Wait: func(_ context.Context, d time.Duration) error {
+				waits = append(waits, d)
+				return nil
+			},
+		}
+	}
+
+	calls := 0
+	err := Do(t.Context(), policy(), func(context.Context, int) error {
+		calls++
+		if calls < 3 {
+			return transient
+		}
+		return nil
+	})
+	if err != nil || calls != 3 {
+		t.Fatalf("transient = %v after %d calls, want nil after 3", err, calls)
+	}
+	if len(waits) != 2 || waits[0] != 10*time.Millisecond || waits[1] != 20*time.Millisecond {
+		t.Fatalf("waits = %v, want [10ms 20ms]", waits)
+	}
+
+	calls = 0
+	err = Do(t.Context(), policy(), func(context.Context, int) error {
+		calls++
+		return permanent
+	})
+	if !errors.Is(err, permanent) || calls != 1 || len(waits) != 0 {
+		t.Fatalf("permanent = %v after %d calls (waits %v), want immediate", err, calls, waits)
+	}
+
+	calls = 0
+	err = Do(t.Context(), policy(), func(context.Context, int) error {
+		calls++
+		return transient
+	})
+	if !errors.Is(err, transient) || errors.Is(err, ErrExhausted) || calls != 3 {
+		t.Fatalf("exhaustion = %v after %d calls, want the operation error after 3", err, calls)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	calls = 0
+	err = Do(ctx, policy(), func(context.Context, int) error {
+		calls++
+		return transient
+	})
+	if !errors.Is(err, context.Canceled) || calls != 1 || len(waits) != 0 {
+		t.Fatalf("dead context = %v after %d calls (waits %v), want canceled after 1", err, calls, waits)
+	}
+}
+
 func TestClassifyStatus(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

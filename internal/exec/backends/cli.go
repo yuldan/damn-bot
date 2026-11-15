@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/exec"
+	"github.com/damnbot/damnbot/internal/netx/retry"
 )
 
 // CLISpec is one CLI invocation of a backend: the full argv, the child
@@ -72,7 +73,7 @@ func RunCLI(ctx context.Context, runner string, sp *CLISpec) (exec.Result, error
 	// and keeps a capability probe from caching the transient failure in its
 	// sync.Once (nightly 2026-11-10, TestSingularityRunContract).
 	var cmd *osexec.Cmd
-	if err := retrySpawn(ctx, func() error {
+	if err := startSpawn(ctx, func() error {
 		cmd = newCmd()
 		return cmd.Start()
 	}); err != nil {
@@ -235,24 +236,16 @@ func sandboxExecution(backend, detail string) exec.Execution {
 // long enough for the writer-holding fork to reach its own exec.
 const spawnAttempts = 5
 
-// retrySpawn calls start until it succeeds or the error is not ETXTBSY.
+// startSpawn calls start until it succeeds or the error is not ETXTBSY; the
+// schedule and the attempt bound live in the central netx/retry policy.
 // start must build a fresh *exec.Cmd on every call: a Cmd whose Start failed
 // is not reusable.
-func retrySpawn(ctx context.Context, start func() error) error {
-	var err error
-	for attempt := range spawnAttempts {
-		if attempt > 0 {
-			t := time.NewTimer(25 * time.Millisecond << (attempt - 1))
-			select {
-			case <-ctx.Done():
-				t.Stop()
-				return fmt.Errorf("spawn retry: %w", ctx.Err())
-			case <-t.C:
-			}
-		}
-		if err = start(); err == nil || !isETXTBSY(err) {
-			return err
-		}
-	}
-	return err
+func startSpawn(ctx context.Context, start func() error) error {
+	return retry.Do(ctx, retry.Policy{
+		Attempts:  spawnAttempts,
+		Schedule:  func(n int) time.Duration { return 25 * time.Millisecond << (n - 1) },
+		Retryable: isETXTBSY,
+	}, func(context.Context, int) error {
+		return start()
+	})
 }
