@@ -55,10 +55,10 @@ type Policy struct {
 	// process spawn); n is the failed attempt, 1-based, and err its error.
 	// nil = SPEC curve.
 	Schedule func(n int, err error) time.Duration
-	// Retryable marks a local retry: the error classes do not apply, op's
+	// Transient marks a local retry: the error classes do not apply, op's
 	// error is handed back unchanged (never wrapped in [Error]) so callers
 	// keep using errors.Is, and a dead ctx returns its cause.
-	Retryable func(err error) bool
+	Transient func(err error) bool
 }
 
 // Error is the failure returned by [Do]: the last attempt's error with its
@@ -76,8 +76,8 @@ func (e *Error) Error() string {
 // Unwrap exposes the last attempt's error (and ErrExhausted when relevant).
 func (e *Error) Unwrap() error { return e.Err }
 
-// RetryClass makes the class visible to [ClassifyErr] up the stack.
-func (e *Error) RetryClass() Class { return e.Class }
+// FailureClass makes the class visible to [ClassifyErr] up the stack.
+func (e *Error) FailureClass() Class { return e.Class }
 
 // Do runs op up to [MaxAttempts] times. A retryable failure waits the
 // Retry-After hint (≤ 30 s) or the jittered backoff (1 s, 4 s); any other
@@ -88,7 +88,7 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 	if limit <= 0 {
 		limit = MaxAttempts
 	}
-	local := p.Retryable != nil
+	local := p.Transient != nil
 	for n := 1; ; n++ {
 		err := op(ctx, n)
 		class := ClassifyErr(err)
@@ -102,9 +102,9 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 			}
 			return &Error{Class: ClassifyErr(context.Cause(ctx)), Attempts: n, Err: err}
 		}
-		retryable := class.Retryable()
+		retryable := class.Transient()
 		if local {
-			retryable = p.Retryable(err)
+			retryable = p.Transient(err)
 		}
 		if !retryable || errors.Is(err, ErrCircuitOpen) {
 			if local {
@@ -148,8 +148,8 @@ func (p Policy) delay(n int, err error) (time.Duration, bool) {
 		return p.Schedule(n, err), true
 	}
 	var ra ServerHint
-	if errors.As(err, &ra) && ra.RetryAfter() > 0 {
-		d := ra.RetryAfter()
+	if errors.As(err, &ra) && ra.ServerDelay() > 0 {
+		d := ra.ServerDelay()
 		return d, d <= MaxRetryAfter
 	}
 	r := rand.Float64

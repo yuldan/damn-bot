@@ -41,9 +41,9 @@ type classedError struct {
 	class retry.Class
 }
 
-func (e *classedError) Error() string           { return e.err.Error() }
-func (e *classedError) Unwrap() error           { return e.err }
-func (e *classedError) RetryClass() retry.Class { return e.class }
+func (e *classedError) Error() string             { return e.err.Error() }
+func (e *classedError) Unwrap() error             { return e.err }
+func (e *classedError) FailureClass() retry.Class { return e.class }
 
 func refuse(err error) error {
 	c := retry.OfflineMode
@@ -65,9 +65,9 @@ func (e *ConnectError) Error() string { return "connect " + e.Addr + ": " + e.Er
 // Unwrap exposes the dial error.
 func (e *ConnectError) Unwrap() error { return e.Err }
 
-// RetryClass is the class of the underlying dial error; an unrecognised
+// FailureClass is the class of the underlying dial error; an unrecognised
 // dial failure is network.
-func (e *ConnectError) RetryClass() retry.Class {
+func (e *ConnectError) FailureClass() retry.Class {
 	if c := retry.ClassifyErr(e.Err); c != retry.Unclassified {
 		return c
 	}
@@ -87,15 +87,15 @@ const maxErrorBody = 64 << 10
 
 func (e *StatusError) Error() string { return "http status " + strconv.Itoa(e.StatusCode) }
 
-// RetryClass classifies by status alone; 429 is rate_limited whatever the
+// FailureClass classifies by status alone; 429 is rate_limited whatever the
 // body says (EC-PROV-029).
-func (e *StatusError) RetryClass() retry.Class { return retry.ClassifyStatus(e.StatusCode, "") }
+func (e *StatusError) FailureClass() retry.Class { return retry.ClassifyStatus(e.StatusCode, "") }
 
-// RetryAfter parses the Retry-After header (delta-seconds or HTTP-date);
+// ServerDelay parses the Retry-After header (delta-seconds or HTTP-date);
 // 0 when absent or invalid.
-func (e *StatusError) RetryAfter() time.Duration { return parseRetryAfter(e.Header.Get("Retry-After")) }
+func (e *StatusError) ServerDelay() time.Duration { return parseDelayHint(e.Header.Get("Retry-After")) }
 
-func parseRetryAfter(v string) time.Duration {
+func parseDelayHint(v string) time.Duration {
 	if v == "" {
 		return 0
 	}

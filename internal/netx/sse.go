@@ -58,7 +58,7 @@ func NewSSEParser(r io.Reader, maxEvent int) *SSEParser {
 }
 
 // Retry returns the last valid "retry" field value; ok is false if none.
-func (p *SSEParser) Retry() (d time.Duration, ok bool) { return p.retry, p.retry >= 0 }
+func (p *SSEParser) ReconnectDelay() (d time.Duration, ok bool) { return p.retry, p.retry >= 0 }
 
 // Next returns the next event. At the end of input it returns io.EOF; a
 // trailing event without its blank line is discarded (WHATWG). Read errors
@@ -110,12 +110,12 @@ func (p *SSEParser) field(line []byte) error {
 			p.id = append(p.id[:0], value...)
 		}
 	case "retry":
-		p.setRetry(value)
+		p.setReconnectDelay(value)
 	}
 	return nil
 }
 
-func (p *SSEParser) setRetry(v []byte) {
+func (p *SSEParser) setReconnectDelay(v []byte) {
 	if len(v) == 0 || len(v) > 12 {
 		return
 	}

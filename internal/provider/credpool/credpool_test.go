@@ -84,7 +84,7 @@ func TestCooldownAndExhausted(t *testing.T) {
 	if got := p.NextAvailable(baseTime()); got != authCooldownBase {
 		t.Fatalf("next available = %s", got)
 	}
-	err := &ExhaustedError{Provider: "fake", Count: p.Len(), RetryAfter: p.NextAvailable(baseTime())}
+	err := &ExhaustedError{Provider: "fake", Count: p.Len(), ServerDelay: p.NextAvailable(baseTime())}
 	if !errors.Is(err, ErrExhausted) || !strings.Contains(err.Error(), "credential_exhausted") ||
 		!strings.Contains(err.Error(), "provider fake") || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("exhausted error = %q", err)

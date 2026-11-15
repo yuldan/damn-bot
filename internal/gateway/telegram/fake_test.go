@@ -66,7 +66,7 @@ type fakeUpdate struct {
 // fakeFault is one injected failure; Times=0 means every matching call.
 type fakeFault struct {
 	Status      int
-	RetryAfter  int
+	ServerDelay int
 	Description string
 	Drop        bool
 	// Hang delays the response; if the client gives up first the handler
@@ -276,7 +276,7 @@ func (f *fakeTG) applyFault(w http.ResponseWriter, r *http.Request, fault fakeFa
 	}
 	if fault.Status >= 400 {
 		desc := cmp.Or(fault.Description, http.StatusText(fault.Status))
-		writeJSON(w, fault.Status, envelope{ErrorCode: fault.Status, Description: desc, Parameters: map[string]int{"retry_after": fault.RetryAfter}})
+		writeJSON(w, fault.Status, envelope{ErrorCode: fault.Status, Description: desc, Parameters: map[string]int{"retry_after": fault.ServerDelay}})
 		return true
 	}
 	return false

@@ -110,7 +110,7 @@ const (
 type Verdict struct {
 	Action      Action
 	Reason      HealthReason
-	RetryAfter  time.Duration
+	ServerDelay time.Duration
 	Instruction string
 }
 

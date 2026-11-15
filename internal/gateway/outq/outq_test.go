@@ -261,7 +261,7 @@ func TestF7GAPGW03OutqReplay(t *testing.T) {
 				t.Error("unexpected overflow for a one-part reply")
 				return nil
 			},
-			RetryAfter: func(error) (time.Duration, bool) { return 0, false },
+			ServerDelay: func(error) (time.Duration, bool) { return 0, false },
 		}
 		if err := s.Enqueue(t.Context(), msg); err != nil {
 			t.Fatalf("enqueue %d: %v", i, err)
@@ -466,7 +466,7 @@ func TestF7GAPGW03RetryAfter(t *testing.T) {
 			}
 			return rec.send(ctx, "c1", p)
 		},
-		RetryAfter: func(error) (time.Duration, bool) { return 20 * time.Millisecond, true },
+		ServerDelay: func(error) (time.Duration, bool) { return 20 * time.Millisecond, true },
 	}
 	if err := s.Enqueue(t.Context(), msg); err != nil {
 		t.Fatal(err)

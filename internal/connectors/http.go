@@ -133,7 +133,7 @@ func (d *Doer) JSON(ctx context.Context, r *Request, out any) (int, error) {
 			}
 			return d.delayFor(n, nil)
 		},
-		Retryable: func(err error) bool {
+		Transient: func(err error) bool {
 			ce, ok := errors.AsType[*Error](err)
 			return ok && transientStatus(ce.Status)
 		},
@@ -248,7 +248,7 @@ func (d *Doer) statusError(resp *http.Response) *Error {
 	}
 	e := &Error{Code: code, Status: resp.StatusCode}
 	if ra := afterHint(resp.Header); ra > 0 {
-		e.RetryAfter = int64(ra / time.Second)
+		e.ServerDelay = int64(ra / time.Second)
 	}
 	if body := redactedBody(resp, maxErrorBody, d.redactor); body != "" {
 		e.Message = body
@@ -283,8 +283,8 @@ func (d *Doer) contextError(_ context.Context, err error) *Error {
 // delayFor returns the wait before the next attempt: the server's Retry-After
 // when it sent one, otherwise a bounded exponential delay.
 func (d *Doer) delayFor(attempt int, last *Error) time.Duration {
-	if last != nil && last.RetryAfter > 0 {
-		return min(time.Duration(last.RetryAfter)*time.Second, maxRetryAfter)
+	if last != nil && last.ServerDelay > 0 {
+		return min(time.Duration(last.ServerDelay)*time.Second, maxRetryAfter)
 	}
 	delay := defaultBackoff << (attempt - 1)
 	return min(delay, maxRetryAfter)

@@ -74,7 +74,7 @@ func TestECPLAT013ChunkRetryResumes(t *testing.T) {
 	out := &Outbound{ChatID: "7", Text: text, Key: "k"}
 
 	// The second sendMessage (chunk 1) is rejected with a definite 429.
-	f.faultAt("sendMessage", 2, fakeFault{Status: 429, RetryAfter: 1, Times: 1})
+	f.faultAt("sendMessage", 2, fakeFault{Status: 429, ServerDelay: 1, Times: 1})
 	if _, err := a.Send(t.Context(), out); err == nil {
 		t.Fatal("first Send succeeded despite the rejected chunk")
 	}
@@ -122,11 +122,11 @@ func TestECPLAT014Send429PenalizesRetryAfter(t *testing.T) {
 	a, clock := newTestAdapter(t, f, store, func(c *Config) { c.Throttle = throttle })
 	out := &Outbound{ChatID: "7", Text: "balas", Key: "k"}
 
-	f.faultAt("sendMessage", 1, fakeFault{Status: 429, RetryAfter: 2, Times: 1})
+	f.faultAt("sendMessage", 1, fakeFault{Status: 429, ServerDelay: 2, Times: 1})
 	_, err := a.Send(t.Context(), out)
-	wait, ok := RetryAfter(err)
+	wait, ok := ServerDelay(err)
 	if !ok || wait != 2*time.Second {
-		t.Fatalf("RetryAfter(%v) = %v, %v; want 2s", err, wait, ok)
+		t.Fatalf("ServerDelay(%v) = %v, %v; want 2s", err, wait, ok)
 	}
 	until, ok := throttle.deadline("7")
 	if !ok || !until.Equal(clock.Now().Add(wait)) {
@@ -167,7 +167,7 @@ func TestECPLAT014Edit429WaitsRetryAfter(t *testing.T) {
 	a, clock := newTestAdapter(t, f, newMemStore(), func(c *Config) { c.Throttle = throttle })
 	stream := a.StreamFrom(&Outbound{ChatID: "7", Key: "k"}, 42, "…")
 
-	f.faultAt("editMessageText", 1, fakeFault{Status: 429, RetryAfter: 3, Times: 1})
+	f.faultAt("editMessageText", 1, fakeFault{Status: 429, ServerDelay: 3, Times: 1})
 	if err := stream.Update(t.Context(), "jawaban final"); err != nil {
 		t.Fatalf("stream update: %v", err)
 	}

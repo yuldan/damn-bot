@@ -779,7 +779,7 @@ func chaosRebootCleanRestart(t *testing.T, e *Env, tg *FakeTG, p *serveProc, cra
 func chaosTelegramFaults(t *testing.T) {
 	e := New(t)
 	tg := NewFakeTG(t, FakeTGOptions{Faults: map[string]FakeTGFault{
-		"sendMessage":     {Status: 429, RetryAfter: 1, Times: 2},
+		"sendMessage":     {Status: 429, ServerDelay: 1, Times: 2},
 		"editMessageText": {Status: 503, Times: 1},
 		"sendChatAction":  {Close: true, Times: 1},
 	}})

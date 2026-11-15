@@ -322,7 +322,7 @@ func TestF7GAPGW11Breaker(t *testing.T) {
 			h.fake.push(t, "health", gwwa.Health{State: gwwa.StateDisconnected, Reason: tc.reason})
 			err := waitChan(t, done)
 			var attention *whatsapp_web.Attention
-			if !errors.As(err, &attention) || attention.Reason != tc.reason || attention.RetryAfter != tc.retry {
+			if !errors.As(err, &attention) || attention.Reason != tc.reason || attention.ServerDelay != tc.retry {
 				t.Fatalf("%s = %v (%+v)", tc.reason, err, attention)
 			}
 			waitChan(t, h.notices)

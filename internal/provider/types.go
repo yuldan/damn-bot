@@ -197,7 +197,7 @@ type Error struct {
 	HTTPStatus int
 	Code       string        // error.code, else error.type
 	Param      string        // error.param
-	Delay      time.Duration // Retry-After (method RetryAfter, retry.ServerHint)
+	Delay      time.Duration // Retry-After (method ServerDelay, retry.ServerHint)
 	Body       []byte
 	Err        error
 }
@@ -222,11 +222,11 @@ func (e *Error) Error() string {
 // Unwrap exposes the transport or stream error.
 func (e *Error) Unwrap() error { return e.Err }
 
-// RetryClass makes the class visible to netx/retry.
-func (e *Error) RetryClass() retry.Class { return e.Class }
+// FailureClass makes the class visible to netx/retry.
+func (e *Error) FailureClass() retry.Class { return e.Class }
 
-// RetryAfter is the server Retry-After hint (retry.ServerHint).
-func (e *Error) RetryAfter() time.Duration { return e.Delay }
+// ServerDelay is the server Retry-After hint (retry.ServerHint).
+func (e *Error) ServerDelay() time.Duration { return e.Delay }
 
 // Sentinels for failures detected in a 2xx stream.
 var (

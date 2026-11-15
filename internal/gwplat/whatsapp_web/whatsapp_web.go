@@ -71,7 +71,7 @@ var (
 // operator. Run returns it once and emits one notice.
 type Attention struct {
 	Reason      gwwa.HealthReason
-	RetryAfter  time.Duration
+	ServerDelay time.Duration
 	Instruction string
 }
 
@@ -153,8 +153,8 @@ func (a *Adapter) Run(ctx context.Context) error {
 
 func (a *Adapter) notice(ctx context.Context, attention *Attention) {
 	text := fmt.Sprintf("WhatsApp Web bridge: needs_attention (%s). %s", attention.Reason, attention.Instruction)
-	if attention.RetryAfter > 0 {
-		text += fmt.Sprintf(" Retry after %s.", attention.RetryAfter)
+	if attention.ServerDelay > 0 {
+		text += fmt.Sprintf(" Retry after %s.", attention.ServerDelay)
 	}
 	a.log.WarnContext(ctx, "whatsapp_web needs attention", "reason", attention.Reason)
 	if a.cfg.Notify != nil {
@@ -222,7 +222,7 @@ func (a *Adapter) event(ctx context.Context, c *gwwa.Client, ev gwwa.Event) erro
 	case ev.Health != nil:
 		verdict := gwwa.Evaluate(*ev.Health)
 		if verdict.Action == gwwa.ActionNeedsAttention {
-			return &Attention{Reason: verdict.Reason, RetryAfter: verdict.RetryAfter, Instruction: verdict.Instruction}
+			return &Attention{Reason: verdict.Reason, ServerDelay: verdict.ServerDelay, Instruction: verdict.Instruction}
 		}
 		if verdict.Action == gwwa.ActionReconnect {
 			return fmt.Errorf("%w: %s", ErrBridgeExited, verdict.Reason)

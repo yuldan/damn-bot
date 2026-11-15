@@ -52,9 +52,9 @@ type Message struct {
 	Send func(ctx context.Context, part Part) error
 	// Overflow transmits the chunks beyond MaxChunksPerReply as one attachment.
 	Overflow func(ctx context.Context, body string) error
-	// RetryAfter extracts a platform retry_after from a send error. Nil means
+	// ServerDelay extracts a platform retry_after from a send error. Nil means
 	// no error carries one.
-	RetryAfter func(error) (time.Duration, bool)
+	ServerDelay func(error) (time.Duration, bool)
 }
 
 // Options configures a Scheduler. Zero values are production defaults.
@@ -300,8 +300,8 @@ func (s *Scheduler) signalLocked() {
 	}
 }
 
-// backoff is the deterministic retry delay of attempt failures.
-func (s *Scheduler) backoff(attempt int) time.Duration {
+// delayFor is the deterministic retry delay of attempt failures.
+func (s *Scheduler) delayFor(attempt int) time.Duration {
 	delay := s.retryBase
 	for i := 1; i < attempt && delay < s.retryMax; i++ {
 		delay *= 2
