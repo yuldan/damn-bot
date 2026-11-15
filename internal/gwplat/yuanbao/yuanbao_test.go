@@ -47,6 +47,8 @@ type fakeServer struct {
 	t          *testing.T
 	srv        *httptest.Server
 	auth       chan Frame
+	ready      chan struct{} // closed after auth_ok; a push before it can race the handshake write
+	readyOnce  sync.Once
 	fromClient chan Frame
 	mu         sync.Mutex
 	conn       *websocket.Conn
@@ -54,7 +56,7 @@ type fakeServer struct {
 
 func newFakeServer(t *testing.T) *fakeServer {
 	t.Helper()
-	f := &fakeServer{t: t, auth: make(chan Frame, 1), fromClient: make(chan Frame, 16)}
+	f := &fakeServer{t: t, auth: make(chan Frame, 1), ready: make(chan struct{}), fromClient: make(chan Frame, 16)}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -89,6 +91,7 @@ func (f *fakeServer) serve(rw http.ResponseWriter, r *http.Request) {
 	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"auth_ok"}`)); err != nil {
 		return
 	}
+	f.readyOnce.Do(func() { close(f.ready) })
 	for {
 		_, msg, rerr := conn.Read(ctx)
 		if rerr != nil {
@@ -189,6 +192,11 @@ func testAdapter(t *testing.T, f *fakeServer, cfg *Config) (*Adapter, *recorder)
 	auth := waitFrame(t, f.auth)
 	if auth.AppID != "app-1" || auth.AppSecret != "top-secret-value" {
 		t.Fatalf("auth frame = %+v", auth)
+	}
+	select {
+	case <-f.ready:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for auth_ok")
 	}
 	return ad, rec
 }

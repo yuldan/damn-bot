@@ -102,7 +102,11 @@ func kill9Owner(t *testing.T) {
 	if err := cmd.Wait(); err == nil {
 		t.Fatal("helper exited normally")
 	}
-	deadline := time.Now().Add(time.Second)
+	// The sweep itself is bounded by sweepWait/sweepQuiet; this outer window
+	// only has to outlast a loaded runner where a just-killed child is still
+	// between execve calls (empty /proc environ) across several sweeps. One
+	// second was below that variance (nightly 2026-10-25).
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if _, err := SweepStale(); err != nil {
 			t.Fatal(err)

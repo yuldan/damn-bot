@@ -51,19 +51,31 @@ func RunCLI(ctx context.Context, runner string, sp *CLISpec) (exec.Result, error
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	//nolint:gosec // argv comes from the approved Spec, not from untrusted interpolation
-	cmd := osexec.CommandContext(callCtx, sp.argv[0], sp.argv[1:]...)
-	cmd.Dir = sp.dir
-	if len(sp.env) > 0 {
-		cmd.Env = sp.env
-	}
-	if sp.stdin != nil {
-		cmd.Stdin = bytes.NewReader(sp.stdin)
-	}
 	out := &output{limit: exec.OutputCap, emit: sp.onOutput}
-	cmd.Stdout, cmd.Stderr = out, out
-	prepareTree(cmd)
-	if err := cmd.Start(); err != nil {
+	newCmd := func() *osexec.Cmd {
+		//nolint:gosec // argv comes from the approved Spec, not from untrusted interpolation
+		c := osexec.CommandContext(callCtx, sp.argv[0], sp.argv[1:]...)
+		c.Dir = sp.dir
+		if len(sp.env) > 0 {
+			c.Env = sp.env
+		}
+		if sp.stdin != nil {
+			c.Stdin = bytes.NewReader(sp.stdin)
+		}
+		c.Stdout, c.Stderr = out, out
+		prepareTree(c)
+		return c
+	}
+	// ETXTBSY is transient: a process forked while the backend CLI was being
+	// written (the test fixtures use write-then-rename) still holds the writer
+	// until it execs. The command never started, so retrying the fork is safe
+	// and keeps a capability probe from caching the transient failure in its
+	// sync.Once (nightly 2026-11-10, TestSingularityRunContract).
+	var cmd *osexec.Cmd
+	if err := retrySpawn(ctx, func() error {
+		cmd = newCmd()
+		return cmd.Start()
+	}); err != nil {
 		res.Status, res.Duration = exec.StatusSpawnFailed, time.Since(start)
 		return res, fmt.Errorf("%w: %s: %w", exec.ErrUnavailable, runner, err)
 	}
@@ -216,4 +228,31 @@ func secretName(name string) bool {
 // sandboxExecution marks a result that did not run on the host (EC-TERM-003).
 func sandboxExecution(backend, detail string) exec.Execution {
 	return exec.Execution{Backend: backend, Sandboxed: true, Detail: detail}
+}
+
+// spawnAttempts bounds the ETXTBSY retries of one CLI fork; the backoff is
+// 25+50+100+200 ms, short enough to stay inside a capability probe budget and
+// long enough for the writer-holding fork to reach its own exec.
+const spawnAttempts = 5
+
+// retrySpawn calls start until it succeeds or the error is not ETXTBSY.
+// start must build a fresh *exec.Cmd on every call: a Cmd whose Start failed
+// is not reusable.
+func retrySpawn(ctx context.Context, start func() error) error {
+	var err error
+	for attempt := range spawnAttempts {
+		if attempt > 0 {
+			t := time.NewTimer(25 * time.Millisecond << (attempt - 1))
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return fmt.Errorf("spawn retry: %w", ctx.Err())
+			case <-t.C:
+			}
+		}
+		if err = start(); err == nil || !isETXTBSY(err) {
+			return err
+		}
+	}
+	return err
 }

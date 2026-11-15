@@ -95,7 +95,12 @@ func TestSweepSkipsZombie(t *testing.T) {
 func TestSweepKeepsLiveMarked(t *testing.T) {
 	t.Parallel()
 	id := newExecID()
-	live := exec.CommandContext(context.Background(), "/bin/sh", "-c", "exec sleep 30")
+	// Exec the sleeper directly: a `/bin/sh -c "exec sleep 30"` child does a
+	// second execve after Start, and killMarked's single scan can land in that
+	// window where /proc/<pid>/environ is empty. waitMarkedPid can observe the
+	// pre-exec shell, so the sweep then legitimately saw no marker and the
+	// negative control failed under load (nightly 2026-11-06/12/14).
+	live := sleepCommand(t, "30")
 	live.Env = append(os.Environ(), MarkerEnv+"="+id)
 	if lerr := live.Start(); lerr != nil {
 		t.Fatal(lerr)
@@ -118,6 +123,18 @@ func TestSweepKeepsLiveMarked(t *testing.T) {
 	if serr != nil || len(left) > 0 || killed == 0 {
 		t.Fatalf("live marked process not swept: left %v, killed %d, err %v", left, killed, serr)
 	}
+}
+
+// sleepCommand runs the platform's sleep binary directly. Unlike a shell
+// wrapper it execs exactly once, so a marker scan cannot fall into a
+// post-Start execve window where the environment is temporarily unreadable.
+func sleepCommand(t *testing.T, seconds string) *exec.Cmd {
+	t.Helper()
+	path, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Fatalf("sleep binary: %v", err)
+	}
+	return exec.CommandContext(context.Background(), path, seconds) // #nosec G204 -- path is exec.LookPath("sleep"), arguments are literal
 }
 
 // waitMarkedPid waits until a scan sees pid carrying marker id. One scan can
@@ -148,7 +165,7 @@ func waitMarkedPid(t *testing.T, id string, pid int) {
 func TestSweepMarkerLifecycle(t *testing.T) {
 	t.Parallel()
 	id := newExecID()
-	live := exec.CommandContext(context.Background(), "/bin/sh", "-c", "exec sleep 30")
+	live := sleepCommand(t, "30")
 	live.Env = append(os.Environ(), MarkerEnv+"="+id)
 	if err := live.Start(); err != nil {
 		t.Fatal(err)

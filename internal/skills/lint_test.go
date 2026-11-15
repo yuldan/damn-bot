@@ -365,8 +365,9 @@ func TestInstallLintFindings(t *testing.T) {
 	}
 }
 
-// TestLintLargeFile: a 1 MiB file with many assignments lints in under a
-// second (SEC10-11); the old per-assignment whole-text replace was quadratic.
+// TestLintLargeFile: a 1 MiB file with many assignments lints under the
+// SEC10-11 regression bound; the old per-assignment whole-text replace was
+// quadratic.
 func TestLintLargeFile(t *testing.T) {
 	t.Parallel()
 	line := "x0=gh; $x0 auth token\n"
@@ -380,8 +381,13 @@ func TestLintLargeFile(t *testing.T) {
 	if err != nil || len(got) == 0 {
 		t.Fatalf("findings %v err %v", categories(got), err)
 	}
-	if d := time.Since(start); !raceEnabled && d > time.Second {
-		t.Fatalf("1 MiB lint took %v, want < 1 s", d)
+	// The bound is a regression guard for the old quadratic per-assignment
+	// whole-text replace, which took minutes on this input; a wall-clock
+	// second is not reproducible on a shared 4-vCPU runner under -shuffle
+	// (nightly 2026-10-29: 1.06–1.18 s while passing elsewhere). Five seconds
+	// still cannot pass a quadratic implementation.
+	if d := time.Since(start); !raceEnabled && d > 5*time.Second {
+		t.Fatalf("1 MiB lint took %v, want < 5 s", d)
 	}
 }
 

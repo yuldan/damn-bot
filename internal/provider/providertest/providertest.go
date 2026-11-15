@@ -85,6 +85,15 @@ func (s *Server) Requests() [][]byte {
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		// A SIGKILLed client (TestRunKilledMidTurn) can cut its request body
+		// while the server is reading it. That is the expected shape of the
+		// production crash path, not a script violation: do not consume a
+		// reply and do not fail the test.
+		s.tb.Logf("providertest: client aborted %s %s: %v", r.Method, r.URL.Path, err)
+		http.Error(w, `{"error":{"code":"providertest_client_aborted"}}`, http.StatusBadRequest)
+		return
+	}
 	s.mu.Lock()
 	s.reqs = append(s.reqs, body)
 	var rep Reply
@@ -93,8 +102,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		rep, s.script = s.script[0], s.script[1:]
 	}
 	s.mu.Unlock()
-	if err != nil || !ok || r.URL.Path != "/v1/chat/completions" {
-		s.tb.Errorf("providertest: unexpected request %s %s (script left: %v, read: %v)", r.Method, r.URL.Path, ok, err)
+	if !ok || r.URL.Path != "/v1/chat/completions" {
+		s.tb.Errorf("providertest: unexpected request %s %s (script left: %v)", r.Method, r.URL.Path, ok)
 		http.Error(w, `{"error":{"code":"providertest_script_exhausted"}}`, http.StatusTeapot)
 		return
 	}

@@ -17,7 +17,7 @@ trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
 PATH="$(cd "$root" && go env GOROOT)/bin:$PATH"
 export GOTOOLCHAIN=local
 GATES=(
-	lint depguard lint-anchor vet-custom test race timing vet-cross build-matrix build-minimal-all fuzz coverage deadcode deadcode-linux flake perf
+	lint depguard lint-anchor vet-custom test test-shard race timing vet-cross build-matrix build-minimal-all fuzz coverage deadcode deadcode-linux flake perf
 	size-check loc loc-unmapped loc-ratio loc-ratio-testonly deps-check vuln licenses tidy-check mod-verify bench-budget
 	sqlite-engine skill-refs
 	phase-file phase-acceptance
@@ -40,7 +40,7 @@ target() {
 	depguard | lint-anchor) echo lint ;;
 	race) echo "test PKGS=$MINI" ;;
 	perf) echo "perf PERF_PKGS=$MINI" ;;
-	test | flake | phase-acceptance) echo "$1 PKGS=$MINI" ;;
+	test | test-shard | flake | phase-acceptance) echo "$1 PKGS=$MINI" ;;
 	timing) echo "test-timing PKGS=$MINI" ;;
 	fuzz) echo "fuzz PKGS=$MINI FUZZTIME=5s" ;;
 	coverage) echo "coverage PKGS=$MINI COVERPKG=$MINI" ;;
@@ -61,7 +61,7 @@ marker() {
 	depguard) echo "database/sql.*E-04.*\(depguard\)" ;;
 	lint-anchor) echo 'internal/tools/cmd/x\.go.*E-31' ;;
 	vet-custom) echo 'nohttpclient: E-05' ;;
-	test) echo 'TestMetaViolation' ;;
+	test | test-shard) echo 'TestMetaViolation' ;;
 	race) echo 'WARNING: DATA RACE' ;;
 	timing) echo 'timing budget meta tx' ;;
 	vet-cross) echo 'undefined: undefinedMetaCross' ;;
@@ -128,7 +128,7 @@ pr_commit() { git -C "$1" add -A && git -C "$1" -c user.name=meta -c user.email=
 prepare() { # <gate> <dir>
 	local d=$2
 	case $1 in
-	test | race | timing | fuzz | coverage | flake | perf | phase-acceptance)
+	test-shard | test | race | timing | fuzz | coverage | flake | perf | phase-acceptance)
 		# Pohon minimal yang lulus dan ter-cover penuh.
 		gofile "$d/internal/metaviolation/ok.go" <<'EOF'
 // Package metaviolation is the minimal tree for gate meta-tests (ADR-073).
@@ -232,7 +232,7 @@ import "net/http"
 var Client = &http.Client{}
 EOF
 		;;
-	test)
+	test-shard | test)
 		printf 'package metaviolation\n\nimport "testing"\n\nfunc TestMetaViolation(t *testing.T) { t.Fatal("pelanggaran sintetis") }\n' |
 			gofile "$d/internal/metaviolation/v_test.go"
 		;;
