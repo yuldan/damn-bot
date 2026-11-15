@@ -141,6 +141,21 @@ func (b *builder) must(rel string, paths ...string) float64 {
 	return x
 }
 
+// opt returns a number when the field exists. Unlike must it does not fail the
+// build: an absent measurement leaves the dimension unmeasured instead of
+// turning a missing evidence field into a fabricated zero.
+func (b *builder) opt(rel string, paths ...string) (float64, bool) {
+	if b.err != nil {
+		return 0, false
+	}
+	v, err := b.load(rel)
+	if err != nil {
+		b.err = err
+		return 0, false
+	}
+	return num(v, paths...)
+}
+
 func (b *builder) put(d *Dimension) { b.dims[d.Name] = *d }
 
 //nolint:funlen // urutan pengukuran 11 dimensi sengaja satu alur agar mudah diaudit.
@@ -342,12 +357,19 @@ func (b *builder) measure() error {
 		Detail: fmt.Sprintf("recovery terlama %.1f ms (kill -9) dan %.1f ms (reboot) ≤ 10 s; 0 pesan hilang/dobel",
 			kill9Max, reboot),
 	})
-	b.put(&Dimension{
-		Name: "Peak RSS", Rule: RuleLowerMax, MaxRatio: 0.5, Unit: "MB",
-		Hermes:  new(b.must(f4h, "dimensions", "rss_idle", "peak_mb")),
-		Damnbot: new(b.must(soak, "end", "rss_kb") / 1024), Source: []string{soak},
-		Detail: "arti jujur: artefak soak 24 jam/1.000 turn mencatat RSS awal/akhir, bukan VmHWM; nilai = RSS akhir 53,1 MB (batas 0,5× peak idle hermes 211,5 MB), bukan klaim VmHWM",
-	})
+	if peakKB, ok := b.opt(soak, "end", "peak_kb"); ok && peakKB > 0 {
+		b.put(&Dimension{
+			Name: "Peak RSS", Rule: RuleLowerMax, MaxRatio: 0.5, Unit: "MB",
+			Hermes:  new(b.must(f4h, "dimensions", "rss_idle", "peak_mb")),
+			Damnbot: new(peakKB / 1024), Source: []string{soak},
+			Detail: "VmHWM proses serve pada sampel akhir soak 24 jam/1.000 turn (peak_kb), bukan RSS akhir",
+		})
+	} else {
+		b.put(&Dimension{
+			Name: "Peak RSS", Rule: RuleLowerMax, MaxRatio: 0.5, Unit: "MB",
+			NotMeasured: b.reason("Peak RSS"),
+		})
+	}
 
 	// §1.5 Inventory: counts from the committed tables/catalogs.
 	providers := "docs/PROVIDERS.md"

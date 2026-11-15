@@ -1,0 +1,2996 @@
+{
+ "meta": {
+  "basis": "FEATURE-PARITY rows with class=measured in the hermes artefact",
+  "damnbot_commit": "713b8393ea",
+  "harness": "bench/speed: CLI cold start (1 warm-up+5), in-process tools/assemble (1+20), gateway/TUI slash (1+20); no hermes number copied",
+  "phase": "F10"
+ },
+ "summary": {
+  "measured": 96,
+  "total": 163,
+  "waiting_parity": 67
+ },
+ "entries": [
+  {
+   "id": "AUTO-005",
+   "prefix": "AUTO",
+   "feature": "Cron scheduler",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     69.852,
+     249.546,
+     444.54,
+     85.125,
+     45.724
+    ],
+    "p50_ms": 85.125,
+    "p95_ms": 444.54
+   },
+   "source": "damnbot binary cold start: cron tick"
+  },
+  {
+   "id": "CLI-002",
+   "prefix": "CLI",
+   "feature": "`hermes model`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-003",
+   "prefix": "CLI",
+   "feature": "`hermes moa`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-004",
+   "prefix": "CLI",
+   "feature": "`hermes fallback`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-005",
+   "prefix": "CLI",
+   "feature": "`hermes worktree`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-006",
+   "prefix": "CLI",
+   "feature": "`hermes browser`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     15.241,
+     16.412,
+     19.743,
+     21.352,
+     30.756
+    ],
+    "p50_ms": 19.743,
+    "p95_ms": 30.756
+   },
+   "source": "damnbot binary cold start: browser --help"
+  },
+  {
+   "id": "CLI-007",
+   "prefix": "CLI",
+   "feature": "`hermes secrets`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-008",
+   "prefix": "CLI",
+   "feature": "`hermes egress`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-010",
+   "prefix": "CLI",
+   "feature": "`hermes codex-runtime`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-011",
+   "prefix": "CLI",
+   "feature": "`hermes gateway`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-012",
+   "prefix": "CLI",
+   "feature": "`hermes proxy`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     19.166,
+     18.492,
+     26.183,
+     25.64,
+     59.646
+    ],
+    "p50_ms": 25.64,
+    "p95_ms": 59.646
+   },
+   "source": "damnbot binary cold start: proxy providers"
+  },
+  {
+   "id": "CLI-013",
+   "prefix": "CLI",
+   "feature": "`hermes lsp`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-014",
+   "prefix": "CLI",
+   "feature": "`hermes setup`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     20.71,
+     22.763,
+     36.191,
+     32.74,
+     37.611
+    ],
+    "p50_ms": 32.74,
+    "p95_ms": 37.611
+   },
+   "source": "damnbot binary cold start: setup --help"
+  },
+  {
+   "id": "CLI-015",
+   "prefix": "CLI",
+   "feature": "`hermes whatsapp`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     21.278,
+     38.184,
+     38.305,
+     23.121,
+     24.859
+    ],
+    "p50_ms": 24.859,
+    "p95_ms": 38.305
+   },
+   "source": "damnbot binary cold start: whatsapp --help"
+  },
+  {
+   "id": "CLI-016",
+   "prefix": "CLI",
+   "feature": "`hermes whatsapp-cloud`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     59.731,
+     42.187,
+     33.062,
+     32.508,
+     30.538
+    ],
+    "p50_ms": 33.062,
+    "p95_ms": 59.731
+   },
+   "source": "damnbot binary cold start: whatsapp-cloud --help"
+  },
+  {
+   "id": "CLI-017",
+   "prefix": "CLI",
+   "feature": "`hermes slack`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     98.99,
+     190.878,
+     59.7,
+     69.476,
+     73.043
+    ],
+    "p50_ms": 73.043,
+    "p95_ms": 190.878
+   },
+   "source": "damnbot binary cold start: slack --help"
+  },
+  {
+   "id": "CLI-018",
+   "prefix": "CLI",
+   "feature": "`hermes send`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     25.727,
+     17.456,
+     26.736,
+     24.197,
+     33.322
+    ],
+    "p50_ms": 25.727,
+    "p95_ms": 33.322
+   },
+   "source": "damnbot binary cold start: send --help"
+  },
+  {
+   "id": "CLI-020",
+   "prefix": "CLI",
+   "feature": "`hermes logout`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-021",
+   "prefix": "CLI",
+   "feature": "`hermes auth`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-022",
+   "prefix": "CLI",
+   "feature": "`hermes status`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-023",
+   "prefix": "CLI",
+   "feature": "`hermes pause`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     46.312,
+     26.277,
+     50.562,
+     347.439,
+     282.856
+    ],
+    "p50_ms": 50.562,
+    "p95_ms": 347.439
+   },
+   "source": "damnbot binary cold start: pause --help"
+  },
+  {
+   "id": "CLI-024",
+   "prefix": "CLI",
+   "feature": "`hermes resume`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     35.888,
+     29.086,
+     24.788,
+     26.777,
+     25.619
+    ],
+    "p50_ms": 26.777,
+    "p95_ms": 35.888
+   },
+   "source": "damnbot binary cold start: resume --help"
+  },
+  {
+   "id": "CLI-025",
+   "prefix": "CLI",
+   "feature": "`hermes cron`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     51.727,
+     213.309,
+     311.45,
+     58.506,
+     84.477
+    ],
+    "p50_ms": 84.477,
+    "p95_ms": 311.45
+   },
+   "source": "damnbot binary cold start: cron list"
+  },
+  {
+   "id": "CLI-027",
+   "prefix": "CLI",
+   "feature": "`hermes peer`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     21.247,
+     20.74,
+     23.018,
+     19.518,
+     43.494
+    ],
+    "p50_ms": 21.247,
+    "p95_ms": 43.494
+   },
+   "source": "damnbot binary cold start: peer list"
+  },
+  {
+   "id": "CLI-029",
+   "prefix": "CLI",
+   "feature": "`hermes kanban`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     80.452,
+     110.452,
+     61.201,
+     75.412,
+     106.287
+    ],
+    "p50_ms": 80.452,
+    "p95_ms": 110.452
+   },
+   "source": "damnbot binary cold start: kanban list"
+  },
+  {
+   "id": "CLI-030",
+   "prefix": "CLI",
+   "feature": "`hermes project`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     25.323,
+     23.292,
+     28.901,
+     26.127,
+     28.457
+    ],
+    "p50_ms": 26.127,
+    "p95_ms": 28.901
+   },
+   "source": "damnbot binary cold start: project list"
+  },
+  {
+   "id": "CLI-031",
+   "prefix": "CLI",
+   "feature": "`hermes hooks`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-032",
+   "prefix": "CLI",
+   "feature": "`hermes doctor`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     85.342,
+     74.305,
+     164.077,
+     222.069,
+     135.21
+    ],
+    "p50_ms": 135.21,
+    "p95_ms": 222.069
+   },
+   "source": "damnbot binary cold start: doctor --quick"
+  },
+  {
+   "id": "CLI-033",
+   "prefix": "CLI",
+   "feature": "`hermes verify`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-035",
+   "prefix": "CLI",
+   "feature": "`hermes approvals`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-036",
+   "prefix": "CLI",
+   "feature": "`hermes dump`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     71.427,
+     275.251,
+     36.002,
+     30.769,
+     34.697
+    ],
+    "p50_ms": 36.002,
+    "p95_ms": 275.251
+   },
+   "source": "damnbot binary cold start: dump"
+  },
+  {
+   "id": "CLI-037",
+   "prefix": "CLI",
+   "feature": "`hermes debug`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     110.139,
+     222.729,
+     645.303,
+     73.253,
+     87.521
+    ],
+    "p50_ms": 110.139,
+    "p95_ms": 645.303
+   },
+   "source": "damnbot binary cold start: debug --help"
+  },
+  {
+   "id": "CLI-038",
+   "prefix": "CLI",
+   "feature": "`hermes backup`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-039",
+   "prefix": "CLI",
+   "feature": "`hermes checkpoints`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     195.928,
+     117.179,
+     355.132,
+     24.772,
+     20.534
+    ],
+    "p50_ms": 117.179,
+    "p95_ms": 355.132
+   },
+   "source": "damnbot binary cold start: checkpoints list"
+  },
+  {
+   "id": "CLI-040",
+   "prefix": "CLI",
+   "feature": "`hermes import`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     20.974,
+     38.769,
+     23.873,
+     26.449,
+     35.577
+    ],
+    "p50_ms": 26.449,
+    "p95_ms": 38.769
+   },
+   "source": "damnbot binary cold start: import --help"
+  },
+  {
+   "id": "CLI-041",
+   "prefix": "CLI",
+   "feature": "`hermes import-agent`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     26.368,
+     51.11,
+     22.089,
+     102.77,
+     159.285
+    ],
+    "p50_ms": 51.11,
+    "p95_ms": 159.285
+   },
+   "source": "damnbot binary cold start: import claude-code --dry-run"
+  },
+  {
+   "id": "CLI-042",
+   "prefix": "CLI",
+   "feature": "`hermes config`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-043",
+   "prefix": "CLI",
+   "feature": "`hermes skin`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-044",
+   "prefix": "CLI",
+   "feature": "`hermes console`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-045",
+   "prefix": "CLI",
+   "feature": "`hermes pairing`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     61.105,
+     45.285,
+     49.162,
+     64.328,
+     54.374
+    ],
+    "p50_ms": 54.374,
+    "p95_ms": 64.328
+   },
+   "source": "damnbot binary cold start: gateway pairing list"
+  },
+  {
+   "id": "CLI-046",
+   "prefix": "CLI",
+   "feature": "`hermes skills`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-047",
+   "prefix": "CLI",
+   "feature": "`hermes bundles`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     17.924,
+     26.47,
+     23.457,
+     22.009,
+     16.72
+    ],
+    "p50_ms": 22.009,
+    "p95_ms": 26.47
+   },
+   "source": "damnbot binary cold start: bundles list"
+  },
+  {
+   "id": "CLI-048",
+   "prefix": "CLI",
+   "feature": "`hermes plugins`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-049",
+   "prefix": "CLI",
+   "feature": "`hermes curator`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     18.952,
+     35.967,
+     25.984,
+     21.222,
+     68.264
+    ],
+    "p50_ms": 25.984,
+    "p95_ms": 68.264
+   },
+   "source": "damnbot binary cold start: curator status"
+  },
+  {
+   "id": "CLI-051",
+   "prefix": "CLI",
+   "feature": "`hermes journey`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     296.245,
+     130.448,
+     49.547,
+     22.398,
+     107.106
+    ],
+    "p50_ms": 107.106,
+    "p95_ms": 296.245
+   },
+   "source": "damnbot binary cold start: journey list"
+  },
+  {
+   "id": "CLI-052",
+   "prefix": "CLI",
+   "feature": "`hermes memory`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     17.222,
+     19.568,
+     18.123,
+     21.09,
+     17.1
+    ],
+    "p50_ms": 18.123,
+    "p95_ms": 21.09
+   },
+   "source": "damnbot binary cold start: memory status"
+  },
+  {
+   "id": "CLI-053",
+   "prefix": "CLI",
+   "feature": "`hermes tools`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-054",
+   "prefix": "CLI",
+   "feature": "`hermes computer-use`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     18.505,
+     18.795,
+     15.69,
+     22.345,
+     22.628
+    ],
+    "p50_ms": 18.795,
+    "p95_ms": 22.628
+   },
+   "source": "damnbot binary cold start: cua --help"
+  },
+  {
+   "id": "CLI-055",
+   "prefix": "CLI",
+   "feature": "`hermes mcp`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     21.197,
+     19.016,
+     36.109,
+     22.473,
+     29.405
+    ],
+    "p50_ms": 22.473,
+    "p95_ms": 36.109
+   },
+   "source": "damnbot binary cold start: mcp list"
+  },
+  {
+   "id": "CLI-057",
+   "prefix": "CLI",
+   "feature": "`hermes sessions`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-058",
+   "prefix": "CLI",
+   "feature": "`hermes insights`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     97.482,
+     60.865,
+     29.374,
+     30.754,
+     34.605
+    ],
+    "p50_ms": 34.605,
+    "p95_ms": 97.482
+   },
+   "source": "damnbot binary cold start: insights"
+  },
+  {
+   "id": "CLI-060",
+   "prefix": "CLI",
+   "feature": "`hermes monitoring`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     24.019,
+     39.748,
+     19.298,
+     23.622,
+     19.253
+    ],
+    "p50_ms": 23.622,
+    "p95_ms": 39.748
+   },
+   "source": "damnbot binary cold start: monitoring status"
+  },
+  {
+   "id": "CLI-061",
+   "prefix": "CLI",
+   "feature": "`hermes claw`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-062",
+   "prefix": "CLI",
+   "feature": "`hermes vault`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-063",
+   "prefix": "CLI",
+   "feature": "`hermes update`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     38.69,
+     17.771,
+     120.62,
+     25.316,
+     39.58
+    ],
+    "p50_ms": 38.69,
+    "p95_ms": 120.62
+   },
+   "source": "damnbot binary cold start: update --help"
+  },
+  {
+   "id": "CLI-064",
+   "prefix": "CLI",
+   "feature": "`hermes uninstall`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-065",
+   "prefix": "CLI",
+   "feature": "`hermes acp`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     34.569,
+     30.585,
+     30.257,
+     33.306,
+     47.06
+    ],
+    "p50_ms": 33.306,
+    "p95_ms": 47.06
+   },
+   "source": "damnbot binary cold start: acp --help"
+  },
+  {
+   "id": "CLI-066",
+   "prefix": "CLI",
+   "feature": "`hermes profile`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-067",
+   "prefix": "CLI",
+   "feature": "`hermes completion`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     45.235,
+     53.758,
+     47.284,
+     96.2,
+     38.965
+    ],
+    "p50_ms": 47.284,
+    "p95_ms": 96.2
+   },
+   "source": "damnbot binary cold start: setup completion bash"
+  },
+  {
+   "id": "CLI-068",
+   "prefix": "CLI",
+   "feature": "`hermes dashboard`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     211.309,
+     19.058,
+     37.666,
+     19.03,
+     16.729
+    ],
+    "p50_ms": 19.058,
+    "p95_ms": 211.309
+   },
+   "source": "damnbot binary cold start: dashboard --help"
+  },
+  {
+   "id": "CLI-069",
+   "prefix": "CLI",
+   "feature": "`hermes serve`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     27.167,
+     15.077,
+     17.251,
+     88.265,
+     71.905
+    ],
+    "p50_ms": 27.167,
+    "p95_ms": 88.265
+   },
+   "source": "damnbot binary cold start: serve --help"
+  },
+  {
+   "id": "CLI-070",
+   "prefix": "CLI",
+   "feature": "`hermes desktop`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     21.208,
+     35.893,
+     16.929,
+     19.087,
+     66.798
+    ],
+    "p50_ms": 21.208,
+    "p95_ms": 66.798
+   },
+   "source": "damnbot binary cold start: desktop --help"
+  },
+  {
+   "id": "CLI-071",
+   "prefix": "CLI",
+   "feature": "`hermes logs`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-072",
+   "prefix": "CLI",
+   "feature": "`hermes prompt-size`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "CLI-073",
+   "prefix": "CLI",
+   "feature": "`hermes help`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     96.511,
+     156.71,
+     87.375,
+     123.764,
+     31.326
+    ],
+    "p50_ms": 96.511,
+    "p95_ms": 156.71
+   },
+   "source": "damnbot binary cold start: --help"
+  },
+  {
+   "id": "CLI-074",
+   "prefix": "CLI",
+   "feature": "`hermes --version` / `version`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     68.571,
+     190.437,
+     69.752,
+     73.976,
+     36.997
+    ],
+    "p50_ms": 69.752,
+    "p95_ms": 190.437
+   },
+   "source": "damnbot binary cold start: --version"
+  },
+  {
+   "id": "CORE-002",
+   "prefix": "CORE",
+   "feature": "System prompt builder",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.003377,
+     0.007723,
+     0.001953,
+     0.006553,
+     0.004849,
+     0.00914,
+     0.001944,
+     0.002217,
+     0.001808,
+     0.003483,
+     0.001684,
+     0.00155,
+     0.003386,
+     0.001621,
+     0.002305,
+     0.034099,
+     0.001822,
+     0.002886,
+     0.001451,
+     0.004405
+    ],
+    "p50_ms": 0.002305,
+    "p95_ms": 0.00914
+   },
+   "source": "assemble.Stable (system prompt tier)"
+  },
+  {
+   "id": "CORE-003",
+   "prefix": "CORE",
+   "feature": "Tool registry \u0026 dispatch",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.000512,
+     0.000282,
+     0.00027,
+     0.000436,
+     0.000249,
+     0.000218,
+     0.000236,
+     0.046663,
+     0.000267,
+     0.000237,
+     0.000267,
+     0.000249,
+     0.000266,
+     0.000244,
+     0.00022,
+     0.00023,
+     0.000459,
+     0.000274,
+     0.000199,
+     0.000223
+    ],
+    "p50_ms": 0.000249,
+    "p95_ms": 0.000512
+   },
+   "source": "tools.Registry.Schemas (all wired tools)"
+  },
+  {
+   "id": "CORE-004",
+   "prefix": "CORE",
+   "feature": "Toolsets \u0026 per-platform config",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.000228,
+     0.000224,
+     0.000154,
+     0.000162,
+     0.00016,
+     0.000159,
+     0.000159,
+     0.000163,
+     0.000363,
+     0.000158,
+     0.000154,
+     0.000153,
+     0.000156,
+     0.000153,
+     0.000152,
+     0.000155,
+     0.000152,
+     0.000158,
+     0.000152,
+     0.000155
+    ],
+    "p50_ms": 0.000156,
+    "p95_ms": 0.000228
+   },
+   "source": "tools.Registry.Schemas (file toolset)"
+  },
+  {
+   "id": "CORE-006",
+   "prefix": "CORE",
+   "feature": "Coding posture",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "EXEC-001",
+   "prefix": "EXEC",
+   "feature": "Terminal backend: local",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     6.942413,
+     5.376101,
+     7.449857,
+     10.012377,
+     7.330988,
+     8.772916,
+     9.033883,
+     10.5611,
+     6.786173,
+     7.857656,
+     8.095183,
+     8.032238,
+     7.086535,
+     10.551872,
+     7.652195,
+     5.209083,
+     8.591973,
+     4.695641,
+     6.113651,
+     6.483182
+    ],
+    "p50_ms": 7.449857,
+    "p95_ms": 10.551872
+   },
+   "source": "internal/tools dispatcher (shell)"
+  },
+  {
+   "id": "EXEC-012",
+   "prefix": "EXEC",
+   "feature": "Code execution (execute_code)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     65.589984,
+     66.639834,
+     55.486395,
+     151.938293,
+     57.297979,
+     56.991983,
+     66.766508,
+     106.11265,
+     153.572415,
+     82.094925,
+     66.881248,
+     65.339806,
+     75.879159,
+     85.43771,
+     82.65153,
+     58.306277,
+     51.500515,
+     55.510463,
+     49.770684,
+     53.305881
+    ],
+    "p50_ms": 65.589984,
+    "p95_ms": 151.938293
+   },
+   "source": "internal/tools dispatcher (execute_code)"
+  },
+  {
+   "id": "MEM-026",
+   "prefix": "MEM",
+   "feature": "Context files (AGENTS.md, SOUL.md, .cursorrules)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.380489,
+     0.558781,
+     0.263544,
+     0.503648,
+     0.555843,
+     0.208288,
+     0.307966,
+     0.317544,
+     0.210011,
+     0.123253,
+     0.438547,
+     1.524374,
+     0.317757,
+     0.287175,
+     0.089857,
+     0.134858,
+     0.141427,
+     0.319772,
+     0.340932,
+     0.115416
+    ],
+    "p50_ms": 0.307966,
+    "p95_ms": 0.558781
+   },
+   "source": "assemble.Context (context files tier)"
+  },
+  {
+   "id": "MEM-027",
+   "prefix": "MEM",
+   "feature": "Context breakdown `/context`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.001493,
+     0.001358,
+     0.001295,
+     0.00131,
+     0.001285,
+     0.001424,
+     0.001337,
+     0.001352,
+     0.001752,
+     0.001359,
+     0.005158,
+     0.001339,
+     0.001341,
+     0.001336,
+     0.001261,
+     0.001354,
+     0.001236,
+     0.340196,
+     0.001312,
+     0.004022
+    ],
+    "p50_ms": 0.001341,
+    "p95_ms": 0.005158
+   },
+   "source": "internal/tui submit: /context"
+  },
+  {
+   "id": "MEM-031",
+   "prefix": "MEM",
+   "feature": "Filesystem checkpoints",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     72.251,
+     32.328,
+     73.71,
+     109.669,
+     161.724
+    ],
+    "p50_ms": 73.71,
+    "p95_ms": 161.724
+   },
+   "source": "damnbot binary cold start: checkpoints list"
+  },
+  {
+   "id": "OPS-001",
+   "prefix": "OPS",
+   "feature": "Profiles",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     17.965,
+     62.676,
+     72.598,
+     102.27,
+     175.373
+    ],
+    "p50_ms": 72.598,
+    "p95_ms": 175.373
+   },
+   "source": "damnbot binary cold start: config profiles ls"
+  },
+  {
+   "id": "OPS-006",
+   "prefix": "OPS",
+   "feature": "Backup / import",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     21.648,
+     89.363,
+     38.278,
+     24.121,
+     146.74
+    ],
+    "p50_ms": 38.278,
+    "p95_ms": 146.74
+   },
+   "source": "damnbot binary cold start: sessions backup ls"
+  },
+  {
+   "id": "OPS-007",
+   "prefix": "OPS",
+   "feature": "Config management",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     63.569,
+     55.497,
+     52.249,
+     117.036,
+     195.544
+    ],
+    "p50_ms": 63.569,
+    "p95_ms": 195.544
+   },
+   "source": "damnbot binary cold start: config show"
+  },
+  {
+   "id": "OPS-009",
+   "prefix": "OPS",
+   "feature": "Logging",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     105.472,
+     96.722,
+     184.554,
+     71.845,
+     79.519
+    ],
+    "p50_ms": 96.722,
+    "p95_ms": 184.554
+   },
+   "source": "damnbot binary cold start: doctor --quick"
+  },
+  {
+   "id": "OPS-010",
+   "prefix": "OPS",
+   "feature": "Debug upload / dump",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     25.922,
+     46.029,
+     37.283,
+     82.272,
+     21.802
+    ],
+    "p50_ms": 37.283,
+    "p95_ms": 82.272
+   },
+   "source": "damnbot binary cold start: dump"
+  },
+  {
+   "id": "OPS-011",
+   "prefix": "OPS",
+   "feature": "Doctor",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     98.159,
+     102.995,
+     90.35,
+     64.335,
+     53.512
+    ],
+    "p50_ms": 90.35,
+    "p95_ms": 102.995
+   },
+   "source": "damnbot binary cold start: doctor --quick"
+  },
+  {
+   "id": "OPS-012",
+   "prefix": "OPS",
+   "feature": "Status",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "OPS-016",
+   "prefix": "OPS",
+   "feature": "Insights",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     59.737,
+     64.13,
+     37.187,
+     23.318,
+     30.821
+    ],
+    "p50_ms": 37.187,
+    "p95_ms": 64.13
+   },
+   "source": "damnbot binary cold start: insights"
+  },
+  {
+   "id": "OPS-017",
+   "prefix": "OPS",
+   "feature": "Prompt size",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "OPS-038",
+   "prefix": "OPS",
+   "feature": "Projects",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     30.162,
+     17.992,
+     51.507,
+     276.714,
+     46.979
+    ],
+    "p50_ms": 46.979,
+    "p95_ms": 276.714
+   },
+   "source": "damnbot binary cold start: project list"
+  },
+  {
+   "id": "SKCAT-002",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `autonomous-ai-agents` (5)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     4.935894,
+     1.292994,
+     1.225689,
+     1.280074,
+     1.099572,
+     14.71054,
+     6.249072,
+     1.20026,
+     1.173575,
+     1.431355,
+     5.734569,
+     1.300567,
+     1.56343,
+     1.365523,
+     1.902859,
+     0.978406,
+     1.014304,
+     1.137875,
+     1.726665,
+     0.901804
+    ],
+    "p50_ms": 1.292994,
+    "p95_ms": 6.249072
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKCAT-003",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `creative` (10)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.88057,
+     0.890815,
+     2.932362,
+     2.414849,
+     2.427898,
+     2.345947,
+     3.391181,
+     1.555876,
+     0.999949,
+     0.922973,
+     0.987795,
+     2.536475,
+     1.792986,
+     1.20245,
+     1.202419,
+     1.231565,
+     2.99133,
+     2.647029,
+     2.642001,
+     2.150796
+    ],
+    "p50_ms": 1.792986,
+    "p95_ms": 2.99133
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKCAT-004",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `devops` (1)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     1.84181,
+     1.468687,
+     1.594751,
+     1.545219,
+     2.121813,
+     1.757854,
+     1.819119,
+     1.920315,
+     1.903966,
+     2.255586,
+     1.052665,
+     1.053808,
+     1.189644,
+     1.033378,
+     1.916692,
+     0.92567,
+     0.881383,
+     0.862366,
+     1.36053,
+     1.950427
+    ],
+    "p50_ms": 1.545219,
+    "p95_ms": 2.121813
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKCAT-005",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `email` (2)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.941638,
+     1.665269,
+     2.021321,
+     2.381091,
+     1.811682,
+     2.154332,
+     1.998496,
+     2.533559,
+     1.749803,
+     0.802319,
+     0.843446,
+     0.919876,
+     1.484618,
+     1.882599,
+     1.173056,
+     1.263835,
+     1.256549,
+     1.664592,
+     1.251862,
+     1.16641
+    ],
+    "p50_ms": 1.484618,
+    "p95_ms": 2.381091
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKCAT-006",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `media` (3)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.859346,
+     2.042071,
+     1.257931,
+     1.120643,
+     1.147087,
+     0.844997,
+     2.59557,
+     1.960114,
+     1.068609,
+     1.078772,
+     1.161817,
+     1.659401,
+     1.13195,
+     1.176209,
+     0.898797,
+     1.109029,
+     2.581931,
+     4.840708,
+     2.442158,
+     2.51945
+    ],
+    "p50_ms": 1.161817,
+    "p95_ms": 2.59557
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKCAT-007",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `note-taking` (1)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     32.594628,
+     1.069394,
+     1.469187,
+     1.19896,
+     1.021441,
+     0.872996,
+     2.820805,
+     1.445929,
+     0.998391,
+     0.947711,
+     0.952236,
+     1.792446,
+     1.2946,
+     0.987142,
+     1.00044,
+     0.950427,
+     2.004029,
+     1.018254,
+     1.07609,
+     0.87101
+    ],
+    "p50_ms": 1.021441,
+    "p95_ms": 2.820805
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKCAT-008",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `productivity` (14)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     3.040387,
+     2.043466,
+     2.273793,
+     2.228849,
+     1.960034,
+     9.774787,
+     21.851576,
+     1.275358,
+     1.003685,
+     1.781595,
+     10.034755,
+     1.079349,
+     0.945377,
+     0.906388,
+     0.924295,
+     1.428511,
+     2.543934,
+     1.580441,
+     1.357062,
+     1.155144
+    ],
+    "p50_ms": 1.580441,
+    "p95_ms": 10.034755
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKCAT-009",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `research` (4)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     1.32304,
+     1.246539,
+     1.226757,
+     1.506012,
+     2.357895,
+     1.127823,
+     1.167983,
+     1.18288,
+     2.130455,
+     1.059341,
+     0.951681,
+     0.907086,
+     0.969917,
+     1.576512,
+     1.077419,
+     0.920174,
+     0.991896,
+     1.124486,
+     2.797467,
+     1.137875
+    ],
+    "p50_ms": 1.137875,
+    "p95_ms": 2.357895
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKCAT-010",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `social-media` (1)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     1.58288,
+     0.984108,
+     2.002989,
+     2.815217,
+     1.042232,
+     0.929851,
+     1.695484,
+     1.522637,
+     1.936297,
+     1.434557,
+     1.202916,
+     1.305677,
+     1.960941,
+     2.960559,
+     1.189001,
+     1.201507,
+     1.030579,
+     1.68342,
+     0.905776,
+     0.89911
+    ],
+    "p50_ms": 1.305677,
+    "p95_ms": 2.815217
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKCAT-011",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `software-development` (12)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     1.497082,
+     1.425263,
+     1.157345,
+     0.898567,
+     0.900629,
+     1.353167,
+     0.968348,
+     0.997171,
+     1.147657,
+     1.724729,
+     0.933219,
+     0.890607,
+     1.053791,
+     0.952287,
+     2.341484,
+     1.583466,
+     1.595735,
+     1.497811,
+     1.453236,
+     1.859793
+    ],
+    "p50_ms": 1.157345,
+    "p95_ms": 1.859793
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKCAT-012",
+   "prefix": "SKCAT",
+   "feature": "Bundled skills: `web` (1)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.909528,
+     0.90058,
+     0.895487,
+     3.554218,
+     2.073709,
+     2.148611,
+     1.881603,
+     1.763398,
+     1.868095,
+     1.205471,
+     1.297378,
+     1.269589,
+     1.54397,
+     1.529323,
+     1.109979,
+     1.168993,
+     1.381055,
+     1.91864,
+     0.883113,
+     0.868033
+    ],
+    "p50_ms": 1.297378,
+    "p95_ms": 2.148611
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKILL-001",
+   "prefix": "SKILL",
+   "feature": "Skill system (SKILL.md)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     1.650007,
+     1.975615,
+     1.840528,
+     1.73606,
+     1.514185,
+     2.592093,
+     1.499114,
+     1.560635,
+     1.542641,
+     2.021447,
+     1.738202,
+     1.738771,
+     2.131719,
+     1.720976,
+     2.058385,
+     1.131948,
+     0.983631,
+     0.970222,
+     1.047132,
+     1.725684
+    ],
+    "p50_ms": 1.720976,
+    "p95_ms": 2.131719
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "SKILL-002",
+   "prefix": "SKILL",
+   "feature": "skills_list / skill_view / skill_manage",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     1.259717,
+     1.360844,
+     3.340862,
+     1.494442,
+     1.258869,
+     1.806037,
+     1.113743,
+     1.136791,
+     1.434067,
+     1.532844,
+     1.760862,
+     1.409375,
+     3.345971,
+     1.650395,
+     2.416183,
+     2.804656,
+     2.499365,
+     1.409531,
+     1.496687,
+     2.952094
+    ],
+    "p50_ms": 1.496687,
+    "p95_ms": 3.340862
+   },
+   "source": "internal/tools dispatcher (skills_list)"
+  },
+  {
+   "id": "SKILL-007",
+   "prefix": "SKILL",
+   "feature": "Skill bundles",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     21.05,
+     37.195,
+     18.146,
+     14.795,
+     17.165
+    ],
+    "p50_ms": 18.146,
+    "p95_ms": 37.195
+   },
+   "source": "damnbot binary cold start: bundles list"
+  },
+  {
+   "id": "SKILL-016",
+   "prefix": "SKILL",
+   "feature": "Bundled skills sync",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     26.932,
+     51.905,
+     37.602,
+     19.5,
+     39.164
+    ],
+    "p50_ms": 37.602,
+    "p95_ms": 51.905
+   },
+   "source": "damnbot binary cold start: skills update"
+  },
+  {
+   "id": "SKILL-018",
+   "prefix": "SKILL",
+   "feature": "Skills guard / AST audit / linter",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     75.635,
+     63.738,
+     53.205,
+     17.171,
+     19.57
+    ],
+    "p50_ms": 53.205,
+    "p95_ms": 75.635
+   },
+   "source": "damnbot binary cold start: skills audit"
+  },
+  {
+   "id": "SKILL-021",
+   "prefix": "SKILL",
+   "feature": "Curator",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     22.421,
+     28.1,
+     20.866,
+     18.191,
+     17.659
+    ],
+    "p50_ms": 20.866,
+    "p95_ms": 28.1
+   },
+   "source": "damnbot binary cold start: curator status"
+  },
+  {
+   "id": "SKILL-023",
+   "prefix": "SKILL",
+   "feature": "Skills index",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.004917,
+     0.004199,
+     0.003979,
+     0.005014,
+     0.004099,
+     0.004031,
+     0.003961,
+     0.003986,
+     0.004047,
+     0.003903,
+     0.004344,
+     0.003921,
+     0.003714,
+     0.003795,
+     0.004884,
+     0.004208,
+     0.003756,
+     0.003809,
+     0.004257,
+     0.003926
+    ],
+    "p50_ms": 0.003986,
+    "p95_ms": 0.004917
+   },
+   "source": "assemble.Context (skills prompt slot)"
+  },
+  {
+   "id": "SLASH-001",
+   "prefix": "SLASH",
+   "feature": "`/start`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.000302,
+     0.000255,
+     0.000191,
+     0.000176,
+     0.000183,
+     0.000176,
+     0.000193,
+     0.000191,
+     0.000207,
+     0.00018,
+     0.000176,
+     0.000173,
+     0.000175,
+     0.000175,
+     0.000175,
+     0.000203,
+     0.000173,
+     0.000176,
+     0.000174,
+     0.000174
+    ],
+    "p50_ms": 0.000176,
+    "p95_ms": 0.000255
+   },
+   "source": "internal/gateway dispatch: /start"
+  },
+  {
+   "id": "SLASH-002",
+   "prefix": "SLASH",
+   "feature": "`/new`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.000476,
+     0.000324,
+     0.000299,
+     0.000275,
+     0.00027,
+     0.000283,
+     0.000434,
+     0.000275,
+     0.000273,
+     0.000381,
+     0.000299,
+     0.000273,
+     0.000277,
+     0.000274,
+     0.000362,
+     0.000278,
+     0.000275,
+     0.000278,
+     0.000302,
+     0.000272
+    ],
+    "p50_ms": 0.000278,
+    "p95_ms": 0.000434
+   },
+   "source": "internal/gateway dispatch: /new"
+  },
+  {
+   "id": "SLASH-004",
+   "prefix": "SLASH",
+   "feature": "`/clear`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-005",
+   "prefix": "SLASH",
+   "feature": "`/redraw`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-006",
+   "prefix": "SLASH",
+   "feature": "`/history`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-007",
+   "prefix": "SLASH",
+   "feature": "`/save`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-011",
+   "prefix": "SLASH",
+   "feature": "`/title`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-014",
+   "prefix": "SLASH",
+   "feature": "`/worktree`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-016",
+   "prefix": "SLASH",
+   "feature": "`/rollback`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-017",
+   "prefix": "SLASH",
+   "feature": "`/snapshot`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-020",
+   "prefix": "SLASH",
+   "feature": "`/stop`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-026",
+   "prefix": "SLASH",
+   "feature": "`/agents`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-028",
+   "prefix": "SLASH",
+   "feature": "`/queue`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.025842,
+     0.001328,
+     0.123486,
+     0.001374,
+     0.001281,
+     0.004172,
+     0.001306,
+     0.00392,
+     0.001277,
+     0.003928,
+     0.001273,
+     0.004144,
+     0.001281,
+     0.001241,
+     0.034416,
+     0.124704,
+     0.004142,
+     0.001323,
+     0.004059,
+     0.001267
+    ],
+    "p50_ms": 0.001374,
+    "p95_ms": 0.123486
+   },
+   "source": "internal/tui submit: /queue list"
+  },
+  {
+   "id": "SLASH-038",
+   "prefix": "SLASH",
+   "feature": "`/status`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-039",
+   "prefix": "SLASH",
+   "feature": "`/egress`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-040",
+   "prefix": "SLASH",
+   "feature": "`/context`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.001287,
+     0.001272,
+     0.004714,
+     0.00125,
+     0.003899,
+     0.015199,
+     0.058227,
+     0.001267,
+     0.004103,
+     0.001238,
+     0.001251,
+     0.06427,
+     0.006993,
+     0.004384,
+     0.001253,
+     0.004029,
+     0.001298,
+     0.004032,
+     0.001252,
+     0.001236
+    ],
+    "p50_ms": 0.001298,
+    "p95_ms": 0.058227
+   },
+   "source": "internal/tui submit: /context"
+  },
+  {
+   "id": "SLASH-041",
+   "prefix": "SLASH",
+   "feature": "`/whoami`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.000235,
+     0.000224,
+     0.000216,
+     0.000215,
+     0.000223,
+     0.000217,
+     0.000257,
+     0.000199,
+     0.000201,
+     0.000203,
+     0.000197,
+     0.000201,
+     0.000197,
+     0.000196,
+     0.000198,
+     0.000196,
+     0.000308,
+     0.000207,
+     0.000198,
+     0.000197
+    ],
+    "p50_ms": 0.000201,
+    "p95_ms": 0.000257
+   },
+   "source": "internal/gateway dispatch: /whoami"
+  },
+  {
+   "id": "SLASH-042",
+   "prefix": "SLASH",
+   "feature": "`/profile`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-046",
+   "prefix": "SLASH",
+   "feature": "`/config`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-049",
+   "prefix": "SLASH",
+   "feature": "`/personality`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.001311,
+     0.001097,
+     0.001102,
+     0.001009,
+     0.001033,
+     0.001055,
+     0.001127,
+     0.001172,
+     0.001037,
+     0.001026,
+     0.001065,
+     0.001007,
+     0.001009,
+     0.001012,
+     0.001106,
+     0.001027,
+     0.001018,
+     0.001138,
+     0.001085,
+     0.000997
+    ],
+    "p50_ms": 0.001037,
+    "p95_ms": 0.001172
+   },
+   "source": "internal/gateway dispatch: /personality"
+  },
+  {
+   "id": "SLASH-050",
+   "prefix": "SLASH",
+   "feature": "`/statusbar`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-051",
+   "prefix": "SLASH",
+   "feature": "`/battery`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-052",
+   "prefix": "SLASH",
+   "feature": "`/timestamps`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.00038,
+     0.00036,
+     0.000323,
+     0.000379,
+     0.000323,
+     0.000344,
+     0.000316,
+     0.00031,
+     0.000322,
+     0.000318,
+     0.0003,
+     0.000385,
+     0.000337,
+     0.000309,
+     0.000425,
+     0.00029,
+     0.000301,
+     0.000313,
+     0.000302,
+     0.000314
+    ],
+    "p50_ms": 0.000318,
+    "p95_ms": 0.000385
+   },
+   "source": "internal/gateway dispatch: /timestamps"
+  },
+  {
+   "id": "SLASH-054",
+   "prefix": "SLASH",
+   "feature": "`/verbose`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-055",
+   "prefix": "SLASH",
+   "feature": "`/focus`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-056",
+   "prefix": "SLASH",
+   "feature": "`/footer`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.000293,
+     0.00023,
+     0.000237,
+     0.000226,
+     0.000214,
+     0.000248,
+     0.000205,
+     0.000204,
+     0.000233,
+     0.000251,
+     0.000239,
+     0.000208,
+     0.000253,
+     0.000206,
+     0.000202,
+     0.000204,
+     0.000204,
+     0.000226,
+     0.000208,
+     0.00021
+    ],
+    "p50_ms": 0.000214,
+    "p95_ms": 0.000253
+   },
+   "source": "internal/gateway dispatch: /footer"
+  },
+  {
+   "id": "SLASH-057",
+   "prefix": "SLASH",
+   "feature": "`/yolo`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-058",
+   "prefix": "SLASH",
+   "feature": "`/approvals`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-059",
+   "prefix": "SLASH",
+   "feature": "`/reasoning`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-061",
+   "prefix": "SLASH",
+   "feature": "`/skin`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.032227,
+     0.006538,
+     0.001572,
+     0.012393,
+     0.13602,
+     0.001648,
+     0.086267,
+     0.004601,
+     0.280339,
+     0.001438,
+     0.001584,
+     0.005375,
+     0.00147,
+     0.001523,
+     0.001522,
+     0.001439,
+     0.001374,
+     0.100893,
+     0.009282,
+     0.001529
+    ],
+    "p50_ms": 0.001648,
+    "p95_ms": 0.13602
+   },
+   "source": "internal/tui submit: /theme"
+  },
+  {
+   "id": "SLASH-062",
+   "prefix": "SLASH",
+   "feature": "`/indicator`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-065",
+   "prefix": "SLASH",
+   "feature": "`/busy`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-066",
+   "prefix": "SLASH",
+   "feature": "`/autoprune`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-067",
+   "prefix": "SLASH",
+   "feature": "`/tools`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-068",
+   "prefix": "SLASH",
+   "feature": "`/toolsets`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-069",
+   "prefix": "SLASH",
+   "feature": "`/skills`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-070",
+   "prefix": "SLASH",
+   "feature": "`/memory`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-071",
+   "prefix": "SLASH",
+   "feature": "`/bundles`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-076",
+   "prefix": "SLASH",
+   "feature": "`/cron`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.001656,
+     0.001256,
+     0.001151,
+     0.001084,
+     0.001174,
+     0.001244,
+     0.001097,
+     0.001103,
+     0.001081,
+     0.001094,
+     0.001091,
+     0.001163,
+     0.001912,
+     0.001146,
+     0.001227,
+     0.001282,
+     0.00125,
+     0.001157,
+     0.001107,
+     0.001952
+    ],
+    "p50_ms": 0.001157,
+    "p95_ms": 0.001912
+   },
+   "source": "internal/gateway dispatch: /cron list"
+  },
+  {
+   "id": "SLASH-079",
+   "prefix": "SLASH",
+   "feature": "`/curator`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.001152,
+     0.001189,
+     0.0012,
+     0.001251,
+     0.001193,
+     0.001178,
+     0.001137,
+     0.001908,
+     0.001171,
+     0.00107,
+     0.001122,
+     0.001073,
+     0.001126,
+     0.001063,
+     0.001126,
+     0.001077,
+     0.001191,
+     0.001083,
+     0.001406,
+     0.00106
+    ],
+    "p50_ms": 0.001137,
+    "p95_ms": 0.001406
+   },
+   "source": "internal/gateway dispatch: /curator status"
+  },
+  {
+   "id": "SLASH-080",
+   "prefix": "SLASH",
+   "feature": "`/kanban`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.001404,
+     0.001344,
+     0.001336,
+     0.001496,
+     0.001185,
+     0.001303,
+     0.001187,
+     0.001228,
+     0.001566,
+     0.00122,
+     0.001197,
+     0.001383,
+     0.00141,
+     0.001167,
+     0.001203,
+     0.001247,
+     0.001308,
+     0.001785,
+     0.001223,
+     0.001239
+    ],
+    "p50_ms": 0.001247,
+    "p95_ms": 0.001566
+   },
+   "source": "internal/gateway dispatch: /kanban list"
+  },
+  {
+   "id": "SLASH-081",
+   "prefix": "SLASH",
+   "feature": "`/reload`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-083",
+   "prefix": "SLASH",
+   "feature": "`/reload-skills`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-085",
+   "prefix": "SLASH",
+   "feature": "`/plugins`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-086",
+   "prefix": "SLASH",
+   "feature": "`/commands`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-087",
+   "prefix": "SLASH",
+   "feature": "`/help`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "SLASH-090",
+   "prefix": "SLASH",
+   "feature": "`/usage`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.000249,
+     0.000236,
+     0.000237,
+     0.000213,
+     0.000213,
+     0.000207,
+     0.000194,
+     0.000189,
+     0.000189,
+     0.000198,
+     0.000193,
+     0.000188,
+     0.000187,
+     0.000188,
+     0.000188,
+     0.000188,
+     0.000265,
+     0.000198,
+     0.000187,
+     0.000188
+    ],
+    "p50_ms": 0.000193,
+    "p95_ms": 0.000249
+   },
+   "source": "internal/gateway dispatch: /usage"
+  },
+  {
+   "id": "SLASH-094",
+   "prefix": "SLASH",
+   "feature": "`/insights`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.012668,
+     0.001364,
+     0.001544,
+     0.001119,
+     0.001124,
+     0.001274,
+     0.001087,
+     0.000998,
+     0.00099,
+     0.001,
+     0.001036,
+     0.000996,
+     0.001093,
+     0.00107,
+     0.001068,
+     0.000989,
+     0.000985,
+     0.001007,
+     0.001081,
+     0.001102
+    ],
+    "p50_ms": 0.00107,
+    "p95_ms": 0.001544
+   },
+   "source": "internal/gateway dispatch: /insights"
+  },
+  {
+   "id": "SLASH-095",
+   "prefix": "SLASH",
+   "feature": "`/platforms`",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.000565,
+     0.000532,
+     0.000502,
+     0.000516,
+     0.00051,
+     0.000516,
+     0.00051,
+     0.000544,
+     0.000485,
+     0.000514,
+     0.000491,
+     0.000478,
+     0.00047,
+     0.000468,
+     0.000477,
+     0.000471,
+     0.00047,
+     0.000516,
+     0.000473,
+     0.000463
+    ],
+    "p50_ms": 0.000491,
+    "p95_ms": 0.000544
+   },
+   "source": "internal/gateway dispatch: /platforms"
+  },
+  {
+   "id": "SLASH-101",
+   "prefix": "SLASH",
+   "feature": "`/version`",
+   "status": "planned",
+   "class": "not_measured",
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+  },
+  {
+   "id": "TOOL-022",
+   "prefix": "TOOL",
+   "feature": "`execute_code` (toolset `code_execution`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     54.116799,
+     53.512415,
+     54.515226,
+     67.406952,
+     67.251106,
+     76.229155,
+     58.508831,
+     85.625851,
+     268.946,
+     103.704061,
+     77.620843,
+     94.136268,
+     69.545525,
+     70.387189,
+     65.762789,
+     56.959746,
+     65.764644,
+     66.25327,
+     86.984899,
+     57.699534
+    ],
+    "p50_ms": 67.251106,
+    "p95_ms": 103.704061
+   },
+   "source": "internal/tools dispatcher (execute_code)"
+  },
+  {
+   "id": "TOOL-025",
+   "prefix": "TOOL",
+   "feature": "`cronjob_manage` (toolset `cronjob`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.035525,
+     0.028969,
+     0.05233,
+     0.030547,
+     0.011568,
+     0.010673,
+     0.010481,
+     0.011416,
+     0.011121,
+     0.010561,
+     0.010794,
+     0.010726,
+     0.010557,
+     0.010728,
+     0.01059,
+     0.010525,
+     0.027953,
+     0.011782,
+     0.011014,
+     0.011106
+    ],
+    "p50_ms": 0.011014,
+    "p95_ms": 0.035525
+   },
+   "source": "internal/tools dispatcher (cronjob_manage)"
+  },
+  {
+   "id": "TOOL-045",
+   "prefix": "TOOL",
+   "feature": "`patch` (toolset `file`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "p50_ms": 5.238
+   },
+   "source": "codetools/results/f1-7d0f6bd.json#ops[kind=patch].p50_ms median"
+  },
+  {
+   "id": "TOOL-046",
+   "prefix": "TOOL",
+   "feature": "`read_file` (toolset `file`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "p50_ms": 0.509
+   },
+   "source": "codetools/results/f1-7d0f6bd.json#ops[kind=read_file].p50_ms median"
+  },
+  {
+   "id": "TOOL-047",
+   "prefix": "TOOL",
+   "feature": "`search_files` (toolset `file`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "p50_ms": 10.519
+   },
+   "source": "codetools/results/f1-7d0f6bd.json#ops[kind=search_files].p50_ms median"
+  },
+  {
+   "id": "TOOL-048",
+   "prefix": "TOOL",
+   "feature": "`write_file` (toolset `file`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     44.9163,
+     7.526081,
+     8.734866,
+     6.645854,
+     5.554732,
+     6.297627,
+     5.221745,
+     5.617326,
+     3.438471,
+     5.485408,
+     3.663061,
+     4.186541,
+     7.96568,
+     2.944286,
+     3.609527,
+     2.646637,
+     4.266274,
+     3.459212,
+     2.385819,
+     17.023301
+    ],
+    "p50_ms": 5.221745,
+    "p95_ms": 17.023301
+   },
+   "source": "internal/tools dispatcher (write_file, reset each run)"
+  },
+  {
+   "id": "TOOL-075",
+   "prefix": "TOOL",
+   "feature": "`skill_view` (toolset `skills`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     3.289217,
+     2.491416,
+     4.604547,
+     3.127856,
+     2.006145,
+     2.023427,
+     2.15206,
+     2.111602,
+     1.780194,
+     1.075799,
+     1.24089,
+     2.890254,
+     1.114415,
+     2.460622,
+     1.639392,
+     1.90705,
+     1.703041,
+     1.739395,
+     2.219043,
+     1.020212
+    ],
+    "p50_ms": 2.006145,
+    "p95_ms": 3.289217
+   },
+   "source": "internal/tools dispatcher (skill_view)"
+  },
+  {
+   "id": "TOOL-076",
+   "prefix": "TOOL",
+   "feature": "`skills_list` (toolset `skills`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     1.761201,
+     1.967541,
+     1.235945,
+     1.225493,
+     1.808257,
+     3.941085,
+     3.475435,
+     3.485406,
+     2.064668,
+     2.1881,
+     1.648662,
+     1.577741,
+     2.378651,
+     1.233209,
+     1.411507,
+     1.398858,
+     1.951522,
+     1.234647,
+     1.54335,
+     1.972148
+    ],
+    "p50_ms": 1.761201,
+    "p95_ms": 3.485406
+   },
+   "source": "internal/tools dispatcher (skills_list)"
+  },
+  {
+   "id": "TOOL-077",
+   "prefix": "TOOL",
+   "feature": "`process_manage` (toolset `terminal`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     0.012898,
+     0.002918,
+     0.002922,
+     0.002617,
+     0.002505,
+     0.002397,
+     0.002599,
+     0.002427,
+     0.002451,
+     0.002405,
+     0.002492,
+     0.002783,
+     0.002468,
+     0.002632,
+     0.002526,
+     0.002331,
+     0.002479,
+     0.002417,
+     0.00254,
+     0.002426
+    ],
+    "p50_ms": 0.002492,
+    "p95_ms": 0.002922
+   },
+   "source": "internal/tools dispatcher (process_list)"
+  },
+  {
+   "id": "TOOL-078",
+   "prefix": "TOOL",
+   "feature": "`terminal` (toolset `terminal`)",
+   "status": "planned",
+   "class": "measured",
+   "result": {
+    "samples_ms": [
+     6.326632,
+     4.316995,
+     4.07074,
+     6.714527,
+     4.146529,
+     9.155691,
+     7.801414,
+     9.644501,
+     5.758152,
+     8.788061,
+     9.306451,
+     80.741643,
+     49.062836,
+     10.685198,
+     9.179287,
+     35.74077,
+     8.289558,
+     63.559833,
+     12.875351,
+     23.432345
+    ],
+    "p50_ms": 9.155691,
+    "p95_ms": 63.559833
+   },
+   "source": "internal/tools dispatcher (shell)"
+  }
+ ]
+}
