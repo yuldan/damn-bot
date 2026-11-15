@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -95,15 +96,9 @@ func TestSpeedP20Probe(t *testing.T) {
 	for id, argv := range cliProbeOps() {
 		out.Results[id] = measureCommand(ctx, bin, env, argv)
 	}
-	for id, result := range toolProbeOps(t) {
-		out.Results[id] = result
-	}
-	for id, result := range assembleProbeOps(t) {
-		out.Results[id] = result
-	}
-	for id, result := range slashProbeOps() {
-		out.Results[id] = result
-	}
+	maps.Copy(out.Results, toolProbeOps(t))
+	maps.Copy(out.Results, assembleProbeOps(t))
+	maps.Copy(out.Results, slashProbeOps())
 	if got := len(out.Results); got != 89 {
 		t.Fatalf("measured rows = %d, want 89 (93 minus the 4 internal/tui rows)", got)
 	}
@@ -112,7 +107,7 @@ func TestSpeedP20Probe(t *testing.T) {
 
 func writeProbe(t *testing.T, dir, name string, v any) {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil { //nolint:gosec // dir is the probe output chosen by run-damnbot.sh
 		t.Fatal(err)
 	}
 	b, err := json.MarshalIndent(v, "", " ")
@@ -120,7 +115,7 @@ func writeProbe(t *testing.T, dir, name string, v any) {
 		t.Fatal(err)
 	}
 	b = append(b, '\n')
-	if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil { //nolint:gosec // probe output file chosen by run-damnbot.sh
 		t.Fatal(err)
 	}
 }
@@ -129,17 +124,19 @@ func measureCommand(ctx context.Context, bin string, env, argv []string) speedPr
 	res := speedProbeResult{Source: "damnbot binary cold start: " + strings.Join(argv, " ")}
 	for i := range probeWarmup + probeCLIRuns {
 		rctx, cancel := context.WithTimeout(ctx, probeTimeout)
-		cmd := osexec.CommandContext(rctx, bin, argv...)
+		cmd := osexec.CommandContext(rctx, bin, argv...) //nolint:gosec // bin/argv are the fixed probe table from bench/speed
 		cmd.Env = env
 		cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
 		started := time.Now()
 		err := cmd.Run()
 		elapsed := time.Since(started)
 		cancel()
-		var ee *osexec.ExitError
-		if err != nil && !(errors.As(err, &ee) && (ee.ExitCode() == 0 || ee.ExitCode() == 1 || ee.ExitCode() == 2)) {
-			res.Error = err.Error()
-			return res
+		if err != nil {
+			var ee *osexec.ExitError
+			if !errors.As(err, &ee) || (ee.ExitCode() != 0 && ee.ExitCode() != 1 && ee.ExitCode() != 2) {
+				res.Error = err.Error()
+				return res
+			}
 		}
 		if i >= probeWarmup {
 			res.SamplesMS = append(res.SamplesMS, float64(elapsed.Microseconds())/1000)
@@ -232,7 +229,6 @@ type probeIntegration struct {
 	ws   string
 }
 
-//nolint:funlen // the wiring order mirrors production; one helper keeps the probes honest.
 func newProbeIntegration(t *testing.T) *probeIntegration {
 	t.Helper()
 	ws := t.TempDir()
@@ -262,7 +258,11 @@ func newProbeIntegration(t *testing.T) *probeIntegration {
 	fileTools := tools.FileTools(engine, sb, nil)
 
 	runner := exec.New(t.Context())
-	t.Cleanup(func() { _ = runner.Close() })
+	t.Cleanup(func() {
+		if cerr := runner.Close(); cerr != nil {
+			t.Errorf("close exec runner: %v", cerr)
+		}
+	})
 	codeRunner, err := code.New(&code.Config{Backend: probeNetBackend{Backend: exec.NewLocal(runner), id: "local-net-probe"}, Root: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +277,8 @@ func newProbeIntegration(t *testing.T) *probeIntegration {
 		t.Fatal(err)
 	}
 	skillsMgr := probeSkills{}
-	allTools := append(fileTools, sh,
+	allTools := append([]tools.Tool{}, fileTools...)
+	allTools = append(allTools, sh,
 		tools.NewExecuteCode(&tools.ExecuteCodeConfig{Runner: codeRunner, AutoLanguages: []string{"python"}}),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr),
 		tools.NewCronJob(&cron.Admin{Store: probeCronStore{}}),
@@ -331,11 +332,13 @@ func toolProbeOps(t *testing.T) map[string]speedProbeResult {
 	pi.d.BeginTurn()
 	out48 := measureInproc(func() error {
 		if err := os.Remove(filepath.Join(pi.ws, "out.txt")); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+			return fmt.Errorf("remove probe output: %w", err)
 		}
 		pi.d.BeginTurn()
-		o := pi.d.Dispatch(t.Context(), tools.Call{TurnID: "speed", CallID: "TOOL-048-" + fmt.Sprint(time.Now().UnixNano()),
-			Name: "write_file", Args: json.RawMessage(`{"path":"out.txt","content":"0123456789abcdef\n"}`)})
+		o := pi.d.Dispatch(t.Context(), tools.Call{
+			TurnID: "speed", CallID: "TOOL-048-" + fmt.Sprint(time.Now().UnixNano()),
+			Name: "write_file", Args: json.RawMessage(`{"path":"out.txt","content":"0123456789abcdef\n"}`),
+		})
 		if o.Err != nil {
 			return errors.New(string(o.Err.Code) + ": " + o.Err.Message)
 		}
@@ -348,12 +351,18 @@ func toolProbeOps(t *testing.T) map[string]speedProbeResult {
 	call("TOOL-077", "process_list", `{}`)
 	call("TOOL-078", "shell", `{"command":"true"}`)
 	for _, row := range []struct{ id, name string }{
-		{"SKCAT-002", "claude-code"}, {"SKCAT-003", "architecture-diagram"},
-		{"SKCAT-004", "sdlc-review"}, {"SKCAT-005", "email-inbox-triage"},
-		{"SKCAT-006", "gif-search"}, {"SKCAT-007", "obsidian"},
-		{"SKCAT-008", "airtable"}, {"SKCAT-009", "arxiv"},
-		{"SKCAT-010", "xurl"}, {"SKCAT-011", "codebase-inspection"},
-		{"SKCAT-012", "blocked-page-recovery"}, {"SKILL-001", "codebase-inspection"},
+		{"SKCAT-002", "claude-code"},
+		{"SKCAT-003", "architecture-diagram"},
+		{"SKCAT-004", "sdlc-review"},
+		{"SKCAT-005", "email-inbox-triage"},
+		{"SKCAT-006", "gif-search"},
+		{"SKCAT-007", "obsidian"},
+		{"SKCAT-008", "airtable"},
+		{"SKCAT-009", "arxiv"},
+		{"SKCAT-010", "xurl"},
+		{"SKCAT-011", "codebase-inspection"},
+		{"SKCAT-012", "blocked-page-recovery"},
+		{"SKILL-001", "codebase-inspection"},
 	} {
 		call(row.id, "skill_view", `{"name":"`+row.name+`"}`)
 	}
@@ -402,6 +411,7 @@ type probeJournal struct{}
 func (probeJournal) ToolDispatch(context.Context, string, string, string, tools.Effect, [32]byte) error {
 	return nil
 }
+
 func (probeJournal) ToolResult(context.Context, string, string, string, bool, string, string) error {
 	return nil
 }
@@ -435,12 +445,15 @@ func (probeCronStore) Jobs(context.Context) ([]cron.Job, error) { return nil, ni
 func (probeCronStore) State(context.Context, string) (cron.State, error) {
 	return cron.State{}, nil
 }
+
 func (probeCronStore) Active(context.Context, string) (cron.Active, error) {
 	return cron.Active{}, nil
 }
+
 func (probeCronStore) Claim(context.Context, string, time.Time, time.Time, string) (bool, error) {
 	return true, nil
 }
+
 func (probeCronStore) TakeQueued(context.Context, string, time.Time) (time.Time, bool, error) {
 	return time.Time{}, false, nil
 }
@@ -481,26 +494,34 @@ func assembleProbeOps(t *testing.T) map[string]speedProbeResult {
 	mem26 := measureInproc(func() error {
 		f, err := os.CreateTemp(t.TempDir(), "AGENTS-*.md")
 		if err != nil {
-			return err
+			return fmt.Errorf("create AGENTS fixture: %w", err)
 		}
 		body := strings.Repeat("Project rule: keep changes small.\n", 40)
-		if _, err := f.WriteString(body); err != nil {
-			_ = f.Close()
-			return err
+		if _, werr := f.WriteString(body); werr != nil {
+			if cerr := f.Close(); cerr != nil {
+				return fmt.Errorf("write AGENTS fixture: %w (close: %w)", werr, cerr)
+			}
+			return fmt.Errorf("write AGENTS fixture: %w", werr)
 		}
-		_ = f.Close()
-		_, err = asm.Context(t.Context(), &assemble.ContextInput{
+		if cerr := f.Close(); cerr != nil {
+			return fmt.Errorf("close AGENTS fixture: %w", cerr)
+		}
+		if _, err := asm.Context(t.Context(), &assemble.ContextInput{
 			Files:  []assemble.ContextFile{{Path: f.Name()}},
 			Reader: probeReader{},
 			Query:  "speed probe",
-		})
-		return err
+		}); err != nil {
+			return fmt.Errorf("assemble context files: %w", err)
+		}
+		return nil
 	})
 	mem26.Source = "assemble.Context (context files tier)"
 	out["MEM-026"] = mem26
 	skill23 := measureInproc(func() error {
-		_, err := asm.Context(t.Context(), &assemble.ContextInput{Retriever: probeRetriever{}, Query: "speed"})
-		return err
+		if _, err := asm.Context(t.Context(), &assemble.ContextInput{Retriever: probeRetriever{}, Query: "speed"}); err != nil {
+			return fmt.Errorf("assemble skills prompt: %w", err)
+		}
+		return nil
 	})
 	skill23.Source = "assemble.Context (skills prompt slot)"
 	out["SKILL-023"] = skill23
@@ -522,13 +543,12 @@ type probeRetriever struct{}
 func (probeRetriever) Memories(context.Context, string) ([]assemble.Memory, error) {
 	return []assemble.Memory{{Text: "prefer small diffs", Pinned: true}}, nil
 }
+
 func (probeRetriever) Skills(context.Context, string) ([]string, error) {
 	return []string{"arxiv: papers", "obsidian: notes", "codebase-inspection: repo"}, nil
 }
 
 // --- slash -----------------------------------------------------------------
-
-type probeTicket struct{}
 
 func slashProbeOps() map[string]speedProbeResult {
 	cmds := gateway.NewCommands(&gateway.CommandOptions{
@@ -540,8 +560,10 @@ func slashProbeOps() map[string]speedProbeResult {
 		Kanban:      probeKanban{},
 	})
 	ticket := &gateway.Ticket{
-		Identity: gateway.Identity{Platform: "telegram", ExternalID: "speed", Role: gateway.RoleOwner,
-			Status: gateway.StatusAllowlisted, Strength: gateway.StrengthCryptographic},
+		Identity: gateway.Identity{
+			Platform: "telegram", ExternalID: "speed", Role: gateway.RoleOwner,
+			Status: gateway.StatusAllowlisted, Strength: gateway.StrengthCryptographic,
+		},
 		Scope: gateway.Scope{Platform: "telegram", ChatID: "speed", UserID: "speed"},
 	}
 	ops := map[string]string{
@@ -588,15 +610,19 @@ func (probeRuntime) StopTurn(context.Context, *gateway.Scope) (bool, error) { re
 func (probeRuntime) NewSession(_ context.Context, s *gateway.Scope) (string, error) {
 	return s.ChatID + "-new", nil
 }
+
 func (probeRuntime) Status(context.Context) (gateway.RuntimeStatus, error) {
 	return gateway.RuntimeStatus{Version: "speed", Uptime: time.Second}, nil
 }
+
 func (probeRuntime) Usage(context.Context, *gateway.Scope) (gateway.UsageReport, bool, error) {
 	return gateway.UsageReport{}, false, nil
 }
+
 func (probeRuntime) TopicSession(_ context.Context, s *gateway.Scope) (string, error) {
 	return s.ChatID + "-topic", nil
 }
+
 func (probeRuntime) CronList(context.Context) ([]cron.Job, error) {
 	return []cron.Job{{ID: "probe", Name: "probe", Schedule: "0 * * * *", Enabled: true}}, nil
 }
@@ -609,12 +635,15 @@ type probeSettings struct{}
 func (probeSettings) ChatSetting(context.Context, string, string, string) (string, bool, error) {
 	return "", false, nil
 }
+
 func (probeSettings) SetChatSetting(context.Context, string, string, string, string, int64) error {
 	return nil
 }
+
 func (probeSettings) HomeChannel(context.Context) (string, string, string, bool, error) {
 	return "", "", "", false, nil
 }
+
 func (probeSettings) SetHomeChannel(context.Context, string, string, string, int64) error { return nil }
 
 type probeControl struct{}
@@ -622,12 +651,15 @@ type probeControl struct{}
 func (probeControl) Restart(context.Context, *gateway.Scope) (gateway.RestartReport, error) {
 	return gateway.RestartReport{}, nil
 }
+
 func (probeControl) Platforms(context.Context) ([]gateway.AdapterStatus, error) {
 	return []gateway.AdapterStatus{{Key: gateway.Key{Platform: "telegram", Account: "speed"}, State: gateway.StateRunning}}, nil
 }
+
 func (probeControl) PausePlatform(_ context.Context, name string) (gateway.AdapterStatus, error) {
 	return gateway.AdapterStatus{Key: gateway.Key{Platform: name, Account: "speed"}, State: gateway.StatePaused}, nil
 }
+
 func (probeControl) ResumePlatform(_ context.Context, name string) (gateway.AdapterStatus, error) {
 	return gateway.AdapterStatus{Key: gateway.Key{Platform: name, Account: "speed"}, State: gateway.StateRunning}, nil
 }

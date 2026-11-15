@@ -50,10 +50,10 @@ func TestSpeedP20TUIProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	b = append(b, '\n')
-	if err := os.MkdirAll(outDir, 0o750); err != nil {
+	if err := os.MkdirAll(outDir, 0o750); err != nil { //nolint:gosec // outDir is DAMNBOT_SPEED_OUT from the harness
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(outDir, "tui.json"), b, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outDir, "tui.json"), b, 0o600); err != nil { //nolint:gosec // harness output under DAMNBOT_SPEED_OUT
 		t.Fatal(err)
 	}
 }

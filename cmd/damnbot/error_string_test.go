@@ -7,6 +7,7 @@ package main
 // intentionally not a Contains match, so it does not appear here.
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -17,6 +18,7 @@ import (
 	"testing"
 )
 
+//nolint:gocognit,gocyclo // one deliberate AST walk keeps the classification rule in one place.
 func TestNoErrorStringClassification(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join("..", "..")
@@ -38,25 +40,25 @@ func TestNoErrorStringClassification(t *testing.T) {
 		fset := token.NewFileSet()
 		f, perr := parser.ParseFile(fset, path, nil, 0)
 		if perr != nil {
-			return perr
+			return fmt.Errorf("parse %s: %w", path, perr)
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok || len(call.Args) != 2 {
+			call, isCall := n.(*ast.CallExpr)
+			if !isCall || len(call.Args) != 2 {
 				return true
 			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "Contains" {
+			sel, isSel := call.Fun.(*ast.SelectorExpr)
+			if !isSel || sel.Sel.Name != "Contains" {
 				return true
 			}
-			if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "strings" {
+			if pkg, isIdent := sel.X.(*ast.Ident); !isIdent || pkg.Name != "strings" {
 				return true
 			}
-			inner, ok := call.Args[1].(*ast.CallExpr)
-			if !ok {
+			inner, isInnerCall := call.Args[1].(*ast.CallExpr)
+			if !isInnerCall {
 				return true
 			}
-			if s, ok := inner.Fun.(*ast.SelectorExpr); ok && s.Sel.Name == "Error" {
+			if s, isErrSel := inner.Fun.(*ast.SelectorExpr); isErrSel && s.Sel.Name == "Error" {
 				hits = append(hits, path+":"+strconv.Itoa(fset.Position(call.Pos()).Line))
 			}
 			return true
