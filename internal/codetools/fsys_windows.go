@@ -1,7 +1,6 @@
 package codetools
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,8 +8,6 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
-
-	"github.com/damnbot/damnbot/internal/netx/retry"
 )
 
 // Sharing-violation retry (EC-WIN-014): an editor save replaces the old file
@@ -18,26 +15,33 @@ import (
 // holds it without FILE_SHARE_DELETE. The lock is transient, so a rename or
 // delete is retried briefly before it fails.
 const (
-	shareAttempts   = 10                     // bounded patience, ~1.3 s in total (EC-WIN-014)
-	shareBackoff    = 20 * time.Millisecond  // first wait; doubles per attempt
-	maxShareBackoff = 200 * time.Millisecond // cap: a holder that never releases fails, never hangs
+	shareRetryAttempts = 10                     // bounded patience, ~1.3 s in total (EC-WIN-014)
+	shareRetryBackoff  = 20 * time.Millisecond  // first wait; doubles per attempt
+	maxShareRetryWait  = 200 * time.Millisecond // cap: a holder that never releases fails, never hangs
 )
 
-// sharingViolation reports whether err is a transient sharing violation.
-func sharingViolation(err error) bool {
+// retrySharing reports whether err is a transient sharing violation.
+func retrySharing(err error) bool {
 	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) ||
 		errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
 		errors.Is(err, windows.ERROR_LOCK_VIOLATION)
 }
 
-// withSharingWait runs fn until it succeeds, fails with a non-sharing error,
-// or the attempts are spent; the schedule lives in the central retry policy.
-func withSharingWait(fn func() error) error {
-	return retry.Do(context.Background(), retry.Policy{
-		Attempts:  shareAttempts,
-		Schedule:  func(n int, _ error) time.Duration { return min(shareBackoff<<(n-1), maxShareBackoff) },
-		Transient: sharingViolation,
-	}, func(context.Context, int) error { return fn() })
+// withShareRetry runs fn until it succeeds, fails with a non-sharing error,
+// or the attempts are spent.
+func withShareRetry(fn func() error) error {
+	var err error
+	wait := shareRetryBackoff
+	for i := range shareRetryAttempts {
+		if i > 0 {
+			time.Sleep(wait)
+			wait = min(wait*2, maxShareRetryWait)
+		}
+		if err = fn(); err == nil || !retrySharing(err) {
+			return err
+		}
+	}
+	return err
 }
 
 // linkCount is the hard-link count of f (1 when unknown).
@@ -60,7 +64,7 @@ func copyXattrs(_, _ *os.File) bool { return true }
 // removeAt removes name in the directory d (by path: Windows has no
 // unlinkat; d was opened and verified through the sandbox).
 func removeAt(d *os.File, name string) error {
-	if err := withSharingWait(func() error { return os.Remove(filepath.Join(d.Name(), name)) }); err != nil {
+	if err := withShareRetry(func() error { return os.Remove(filepath.Join(d.Name(), name)) }); err != nil {
 		return fmt.Errorf("codetools: remove: %w", err)
 	}
 	return nil
@@ -74,7 +78,7 @@ func removeAt(d *os.File, name string) error {
 // (ADR-117). The replacement — not the mode of the file it replaces — owns
 // the result afterwards, exactly as on POSIX.
 func renameReplace(src, dst string) error {
-	if err := withSharingWait(func() error { return moveReplace(src, dst) }); err != nil {
+	if err := withShareRetry(func() error { return moveReplace(src, dst) }); err != nil {
 		return fmt.Errorf("codetools: MoveFileEx: %w", err)
 	}
 	return nil

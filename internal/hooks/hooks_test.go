@@ -98,7 +98,7 @@ func writeBytes(b []byte) {
 func runHook(t *testing.T, reg *Registry, name string, fields map[string]any) (Result, error) {
 	t.Helper()
 	var res Result
-	err := testutil.Eventually(context.Background(), func() error {
+	err := testutil.ExecRetry(context.Background(), func() error {
 		var rerr error
 		res, rerr = reg.Run(context.Background(), name, EventGatewayInbound, fields)
 		return rerr

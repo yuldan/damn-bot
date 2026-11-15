@@ -25,7 +25,7 @@ func runEnv(t *testing.T, o *OneShot) (map[string]string, string) {
 	}
 	r := newTestRunner(t)
 	var res Result
-	err = testutil.Eventually(t.Context(), func() error {
+	err = testutil.ExecRetry(t.Context(), func() error {
 		var rerr error
 		res, rerr = r.Run(t.Context(), &spec)
 		return rerr

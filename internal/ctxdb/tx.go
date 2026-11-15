@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"os"
 	"time"
-
-	"github.com/damnbot/damnbot/internal/netx/retry"
 )
 
 // Connection modes of dmb_maint() (SPEC §11.11.3).
@@ -139,7 +137,7 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 		return wrap(err)
 	}
 	t := &Tx{ctx: ctx, c: c, s: s, txid: fmt.Sprintf("%d-%s-%d", s.id.PID, s.id.Start, s.txSeq.Add(1))}
-	if err = s.withBusyWait(ctx, "begin", func() error { return s.begin(ctx, c) }); err != nil {
+	if err = s.busyRetry(ctx, "begin", func() error { return s.begin(ctx, c) }); err != nil {
 		// A cancelled BEGIN may already have opened the transaction: roll it
 		// back (never inheriting cancellation) before the conn is pooled, or
 		// the next checkpoint on this writer reports SQLITE_LOCKED.
@@ -159,7 +157,7 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 	if ferr := fn(t); ferr != nil {
 		return ferr
 	}
-	if cerr := s.withBusyWait(ctx, "commit", func() error {
+	if cerr := s.busyRetry(ctx, "commit", func() error {
 		_, xerr := c.ExecContext(ctx, "COMMIT")
 		return wrap(xerr)
 	}); cerr != nil {
@@ -182,22 +180,24 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 // load-bearing.
 const busyRetryDefault = 3
 
-// withBusyWait runs one transaction phase, retrying only ErrDBBusy. Error lain -
+// busyRetry runs one transaction phase, retrying only ErrDBBusy. Error lain -
 // abort guard (lease_fenced/session_purging), schema, atau ctx yang dibatalkan -
 // dikembalikan pada percobaan pertama: mengulanginya berarti mengulang tulis
 // yang sudah difence atau menyembunyikan kegagalan nyata.
-func (s *Store) withBusyWait(ctx context.Context, phase string, run func() error) error {
-	return retry.Do(ctx, retry.Policy{
-		Attempts:  s.busyRetryMax,
-		Schedule:  func(n int, _ error) time.Duration { return time.Duration(n) * 2 * time.Millisecond },
-		Transient: func(err error) bool { return errors.Is(err, ErrDBBusy) },
-		Notify: func(a retry.Attempt) {
-			s.busyRetries.Add(1)
-			if s.opt.OnBusyRetry != nil {
-				s.opt.OnBusyRetry(phase, a.N)
-			}
-		},
-	}, func(context.Context, int) error { return run() })
+func (s *Store) busyRetry(ctx context.Context, phase string, run func() error) error {
+	var err error
+	for attempt := 1; ; attempt++ {
+		if err = run(); !errors.Is(err, ErrDBBusy) || attempt >= s.busyRetryMax || ctx.Err() != nil {
+			return err
+		}
+		s.busyRetries.Add(1)
+		if s.opt.OnBusyRetry != nil {
+			s.opt.OnBusyRetry(phase, attempt)
+		}
+		if serr := sleepReal(ctx, time.Duration(attempt)*2*time.Millisecond); serr != nil {
+			return errors.Join(err, serr)
+		}
+	}
 }
 
 // Writer fairness (ADR-087). SQLite's busy handler polls with growing sleeps

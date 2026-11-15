@@ -132,7 +132,7 @@ func allowedImports() map[string][]string {
 		"internal/budget":    nil,
 		"internal/heal":      {"internal/ctxdb", "internal/config"},
 		"internal/importer":  {"internal/ctxdb", "internal/ctxdb/importstore", "internal/memory", "internal/skills", "internal/config"},
-		"internal/codetools": {"internal/sandbox", "internal/boundary", "internal/netx/retry"},
+		"internal/codetools": {"internal/sandbox", "internal/boundary"},
 		"internal/exec":      {"internal/exec/classify", "internal/sandbox", "internal/redact", "internal/boundary"},
 		// F5 backends (ADR-277): transport over the exec contract, plus the Exec egress point.
 		"internal/exec/backends": {"internal/exec", "internal/netx"},
@@ -142,7 +142,7 @@ func allowedImports() map[string][]string {
 		"internal/hooks":               append(groupExec(), "internal/redact"),
 		"internal/modules":             {"internal/modules/host", "internal/boundary"},
 		"internal/modules/host":        {"internal/schema", "internal/loop/event"},
-		"internal/ctxdb":               {"internal/loop/event", "internal/redact", "internal/netx/retry"},
+		"internal/ctxdb":               {"internal/loop/event", "internal/redact"},
 		"internal/ctxdb/ledgerstore":   storeImports(),
 		"internal/ctxdb/memstore":      storeImports(),
 		"internal/ctxdb/skillstore":    storeImports(),
@@ -178,7 +178,7 @@ func allowedImports() map[string][]string {
 		// sandbox/redaction for the P28 speed probes (ADR-358).
 		"internal/e2e":         {"internal/assemble", "internal/boundary", "internal/budget", "internal/codetools", "internal/cron", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/exec", "internal/exec/code", "internal/gateway", "internal/gateway/outq", "internal/gateway/telegram", "internal/gwplat", "internal/gwplat/a2a", "internal/gwplat/line", "internal/journal", "internal/loop/event", "internal/netx", "internal/redact", "internal/sandbox", "internal/secret", "internal/skills/catalog", "internal/tools", "internal/voice"},
 		"internal/integration": {"internal/ctxdb", "internal/ctxdb/memstore", "internal/ctxdb/compactstore", "internal/ctxdb/skillstore", "internal/ctxdb/carrierstore", "internal/compaction", "internal/backup", "internal/secret", "internal/redact", "internal/loop/event"},
-		"internal/testutil":    {"internal/netx/retry"}, "internal/testutil/timing": nil,
+		"internal/testutil":    nil, "internal/testutil/timing": nil,
 		"internal/testutil/phase":        nil,
 		"internal/provider/providertest": {"internal/provider"},
 	}

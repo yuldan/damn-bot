@@ -2,13 +2,13 @@
 
 package testutil
 
-// The retry path of Eventually is identical on every unix, but the kernel
+// The retry path of ExecRetry is identical on every unix, but the kernel
 // evidence differs: Linux returns ETXTBSY while a fixture writer is still open,
 // whereas macOS (like the BSDs) commonly allows execve and starts the program
 // anyway. The real-kernel proofs therefore live in exec_linux_test.go
 // (//go:build linux); here the errno is injected exactly as os/exec wraps it,
 // so darwin/BSD CI still covers the attempt limit, backoff, error
-// pass-through, and cancellation every test caller depends on. Eventually is
+// pass-through, and cancellation every test caller depends on. ExecRetry is
 // not platform-gated, so neither is this contract.
 
 import (
@@ -44,7 +44,7 @@ func execBackoffTotal() time.Duration {
 // helper must see through it and retry exactly once.
 func TestExecRetryWrappedETXTBSY(t *testing.T) {
 	attempts := 0
-	err := Eventually(t.Context(), func() error {
+	err := ExecRetry(t.Context(), func() error {
 		attempts++
 		if attempts == 1 {
 			return injectedETXTBSY()
@@ -61,7 +61,7 @@ func TestExecRetryWrappedETXTBSY(t *testing.T) {
 func TestExecRetryHonoursAttemptLimit(t *testing.T) {
 	last := injectedETXTBSY()
 	attempts := 0
-	err := Eventually(t.Context(), func() error {
+	err := ExecRetry(t.Context(), func() error {
 		attempts++
 		return last
 	})
@@ -78,7 +78,7 @@ func TestExecRetryHonoursAttemptLimit(t *testing.T) {
 func TestExecRetryBacksOff(t *testing.T) {
 	var stamps []time.Time
 	attempts := 0
-	err := Eventually(t.Context(), func() error {
+	err := ExecRetry(t.Context(), func() error {
 		attempts++
 		stamps = append(stamps, time.Now())
 		return injectedETXTBSY()
@@ -109,7 +109,7 @@ func TestExecRetryNeverRetriesOtherErrors(t *testing.T) {
 	for name, want := range cases {
 		t.Run(name, func(t *testing.T) {
 			attempts := 0
-			err := Eventually(t.Context(), func() error {
+			err := ExecRetry(t.Context(), func() error {
 				attempts++
 				return want
 			})
@@ -127,7 +127,7 @@ func TestExecRetryNeverRetriesOtherErrors(t *testing.T) {
 // not ETXTBSY on any unix and must fail on the first attempt.
 func TestExecRetryPassesRealMissingExecutable(t *testing.T) {
 	attempts := 0
-	err := Eventually(t.Context(), func() error {
+	err := ExecRetry(t.Context(), func() error {
 		attempts++
 		missing := filepath.Join(t.TempDir(), "missing")
 		if rerr := exec.CommandContext(t.Context(), missing).Run(); rerr != nil { // #nosec G204 -- deliberate miss
@@ -149,7 +149,7 @@ func TestExecRetryStopsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	attempts := 0
-	err := Eventually(ctx, func() error {
+	err := ExecRetry(ctx, func() error {
 		attempts++
 		cancel()
 		return injectedETXTBSY()
@@ -168,7 +168,7 @@ func TestExecRetryStopsDuringBackoff(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	attempts := 0
-	err := Eventually(ctx, func() error {
+	err := ExecRetry(ctx, func() error {
 		attempts++
 		if attempts == 1 {
 			time.AfterFunc(time.Millisecond, cancel)
@@ -188,7 +188,7 @@ func TestExecRetryCancelledBeforeStart(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	attempts := 0
-	err := Eventually(ctx, func() error {
+	err := ExecRetry(ctx, func() error {
 		attempts++
 		return nil
 	})
