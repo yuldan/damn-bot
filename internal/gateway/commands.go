@@ -489,26 +489,6 @@ func (c *Commands) status(ctx context.Context, t *Ticket, _ Command) CommandResu
 	return CommandResult{Handled: true, Reply: c.sessionStatusReply(ctx, t, reply)}
 }
 
-// sessionStatusReply appends the caller's session, model, ledger tokens, and
-// context window when the runtime implements StatusDetail (SLASH-038). A route
-// without a session, or a detail error, keeps the machine-wide reply intact.
-func (c *Commands) sessionStatusReply(ctx context.Context, t *Ticket, reply string) string {
-	detail, ok := c.runtime.(StatusDetail)
-	if !ok || t == nil {
-		return reply
-	}
-	ss, err := detail.SessionStatus(ctx, &t.Scope)
-	if err != nil || ss.SessionID == "" {
-		return reply
-	}
-	model := ss.Model
-	if model == "" {
-		model = "unknown"
-	}
-	return reply + fmt.Sprintf("; session %s, model %s, tokens %d/%d, context %d/%d",
-		ss.SessionID, model, ss.InputTokens, ss.OutputTokens, ss.ContextUsed, ss.ContextLimit)
-}
-
 // TimeZones is the per-identity IANA zone of PROV-03. Implemented by the
 // serve runtime over gateway_identities.tz.
 type TimeZones interface {

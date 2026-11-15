@@ -140,7 +140,7 @@ func collectStatus(ctx context.Context, o *statusOptions) statusReport {
 		rep.Components = append(rep.Components, statusComponent{"database", "warn", cleanLine(dbErr.Error())},
 			statusComponent{"cron", "warn", "database unavailable"})
 	} else {
-		defer func() { _ = db.Close() }() //nolint:errcheck // read-only probe closes the store after the snapshot
+		defer func() { _ = db.Close() }() //nolint:contextcheck,errcheck // ctxdb.Store.Close has no context parameter
 		rep.Components = append(rep.Components, statusDatabase(ctx, db), statusCron(ctx, db))
 		if s, ok := readStatusSession(ctx, db, o.SessionID, int64(o.Config.Loop.TurnMaxInputTok)); ok {
 			rep.Session = &s

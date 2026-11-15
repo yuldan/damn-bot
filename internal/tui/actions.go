@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -59,23 +58,6 @@ func (m *Model) needArgs(cmd slashCommand, n int, usage string) bool {
 		return false
 	}
 	return true
-}
-
-// statusSlash implements SLASH-038 from state the TUI already holds: session,
-// model, ledger tokens of the turn, and the context window the runtime
-// resolved. It performs no I/O and never claims a window it does not know.
-func (m *Model) statusSlash(cmd slashCommand) {
-	if len(cmd.args) != 0 {
-		m.appendNotice("usage: /status")
-		return
-	}
-	cfg := m.host.Config.Snapshot()
-	limit := "?"
-	if m.contextInfo.Window > 0 {
-		limit = strconv.FormatInt(m.contextInfo.Window, 10)
-	}
-	m.appendNotice(fmt.Sprintf("status: session %s, model %s, tokens %d/%d, context %d/%s",
-		m.sessionID, cfg.Model, m.usage.Input, m.usage.Output, m.usage.Input, limit))
 }
 
 // browserSlash implements SLASH-084. The call runs off the UI loop so an
