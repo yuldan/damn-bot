@@ -225,6 +225,37 @@ Storage ledger `budget` F1 = subpaket `internal/ctxdb/ledgerstore` (ADR-074, bar
 5. Artefak scorecard RC dipublikasikan.
 6. Baseline hermes untuk dimensi ADR-065/083 berstatus F9 diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
 
+## F10 — Closure P20, parity 184, dan regresi F9
+
+**Status:** fase closure pasca-1.0 (ADR-357). `PHASE` tetap `F9`; F10 tidak
+menaikkan file `PHASE` sebelum ledger, parser, dan gate-nya hijau. `Pasca-1.0`
+di bawah **bukan** scope F10.
+
+**Deliverable**
+
+1. **P20 closure:** 74/74 dimensi [`SCORECARD.md`](SCORECARD.md) §1.1–§1.8
+   terukur, 0 `not_measured`, 0 pelanggaran; P28 **163/163** operasi speed
+   parity dengan protokol yang sama; regresi `TOOL-045` tertutup; artefak
+   RC/speed/h2h dipublikasikan ulang dengan SHA-256.
+2. **Parity 184:** 121 deferred + 63 residual ADR-350 dibangun/dibuktikan atau
+   `N/A — <alasan> (ADR owner)`; 0 `planned`, 0 status re-fase; 837/837 tetap.
+3. **Regresi F9:** parity 837/837, GAP-SWEEP 118/118, EDGE-CASES 166/166,
+   OS matrix 8/8, dan soak/chaos 24 jam tetap `LULUS`.
+4. **Governance:** ADR-357, ledger [`F10-ACCEPTANCE.md`](F10-ACCEPTANCE.md),
+   pin `TestF10ParityPinned184`, gate `TestF10LedgerClosed`, dan ADR anggaran
+   LOC sebelum PR fitur pertama (nomor bebas; angka LOC per slice wajib diukur).
+
+**Acceptance (gate F10)**
+
+1. `cd bench && DAMNBOT_RELEASE=1 go test ./scorecard ./speed` hijau: 74/74
+   dimensi, 0 pelanggaran, 163/163 operasi, target kelas (a)/(b) SCORECARD §3.
+2. 184/184 parity tertutup (`LULUS` bertes atau `N/A` ber-ADR); 837/837.
+3. `DAMNBOT_RELEASE=1 make phase-acceptance` hijau; lima agregat F9 tidak turun.
+4. P1–P29, `TestChangelogPerTag`, `make lint loc size-check deadcode` hijau.
+5. Prasyarat eksternal (VM 10 Mbit/s, dua penilai manusia, Q15/frontier Q23-RC)
+   ditutup atau `N/A` dengan persetujuan owner; tidak ada target/ambang turun.
+6. `F10-ACCEPTANCE` gate penutupan (`DAMNBOT_F10_RELEASE=1`) hijau sebelum
+   `PHASE` boleh naik ke `F10`.
 
 ## Adopsi GAP-SWEEP (118 gap → scope 1.0)
 

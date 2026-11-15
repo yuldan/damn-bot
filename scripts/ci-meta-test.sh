@@ -499,7 +499,7 @@ Body text for the meta fixture.
 EOF
 		;;
 	phase-file)
-		printf 'F10\n' >"$d/PHASE"
+		printf 'F11\n' >"$d/PHASE"
 		;;
 	phase-acceptance)
 		# Item fase F1 masih pending: lulus di gate PR (PHASE = F1), gagal di acceptance fase (ADR-080).

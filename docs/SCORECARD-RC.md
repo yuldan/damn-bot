@@ -99,9 +99,10 @@ pengukuran Damn-Bot dengan protokol sama (`bench/speed/results/damnbot-8fab87144
 `bench/codetools/results/f1-7d0f6bd.json`). `TOOL-045` juga **regresi** terhadap hermes
 3,091 ms. Sisa 160 ID belum diukur dengan protokol itu; tidak ada angka yang dikarang.
 
-## Komitmen F10 (ADR-356)
+## Komitmen F10 (ADR-356, ledger ADR-357)
 
-Re-fase ini memindahkan penagihan P20 ke F10, bukan menutupnya. F10 wajib menutup:
+Re-fase ini memindahkan penagihan P20 ke F10, bukan menutupnya. Ledger
+eksekusinya ada di [`F10-ACCEPTANCE.md`](F10-ACCEPTANCE.md); F10 wajib menutup:
 
 1. **Seluruh 74 dimensi** SCORECARD §1.1–§1.8 (0 `not_measured`), termasuk RC
    head-to-head Q23-RC, soak 24 jam/1.000 turn/200 kill, VM bersih 10 Mbit/s,

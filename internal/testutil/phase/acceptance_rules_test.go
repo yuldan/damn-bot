@@ -15,7 +15,8 @@ import (
 //	(ii)  phase = PHASE: pending, n/a or absent passes, a foreign pending
 //	      label fails;
 //	(iii) phase > PHASE: pending passes (only logged);
-//	(iv)  PHASE = F9: nothing may stay pending.
+//	(iv)  PHASE ≥ F9: nothing may stay pending (F9 closed by ADR-347; F10 by
+//	      ADR-357 keeps the same rule).
 //
 // The keys are ordinary words: the catalog scan reads real test sources, so a
 // synthetic fixture must not look like an EC id.
@@ -99,6 +100,12 @@ func acceptanceCases() []acceptanceCase {
 			catalog:  map[string]catalogEntry{"one": coveredRow(), "two": coveredRow(), "three": coveredRow(), "nine": pendingRow(9)},
 			coverage: []string{"nine"},
 		},
+		{ // (iv) F10 keeps the closed-phase rule
+			name:     "iv_f10_pending_fails",
+			cur:      10,
+			catalog:  map[string]catalogEntry{"one": coveredRow(), "two": coveredRow(), "three": coveredRow(), "nine": pendingRow(9)},
+			coverage: []string{"nine"},
+		},
 		{ // F1 certifies nothing: F0 does not exist
 			name:    "v_f1_certifies_nothing",
 			cur:     1,
@@ -116,7 +123,7 @@ func acceptanceCases() []acceptanceCase {
 // prints for the phase being entered.
 func TestAcceptanceRequiredPhase(t *testing.T) {
 	t.Parallel()
-	for cur, want := range map[int]int{1: 0, 2: 1, 3: 2, 9: 8} {
+	for cur, want := range map[int]int{1: 0, 2: 1, 3: 2, 9: 8, 10: 9} {
 		if got := requiredPhase(cur); got != want {
 			t.Errorf("requiredPhase(F%d) = %d, want %d", cur, got, want)
 		}

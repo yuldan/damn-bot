@@ -58,8 +58,8 @@ func TestEdgeCaseCatalogSync(t *testing.T) {
 // cataloged and covered: PHASE-1 (ADR-176).
 func requiredPhase(cur int) int { return cur - 1 }
 
-// phaseMax is the last phase PHASE may hold (F9).
-const phaseMax = 9
+// phaseMax is the last phase PHASE may hold (F10).
+const phaseMax = 10
 
 func phaseName(p int) string { return fmt.Sprintf("F%d", p) }
 
@@ -141,11 +141,12 @@ func uncatalogedViolations(required map[string]int, catalog map[string]catalogEn
 // coverageViolations lists every catalog row that breaks the acceptance rule:
 // an id at or below PHASE-1 must be covered or n/a, a row of the phase being
 // entered may be covered, n/a or pending:<PHASE> (its own label) and may be
-// absent, and at PHASE = F9 nothing may be pending at all.
+// absent, and from PHASE = F9 on nothing may be pending at all (F9 is closed
+// by ADR-347; F10 adds the parser without relaxing that rule).
 func coverageViolations(required map[string]int, catalog map[string]catalogEntry, cur int) []violation {
 	out := uncovered(required, catalog, cur)
 	out = append(out, enteredMislabelled(required, catalog, cur)...)
-	if cur == phaseMax {
+	if cur >= 9 {
 		out = append(out, stillPending(catalog)...)
 	}
 	slices.SortFunc(out, func(a, b violation) int {
@@ -154,7 +155,7 @@ func coverageViolations(required map[string]int, catalog map[string]catalogEntry
 		}
 		return strings.Compare(a.why, b.why)
 	})
-	return out
+	return slices.CompactFunc(out, func(a, b violation) bool { return a.id == b.id })
 }
 
 // uncovered lists the ids at or below PHASE-1 whose catalog row is neither
@@ -192,13 +193,13 @@ func enteredMislabelled(required map[string]int, catalog map[string]catalogEntry
 	return out
 }
 
-// stillPending lists every catalog row that is still pending: at PHASE = F9
-// there is no next phase, so none may remain.
+// stillPending lists every catalog row that is still pending: from PHASE = F9
+// on no phase of the program is open, so none may remain.
 func stillPending(catalog map[string]catalogEntry) []violation {
 	var out []violation
 	for id, e := range catalog {
 		if strings.HasPrefix(e.status, "pending:") {
-			out = append(out, violation{id, fmt.Sprintf("phase acceptance F9: item is still pending (%s)", e.file)})
+			out = append(out, violation{id, fmt.Sprintf("phase acceptance F%d: item is still pending (%s)", phaseMax, e.file)})
 		}
 	}
 	return out
@@ -244,11 +245,11 @@ func moduleRoot(t *testing.T) string {
 
 var (
 	roadmapArea  = regexp.MustCompile("^\\| `(EC-([A-Z]+))`")
-	roadmapTok   = regexp.MustCompile(`EC-[A-Z]+-\d{3}|F[1-9]|\d{3}(?:\.\.\d{3})?`)
+	roadmapTok   = regexp.MustCompile(`EC-[A-Z]+-\d{3}|F(?:10|[1-9])|\d{3}(?:\.\.\d{3})?`)
 	edgeCaseID   = regexp.MustCompile(`\| (EC-[A-Z]+-\d{3}) \|`)
-	itemCall     = regexp.MustCompile(`\.Item\([^,]+,[^,]+,\s*"(F[1-9])"\s*,`)
+	itemCall     = regexp.MustCompile(`\.Item\([^,]+,[^,]+,\s*"(F(?:10|[1-9]))"\s*,`)
 	quotedEC     = regexp.MustCompile(`"(EC-[A-Z]+-\d{3})"`)
-	rowStatus    = regexp.MustCompile(`"(EC-[A-Z]+-\d{3})"\s*,\s*"(pending:F[1-9]|n/a)"`)
+	rowStatus    = regexp.MustCompile(`"(EC-[A-Z]+-\d{3})"\s*,\s*"(pending:F(?:10|[1-9])|n/a)"`)
 	roadmapNoise = regexp.MustCompile(`ADR-\d+|#\d+|\(\d+\)`)
 )
 

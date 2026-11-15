@@ -8,9 +8,10 @@ import (
 	"testing"
 )
 
-// TestPhaseFile pins the repo-root PHASE file: one line F1..F9 (ADR-077).
+// TestPhaseFile pins the repo-root PHASE file: one line F1..F10 (ADR-077,
+// ADR-357). The file itself stays F9 while the F10 ledger is alive.
 func TestPhaseFile(t *testing.T) {
-	if g := Current(t); g.cur < 1 || g.cur > 9 {
+	if g := Current(t); g.cur < 1 || g.cur > 10 {
 		t.Fatalf("PHASE GAGAL: fase %d", g.cur)
 	}
 }
@@ -18,7 +19,8 @@ func TestPhaseFile(t *testing.T) {
 func TestParse(t *testing.T) {
 	for in, ok := range map[string]bool{
 		"F1": true, "F9\n": true, "F1\r\n": true, // CRLF: Windows checkout (defense in depth beside .gitattributes)
-		"F0": false, "F10": false, "f1": false, "F1\n\n": false, "F1\r\n\r\n": false, "F1\r": true, "\rF1": false, "": false,
+		"F10": true, "F10\n": true, "F10\r\n": true,
+		"F0": false, "F11": false, "F010": false, "f1": false, "F1\n\n": false, "F1\r\n\r\n": false, "F1\r": true, "\rF1": false, "": false,
 	} {
 		if _, err := Parse(in); (err == nil) != ok {
 			t.Errorf("Parse(%q) err = %v, want ok %v", in, err, ok)
@@ -55,11 +57,13 @@ func TestItem(t *testing.T) {
 		{cur: 2, phase: "F1", status: "pending:F1", fail: "must be covered"},
 		{cur: 1, phase: "F2", status: "pending:F1", fail: "want covered"},
 		{cur: 1, phase: "F1", status: "todo", fail: "want covered"},
-		{cur: 1, phase: "X1", status: "covered", fail: "bukan F1..F9"},
+		{cur: 1, phase: "X1", status: "covered", fail: "bukan F1..F10"},
 		{cur: 1, acceptance: true, phase: "F1", status: "pending:F1", fail: "phase acceptance"},
 		{cur: 1, acceptance: true, phase: "F2", status: "pending:F2"},
 		{cur: 9, phase: "F9", status: "pending:F9", fail: "pending at PHASE F9"},
 		{cur: 9, acceptance: true, phase: "F1", status: "pending:F1", fail: "phase acceptance"},
+		{cur: 10, phase: "F10", status: "pending:F10", fail: "pending at PHASE F10"},
+		{cur: 10, phase: "F9", status: "pending:F9", fail: "pending at PHASE F10"},
 	}
 	for _, c := range cases {
 		e := &errs{TB: t}
