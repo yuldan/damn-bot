@@ -105,7 +105,10 @@ func verifyDispatch(recipe verifyRecipe, rep verifyReport, wantRun bool, timeout
 	if !trusted {
 		rep.Refused = "untrusted workspace"
 		if asJSON {
-			return writeVerifyJSON(stdout, rep)
+			if code := writeVerifyJSON(stdout, rep); code != 0 {
+				return code
+			}
+			return 1 // a refusal is always a failure exit, JSON or not
 		}
 		say(stderr, "verify: %s is not a trusted workspace; --run refused (register it with `damnbot skills trust`)\n", rep.Path)
 		return 1
