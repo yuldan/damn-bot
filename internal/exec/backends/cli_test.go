@@ -46,7 +46,7 @@ exec "$@"
 
 // fakeCLI writes one closed, immutable CLI helper per test. The destination is
 // produced through a temporary file and rename, so the executed name never has
-// a writer; ExecRetry absorbs the fork window that rename cannot close.
+// a writer; Eventually absorbs the fork window that rename cannot close.
 func fakeCLI(t *testing.T, image string) (bin, logPath, envPath string) {
 	t.Helper()
 	dir := t.TempDir()

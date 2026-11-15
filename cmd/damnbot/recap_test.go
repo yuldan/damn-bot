@@ -44,9 +44,9 @@ func TestRetryPromptSurfacesSideEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	var errb bytes.Buffer
-	prompt, err := retryPrompt(ctx, db, "S1", nil, &errb)
+	prompt, err := lastPrompt(ctx, db, "S1", nil, &errb)
 	if err != nil || prompt != "do the thing" {
-		t.Fatalf("retryPrompt = %q, %v", prompt, err)
+		t.Fatalf("lastPrompt = %q, %v", prompt, err)
 	}
 	got := errb.String()
 	for _, want := range []string{"excluded after a failure", "write_file(c1)", "may repeat"} {
@@ -73,9 +73,9 @@ func TestRetryPromptReadOnlyTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	var errb bytes.Buffer
-	prompt, err := retryPrompt(ctx, db, "S1", nil, &errb)
+	prompt, err := lastPrompt(ctx, db, "S1", nil, &errb)
 	if err != nil || prompt != "look" {
-		t.Fatalf("retryPrompt = %q, %v", prompt, err)
+		t.Fatalf("lastPrompt = %q, %v", prompt, err)
 	}
 	if errb.Len() != 0 {
 		t.Errorf("read-only retry wrote %q", errb.String())
@@ -90,8 +90,8 @@ func TestRetryPromptNoUserMessage(t *testing.T) {
 	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := retryPrompt(ctx, db, "S1", nil, &bytes.Buffer{}); err == nil {
-		t.Fatal("retryPrompt accepted a session without a user message")
+	if _, err := lastPrompt(ctx, db, "S1", nil, &bytes.Buffer{}); err == nil {
+		t.Fatal("lastPrompt accepted a session without a user message")
 	}
 }
 
@@ -140,9 +140,9 @@ func TestRetryPromptLargeHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	prompt, err := retryPrompt(ctx, db, "S1", nil, &bytes.Buffer{})
+	prompt, err := lastPrompt(ctx, db, "S1", nil, &bytes.Buffer{})
 	if err != nil || prompt != "LAST-MESSAGE" {
-		t.Fatalf("retryPrompt = %q, %v; want LAST-MESSAGE", prompt, err)
+		t.Fatalf("lastPrompt = %q, %v; want LAST-MESSAGE", prompt, err)
 	}
 }
 
@@ -164,9 +164,9 @@ func TestRetryPromptUncertainEffects(t *testing.T) {
 		t.Fatal(err)
 	}
 	var errb bytes.Buffer
-	prompt, err := retryPrompt(ctx, db, "S1", nil, &errb)
+	prompt, err := lastPrompt(ctx, db, "S1", nil, &errb)
 	if err != nil || prompt != "run it" {
-		t.Fatalf("retryPrompt = %q, %v", prompt, err)
+		t.Fatalf("lastPrompt = %q, %v", prompt, err)
 	}
 	if !strings.Contains(errb.String(), "unknown outcome") || !strings.Contains(errb.String(), "shell(c9)") {
 		t.Errorf("uncertain effect not surfaced:\n%s", errb.String())

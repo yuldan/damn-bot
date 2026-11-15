@@ -27,7 +27,7 @@ func (e *httpError) Error() string {
 }
 
 // doJSON runs one bounded request with optional retry. Every attempt shares
-// the caller's deadline; a non-retryable status or the last attempt returns
+// the caller's deadline; a non-transientError status or the last attempt returns
 // the typed error unchanged.
 func (h *honcho) doJSON(ctx context.Context, method, path string, in, out any) error {
 	var body []byte
@@ -49,7 +49,7 @@ func (h *honcho) doJSON(ctx context.Context, method, path string, in, out any) e
 		if err == nil {
 			return nil
 		}
-		if ctx.Err() != nil || !retryable(err) || attempt == attempts-1 {
+		if ctx.Err() != nil || !transientError(err) || attempt == attempts-1 {
 			return err
 		}
 	}
@@ -87,7 +87,7 @@ func (h *honcho) once(ctx context.Context, method, path string, body []byte, out
 	return nil
 }
 
-func retryable(err error) bool {
+func transientError(err error) bool {
 	var he *httpError
 	if !errors.As(err, &he) {
 		return false

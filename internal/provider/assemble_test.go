@@ -136,8 +136,8 @@ func TestToError(t *testing.T) {
 			t.Errorf("%v → %+v", c.err, e)
 		}
 	}
-	if e := toError(cases[0].err); e.RetryAfter() != 3e9 || !strings.Contains(e.Error(), "HTTP 429 invalid_api_key") {
-		t.Errorf("retry-after/message: %v %v", e.RetryAfter(), e)
+	if e := toError(cases[0].err); e.ServerDelay() != 3e9 || !strings.Contains(e.Error(), "HTTP 429 invalid_api_key") {
+		t.Errorf("retry-after/message: %v %v", e.ServerDelay(), e)
 	}
 	// B8: a provider that echoes the HTTP status as error.code must not
 	// produce "HTTP 401 401".
@@ -279,7 +279,7 @@ func TestAssemblyBounds(t *testing.T) {
 			break
 		}
 	}
-	if !errors.Is(err, ErrResponseTooLarge) || retry.ClassifyErr(err).Retryable() {
+	if !errors.Is(err, ErrResponseTooLarge) || retry.ClassifyErr(err).Transient() {
 		t.Errorf("content cap: %v", err)
 	}
 	var b assembler
@@ -434,7 +434,7 @@ func TestTooManyToolDeltasClass(t *testing.T) {
 	t.Cleanup(n.CloseIdleConnections)
 	rt := &Route{Provider: "p", Model: "m", BaseURL: srv.URL}
 	_, err := attempt(t.Context(), n.Client("p", netx.Inference), rt, []byte(`{}`), 10, nil, nil)
-	if !errors.Is(err, ErrResponseTooLarge) || retry.ClassifyErr(err).Retryable() {
+	if !errors.Is(err, ErrResponseTooLarge) || retry.ClassifyErr(err).Transient() {
 		t.Fatalf("%v (class %v)", err, retry.ClassifyErr(err))
 	}
 }

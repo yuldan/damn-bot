@@ -14,9 +14,9 @@ import (
 )
 
 // busyExecutable writes a script and keeps it open for writing. Linux execve
-// refuses this state with ETXTBSY, which is the kernel behaviour ExecRetry
+// refuses this state with ETXTBSY, which is the kernel behaviour Eventually
 // absorbs; macOS/BSD execve usually starts the program anyway, so these
-// kernel-level proofs are Linux-only. ExecRetry itself is not platform-gated:
+// kernel-level proofs are Linux-only. Eventually itself is not platform-gated:
 // exec_unix_test.go exercises the same retry logic on every unix with the
 // errno injected.
 func busyExecutable(t *testing.T) (*os.File, string) {
@@ -42,7 +42,7 @@ func busyExecutable(t *testing.T) (*os.File, string) {
 func TestExecRetryReleasesRealETXTBSY(t *testing.T) {
 	fd, path := busyExecutable(t)
 	attempts := 0
-	err := ExecRetry(t.Context(), func() error {
+	err := Eventually(t.Context(), func() error {
 		attempts++
 		rerr := exec.CommandContext(t.Context(), path).Run() // #nosec G204 -- fixture written by this test
 		if errors.Is(rerr, syscall.ETXTBSY) && attempts == 1 {
@@ -56,7 +56,7 @@ func TestExecRetryReleasesRealETXTBSY(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("ExecRetry: %v", err)
+		t.Fatalf("Eventually: %v", err)
 	}
 	if attempts != 2 {
 		t.Fatalf("attempts = %d, want 2 (ETXTBSY then success)", attempts)
@@ -70,7 +70,7 @@ func TestExecRetryKernelAttemptLimit(t *testing.T) {
 	_, path := busyExecutable(t)
 	attempts := 0
 	start := time.Now()
-	err := ExecRetry(t.Context(), func() error {
+	err := Eventually(t.Context(), func() error {
 		attempts++
 		if rerr := exec.CommandContext(t.Context(), path).Run(); rerr != nil { // #nosec G204 -- fixture written by this test
 			return fmt.Errorf("exec %s: %w", path, rerr)

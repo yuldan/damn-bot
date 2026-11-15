@@ -16,7 +16,7 @@ import (
 func runBackend(t *testing.T, b exec.Backend, spec *exec.Spec) (exec.Result, error) {
 	t.Helper()
 	var res exec.Result
-	err := testutil.ExecRetry(t.Context(), func() error {
+	err := testutil.Eventually(t.Context(), func() error {
 		var rerr error
 		res, rerr = b.Run(t.Context(), spec)
 		if rerr != nil {

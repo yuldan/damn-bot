@@ -273,8 +273,8 @@ func TestStatusError(t *testing.T) {
 		if !errors.As(err, &se) || se.StatusCode != c.status || !strings.Contains(string(se.Body), "invalid_api_key") {
 			t.Fatalf("%d: %v", c.status, err)
 		}
-		if retry.ClassifyErr(err) != c.wantClass || se.RetryAfter() < c.minRA || se.RetryAfter() > c.minRA+time.Hour {
-			t.Errorf("%d %q: class %s retry-after %v", c.status, c.header, retry.ClassifyErr(err), se.RetryAfter())
+		if retry.ClassifyErr(err) != c.wantClass || se.ServerDelay() < c.minRA || se.ServerDelay() > c.minRA+time.Hour {
+			t.Errorf("%d %q: class %s retry-after %v", c.status, c.header, retry.ClassifyErr(err), se.ServerDelay())
 		}
 	}
 }
@@ -342,7 +342,7 @@ func TestStream(t *testing.T) {
 	if strings.Join(got, ",") != "/a,e/b" {
 		t.Errorf("events %v", got)
 	}
-	if d, ok := s.Retry(); !ok || d != 5*time.Millisecond {
+	if d, ok := s.ReconnectDelay(); !ok || d != 5*time.Millisecond {
 		t.Errorf("retry %v %v", d, ok)
 	}
 	srv404, _ := server(t, http.NotFound)

@@ -149,7 +149,7 @@ func (s *Shared) Record(ctx context.Context, class Class) error {
 		return err
 	}
 	now := s.now()
-	if !class.Retryable() {
+	if !class.Transient() {
 		if c.State == Closed && len(c.Fails) == 0 {
 			return nil
 		}

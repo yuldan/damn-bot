@@ -242,7 +242,7 @@ func (e *Env) execEnv(stdin io.Reader, env []string, args ...string) Result {
 		bin = binPaths.main
 	}
 	var out, errb bytes.Buffer
-	err := testutil.ExecRetry(ctx, func() error {
+	err := testutil.Eventually(ctx, func() error {
 		out.Reset()
 		errb.Reset()
 		cmd := exec.CommandContext(ctx, bin, args...) // #nosec G204 -- binary path is this package's temp build or the copied asset

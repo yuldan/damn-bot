@@ -152,8 +152,8 @@ func testQuotaMinute(t *testing.T) { //nolint:gocyclo // the minute boundary mat
 	if v.Kind != gateway.Refused || v.Refusal != gateway.RefusalQuota || v.Quota.Limit != gateway.LimitMessages {
 		t.Fatalf("over limit: %+v", v)
 	}
-	if v.Quota.RetryAfter != time.Minute || !v.Quota.Reset.Equal(clk.Now().Add(time.Minute)) {
-		t.Fatalf("retry_after=%v reset=%v", v.Quota.RetryAfter, v.Quota.Reset)
+	if v.Quota.ServerDelay != time.Minute || !v.Quota.Reset.Equal(clk.Now().Add(time.Minute)) {
+		t.Fatalf("retry_after=%v reset=%v", v.Quota.ServerDelay, v.Quota.Reset)
 	}
 	if v.Message != "limit (reset 12:01)" {
 		t.Fatalf("static reply = %q", v.Message)

@@ -58,7 +58,7 @@ func (g *serveGateway) claimDeliveries(ctx context.Context, now time.Time) int {
 // thread_fallback="fail"; the config key does not exist yet).
 func (g *serveGateway) deliverOne(ctx context.Context, d *gwstore.Delivery, now time.Time) {
 	if ok, wait := g.limiter.TakeChat(d.Platform, d.ChatID, gateway.GroupChat(d.Platform, d.ChatID), now); !ok {
-		g.retryDelivery(ctx, d, "rate limited", wait, now)
+		g.scheduleRedelivery(ctx, d, "rate limited", wait, now)
 		return
 	}
 	ref, wait, err := g.sendDelivery(ctx, d, now)
@@ -67,7 +67,7 @@ func (g *serveGateway) deliverOne(ctx context.Context, d *gwstore.Delivery, now 
 			g.failThreadDelivery(ctx, d, err, now)
 			return
 		}
-		g.retryDelivery(ctx, d, cleanLine(err.Error()), wait, now)
+		g.scheduleRedelivery(ctx, d, cleanLine(err.Error()), wait, now)
 		return
 	}
 	if err := g.store.SentDelivery(ctx, d.ID, strconv.FormatInt(ref, 10), now.UnixMilli()); err != nil {
@@ -128,7 +128,7 @@ func (g *serveGateway) sendDelivery(ctx context.Context, d *gwstore.Delivery, no
 	}
 	ref, err := g.adapter.Send(ctx, out)
 	if err != nil {
-		if retryAfter, ok := telegram.RetryAfter(err); ok {
+		if retryAfter, ok := telegram.AfterHint(err); ok {
 			g.limiter.Penalize(d.ChatID, now.Add(retryAfter))
 			return 0, retryAfter, fmt.Errorf("gateway: send delivery: %w", err)
 		}
@@ -154,7 +154,7 @@ func (g *serveGateway) deliveryMessage(ctx context.Context, d *gwstore.Delivery)
 	return out, nil
 }
 
-func (g *serveGateway) retryDelivery(ctx context.Context, d *gwstore.Delivery, cause string, wait time.Duration, now time.Time) {
+func (g *serveGateway) scheduleRedelivery(ctx context.Context, d *gwstore.Delivery, cause string, wait time.Duration, now time.Time) {
 	g.metrics.IncError()
 	if d.Attempts >= 5 {
 		if err := g.store.FailDelivery(ctx, d.ID, cause, now.UnixMilli()); err != nil {
@@ -163,7 +163,7 @@ func (g *serveGateway) retryDelivery(ctx context.Context, d *gwstore.Delivery, c
 		g.deadCronDelivery(ctx, d.IdemKey, cause)
 		return
 	}
-	if err := g.store.RetryDelivery(ctx, d.ID, cause, gateway.Backoff(now, d.Attempts, wait).UnixMilli()); err != nil {
+	if err := g.store.RescheduleDelivery(ctx, d.ID, cause, gateway.NextAttempt(now, d.Attempts, wait).UnixMilli()); err != nil {
 		sessionsPrintf(g.stderr, "gateway: retry delivery: %s\n", cleanLine(err.Error()))
 	}
 }

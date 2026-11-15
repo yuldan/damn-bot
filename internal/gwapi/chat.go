@@ -156,12 +156,12 @@ func tooLarge() *apiError {
 // RunError is a typed engine failure carrying the HTTP status the server
 // must return. An unknown model is never surfaced as a generic 500.
 type RunError struct {
-	Status     int
-	Type       string
-	Code       string
-	Param      string
-	Message    string
-	RetryAfter int
+	Status      int
+	Type        string
+	Code        string
+	Param       string
+	Message     string
+	ServerDelay int
 }
 
 func (e *RunError) Error() string { return e.Message }
@@ -171,7 +171,7 @@ func asAPIError(err error) *apiError {
 	if re, ok := errors.AsType[*RunError](err); ok {
 		return &apiError{
 			status: re.Status, typ: defaultString(re.Type, TypeServer), code: re.Code,
-			param: re.Param, message: defaultString(re.Error(), "engine failure"), retryAfter: re.RetryAfter,
+			param: re.Param, message: defaultString(re.Error(), "engine failure"), retryAfter: re.ServerDelay,
 		}
 	}
 	return &apiError{status: 500, typ: TypeServer, code: "internal_error", message: "internal server error"}

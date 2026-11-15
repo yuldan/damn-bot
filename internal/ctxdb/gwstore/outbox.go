@@ -133,10 +133,10 @@ func (s Store) SentDelivery(ctx context.Context, id int64, ref string, at int64)
 		WHERE id = ?1 AND status = 'sending'`, ref, at, "sent")
 }
 
-// RetryDelivery returns an in-flight delivery to the queue with the caller's
+// RescheduleDelivery returns an in-flight delivery to the queue with the caller's
 // next_at (the outbox computes the backoff). The row is updated, never
 // re-inserted.
-func (s Store) RetryDelivery(ctx context.Context, id int64, reason string, at int64) error {
+func (s Store) RescheduleDelivery(ctx context.Context, id int64, reason string, at int64) error {
 	return s.transition(ctx, id, `UPDATE gateway_deliveries SET status = 'queued', last_error = ?2, next_at = ?3, updated_at = ?3
 		WHERE id = ?1 AND status = 'sending'`, reason, at, "retried")
 }

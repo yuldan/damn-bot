@@ -7252,3 +7252,20 @@ produk, dependency, migrasi, atau plafon baru.
 **Konsekuensi.** (+) Bukti `Peak RSS` tidak bisa lagi diklaim dari RSS akhir atau dari run yang gagal; lead time satu baris lagi adalah run sah di host tenang. (+) Kegagalan HTTP di soak sekarang meninggalkan stack + pemilik lock, bukan hanya pesan timeout. (−) Baris `Peak RSS` tetap merah sampai run 1 jam/1.000 turn selesai; PR ini tidak menutup P20 dan tidak mengubah 74 dimensi/6 pelanggaran.
 
 **Bukti.** `gofmt`/`go vet ./internal/e2e`; artefak gagal tidak ditulis; alasan di `bench/scorecard/not_measured.json`; `cd bench && SCORECARD_UPDATE=1 go test -count=1 ./scorecard` lalu `go test -count=1 ./scorecard`; gate penuh `make lint`, `make archtest`, `make loc`, `scripts/pr-meta.sh`, `make size-check`, `make deadcode` pada PR.
+
+## ADR-360 — Satu implementasi retry: `Schedule`/`Transient` dan edge `internal/netx/retry`
+
+**Status:** Accepted 2026-11-15 (F10/P20). Menutup pelanggaran absolut "Implementasi retry" (38 → 1) tanpa menurunkan target, tanpa dependency eksternal, config, atau migrasi.
+
+**Konteks.** `internal/netx/retry` sudah ditetapkan sebagai kebijakan tunggal (ADR-100), tetapi audit AST masih menemukan 38 fungsi non-test bernama retry/backoff dan beberapa paket menjalankan loop percobaan sendiri. `Policy` hanya menerima `Attempts`, `Rand`, `Notify`, dan `Wait`, sehingga retry lokal (ETXTBSY, sharing violation, SQLITE_BUSY) tidak bisa memakainya tanpa menyalin loop. Matriks ENGINEERING §2.2.1 juga belum mengizinkan `internal/ctxdb`, `internal/codetools`, dan `internal/testutil` mengimpor `internal/netx/retry`, sehingga paket-paket itu menyimpan implementasi kedua.
+
+**Keputusan.**
+
+1. `Policy` mendapat `Schedule(n, err)` untuk kurva delay lokal dan `Transient(err)` untuk predikat error yang tidak membawa `FailureClass`. Mode lokal mengembalikan error operasi apa adanya (bukan `*Error`) agar `errors.Is` pemanggil tetap bekerja, dan `ctx` mati mengembalikan cause-nya. Pemanggil jaringan tidak berubah: tanpa dua field itu, perilaku `Do` identik dengan sebelumnya.
+2. Loop berikut memakai `retry.Do` dengan percobaan dan delay yang tidak berubah: spawn CLI ETXTBSY (5 percobaan, 25+50+100+200 ms), rename sharing-violation Windows (100 × 20 ms), testutil ETXTBSY (4 percobaan, 25+50+100 ms), testutil replace Windows (3 percobaan, 25+50 ms), codetools sharing violation (10 percobaan, 20 ms berlipat sampai 200 ms), SQLITE_BUSY ctxdb (`busyRetryMax` percobaan, 2 ms berlipat), dan retry HTTP connectors (`Retries`+1, Retry-After atau 250 ms berlipat sampai 5 s).
+3. Matriks mengizinkan edge `internal/{ctxdb,codetools,testutil} → internal/netx/retry`. Paket policy tetap tanpa I/O, tanpa state global, dan tanpa `init`.
+4. Helper yang bukan implementasi dinamai sesuai perannya: `delayFor`/`afterHint`/`transientStatus` (connectors), `nextDelay`/`delayFor`/`AfterHint` (telegram), `Reschedule`/`NextAttempt` (outbox), `withBusyWait`, `withSharingWait`, `Eventually`, `lastPrompt`, `scheduleRedelivery`, `reaskContextLength`, `fallbackDenied`, `projectionAfterDenial`, serta `FailureClass`/`ServerDelay`/`Transient` untuk API klasifikasi. Hanya `retry.backoff` yang tersisa sebagai nama implementasi.
+
+**Konsekuensi.** (+) Satu implementasi retry/backoff di pohon; audit AST berbasis nama membaca 1 (dari 38), dan penambahan loop baru di paket mana pun terlihat sebagai penyimpangan dari ADR ini. (+) Retry lokal mendapat jitter-free schedule eksplisit dan `ctx` cancellation yang sama dengan jalur jaringan. (−) Tiga paket inti kini bergantung pada paket policy yang juga memuat klasifikasi HTTP; pemisahan lebih lanjut hanya perlu bila paket itu mulai menarik I/O runtime. Tidak ada perubahan timing yang disengaja: tes ETXTBSY, rename, connectors, dan busy-retry yang ada tetap menjadi gate.
+
+**Bukti.** `TestRetryLocalPolicy`, `TestRetryRename`, `TestRetrySpawn*`, `TestConnectorsRetry429`/`TestConnectorsNoRetryMutation`, `TestExecRetry*`, `TestImportGraph`; audit AST: satu fungsi non-test bernama `backoff` di `internal/netx/retry`.

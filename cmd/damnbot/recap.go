@@ -87,11 +87,11 @@ func lastSnippets(evs []ctxdb.Event) (user, assistant string) {
 	return user, assistant
 }
 
-// retryPrompt resolves --retry: the last user message, plus a warning when
+// lastPrompt resolves --retry: the last user message, plus a warning when
 // its turn was excluded after a failure that executed side effects (#211).
 // Repeating such a turn re-runs those effects, so they are named on stderr
 // before the request is sent.
-func retryPrompt(ctx context.Context, db *ctxdb.Store, sid string, red *redact.Redactor, w io.Writer) (string, error) {
+func lastPrompt(ctx context.Context, db *ctxdb.Store, sid string, red *redact.Redactor, w io.Writer) (string, error) {
 	evs, err := db.HistoryTail(ctx, sid, 100000)
 	if err != nil {
 		return "", fmt.Errorf("retry history: %w", err)

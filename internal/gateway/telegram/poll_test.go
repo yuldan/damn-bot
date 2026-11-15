@@ -77,7 +77,7 @@ func TestRunDeliversPersistsOffsetAndResumes(t *testing.T) {
 
 func TestRunHonoursRetryAfter(t *testing.T) {
 	f := newFakeTG(t)
-	f.setFault("getUpdates", fakeFault{Status: 429, RetryAfter: 2, Times: 1})
+	f.setFault("getUpdates", fakeFault{Status: 429, ServerDelay: 2, Times: 1})
 	a, clock := newTestAdapter(t, f, newMemStore(), func(*Config) {})
 	in := make(chan Inbound, 8)
 	done, stop := runAdapter(t, a, in)
@@ -168,7 +168,7 @@ func TestBackoffBounds(t *testing.T) {
 		{99, 48 * time.Second, 72 * time.Second},
 	}
 	for _, c := range cases {
-		if got := a.backoff(c.attempt); got < c.min || got > c.max {
+		if got := a.delayFor(c.attempt); got < c.min || got > c.max {
 			t.Errorf("backoff(%d) = %s, want within [%s,%s]", c.attempt, got, c.min, c.max)
 		}
 	}

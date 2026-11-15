@@ -108,7 +108,7 @@ func (s *Stream) Close() error {
 }
 
 // Retry exposes the server's SSE reconnection delay, if any.
-func (s *Stream) Retry() (time.Duration, bool) { return s.p.Retry() }
+func (s *Stream) ReconnectDelay() (time.Duration, bool) { return s.p.ReconnectDelay() }
 
 // watchdogErr prefers the watchdog cause when the request was aborted by
 // the TTFB/idle timer, so callers see a timeout rather than a cancel.

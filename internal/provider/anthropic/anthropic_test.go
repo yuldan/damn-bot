@@ -266,7 +266,7 @@ func TestFixtureErrorEvent(t *testing.T) {
 	if !errors.As(err, &pe) {
 		t.Fatalf("error = %v, want *provider.Error", err)
 	}
-	if pe.Class != retry.Overloaded || !pe.Class.Retryable() || pe.Code != "overloaded_error" {
+	if pe.Class != retry.Overloaded || !pe.Class.Transient() || pe.Code != "overloaded_error" {
 		t.Fatalf("error = %+v", pe)
 	}
 	if len(pe.Body) == 0 {

@@ -72,11 +72,11 @@ func (c Class) String() string {
 	return "unclassified"
 }
 
-// Retryable reports whether [Do] retries the class on the same model, and
+// Transient reports whether [Do] retries the class on the same model, and
 // whether model fallback may follow once attempts are exhausted (SPEC
 // §4.1.1). empty_response and context_length have their own single re-call
 // owned by the loop (ADR-078 AUD-045), so they are not retryable here.
-func (c Class) Retryable() bool {
+func (c Class) Transient() bool {
 	// RateLimited..StreamBroken are contiguous: rate_limited, overloaded,
 	// server, timeout, network, stream_broken.
 	return c >= RateLimited && c <= StreamBroken
@@ -85,12 +85,12 @@ func (c Class) Retryable() bool {
 // Classer is implemented by errors that already know their class, such as
 // netx transport errors and provider.Error. It takes precedence in [ClassifyErr].
 type Classer interface {
-	RetryClass() Class
+	FailureClass() Class
 }
 
 // ServerHint is implemented by errors carrying a server Retry-After hint.
 type ServerHint interface {
-	RetryAfter() time.Duration
+	ServerDelay() time.Duration
 }
 
 // ContextLengthCodes are the error.code values that turn a 400/413 into
@@ -140,7 +140,7 @@ func ClassifyErr(err error) Class {
 	case err == nil:
 		return None
 	case errors.As(err, &cl):
-		return cl.RetryClass()
+		return cl.FailureClass()
 	case errors.Is(err, ErrCircuitOpen):
 		return Overloaded
 	case errors.Is(err, context.Canceled):

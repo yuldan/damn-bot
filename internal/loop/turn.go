@@ -274,7 +274,7 @@ func (t *turn) streamError(ctx context.Context, p *Prompt, err error, st *askSta
 			}
 			return false, &outcome{stop: event.StopEndTurn, detail: event.DetailEmptyResponse}
 		case ClassContextLength:
-			if retry, o := t.retryContextLength(ctx, p, st); retry || o != nil {
+			if retry, o := t.reaskContextLength(ctx, p, st); retry || o != nil {
 				return retry, o
 			}
 			return false, &outcome{stop: event.StopMaxTokens, detail: event.DetailContextOverflow}
@@ -290,9 +290,9 @@ func (t *turn) streamError(ctx context.Context, p *Prompt, err error, st *askSta
 	return false, &o
 }
 
-// retryContextLength compacts once and retries the call (retry=true); a
+// reaskContextLength compacts once and retries the call (retry=true); a
 // second failure or a missing Compactor keeps the context_overflow outcome.
-func (t *turn) retryContextLength(ctx context.Context, p *Prompt, st *askState) (bool, *outcome) {
+func (t *turn) reaskContextLength(ctx context.Context, p *Prompt, st *askState) (bool, *outcome) {
 	if st.contextRetried || t.compacted || t.deps.Compactor == nil {
 		return false, nil
 	}

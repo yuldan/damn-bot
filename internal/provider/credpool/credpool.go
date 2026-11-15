@@ -297,9 +297,9 @@ func (p *Pool) NextAvailable(now time.Time) time.Duration {
 // ExhaustedError reports a pool whose credentials are all cooling down.
 // It wraps ErrExhausted and never names a value.
 type ExhaustedError struct {
-	Provider   string
-	Count      int
-	RetryAfter time.Duration
+	Provider    string
+	Count       int
+	ServerDelay time.Duration
 }
 
 // Error renders the typed reason without any credential value.
@@ -309,8 +309,8 @@ func (e *ExhaustedError) Error() string {
 		msg += ": provider " + e.Provider
 	}
 	msg += ": all " + strconv.Itoa(e.Count) + " credential(s) are cooling down"
-	if e.RetryAfter > 0 {
-		msg += " (next in " + e.RetryAfter.Round(time.Second).String() + ")"
+	if e.ServerDelay > 0 {
+		msg += " (next in " + e.ServerDelay.Round(time.Second).String() + ")"
 	}
 	return msg
 }

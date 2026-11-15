@@ -244,7 +244,7 @@ func startSpawn(ctx context.Context, start func() error) error {
 	return retry.Do(ctx, retry.Policy{
 		Attempts:  spawnAttempts,
 		Schedule:  func(n int, _ error) time.Duration { return 25 * time.Millisecond << (n - 1) },
-		Retryable: isETXTBSY,
+		Transient: isETXTBSY,
 	}, func(context.Context, int) error {
 		return start()
 	})

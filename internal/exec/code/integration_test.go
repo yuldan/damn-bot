@@ -71,7 +71,7 @@ func TestRunThroughLocalBackendSpawnsStubInterpreter(t *testing.T) {
 		t.Fatal(err)
 	}
 	var res Result
-	err = testutil.ExecRetry(t.Context(), func() error {
+	err = testutil.Eventually(t.Context(), func() error {
 		var rerr error
 		res, rerr = r.Run(t.Context(), &Request{Language: Python, Code: "ignored", Stdin: []byte(`{"n":41}`)})
 		return rerr

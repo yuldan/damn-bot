@@ -20,7 +20,7 @@ func applyResumeNotes(ctx context.Context, o *runOptions, model *runModel, red *
 	if !o.retry {
 		return nil
 	}
-	prompt, err := retryPrompt(ctx, model.db, model.sessionID, red, stderr)
+	prompt, err := lastPrompt(ctx, model.db, model.sessionID, red, stderr)
 	if err != nil {
 		return fmt.Errorf("retry: %w", err)
 	}

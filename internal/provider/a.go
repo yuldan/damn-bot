@@ -47,10 +47,10 @@ func (o *OpenAI) call(ctx context.Context, rt *Route, price *budget.Price, r *Re
 			return err
 		}
 		billed++ // the upstream accepted the request: it may have been billed
-		if n == limit || !retry.ClassifyErr(err).Retryable() {
+		if n == limit || !retry.ClassifyErr(err).Transient() {
 			return err
 		}
-		if derr := o.retryDenied(ctx, rt, o.retryProjection(rt, &resp, r, est, billed)); derr != nil {
+		if derr := o.fallbackDenied(ctx, rt, o.projectionAfterDenial(rt, &resp, r, est, billed)); derr != nil {
 			return derr
 		}
 		return err

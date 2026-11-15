@@ -65,7 +65,7 @@ func TestServeEarlyRecoveryRollback(t *testing.T) {
 	cmd.Env = e.childEnv()
 	var stderr lockedBuffer
 	cmd.Stderr = &stderr
-	if serr := testutil.ExecRetry(t.Context(), cmd.Start); serr != nil {
+	if serr := testutil.Eventually(t.Context(), cmd.Start); serr != nil {
 		t.Fatal(serr)
 	}
 	waitLog(t, &stderr, "early recovery: rolled back")

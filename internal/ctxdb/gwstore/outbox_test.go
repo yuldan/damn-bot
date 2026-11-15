@@ -73,7 +73,7 @@ func TestDeliveryClaimAndSent(t *testing.T) {
 	if n := count(t, db, `SELECT count(*) FROM gateway_deliveries WHERE id = ? AND status = 'sent'`, first); n != 1 {
 		t.Fatal("first not sent")
 	}
-	if err := store.RetryDelivery(ctx, first, "late", now+3); !errors.Is(err, ErrDeliveryNotFound) {
+	if err := store.RescheduleDelivery(ctx, first, "late", now+3); !errors.Is(err, ErrDeliveryNotFound) {
 		t.Fatalf("retry of sent = %v, want ErrDeliveryNotFound", err)
 	}
 	if n := count(t, db, `SELECT count(*) FROM gateway_deliveries`); n != 2 {
@@ -96,7 +96,7 @@ func TestDeliveryRetryAndFail(t *testing.T) {
 	if _, cerr := store.ClaimDeliveries(ctx, now+60_000, 1); cerr != nil {
 		t.Fatal(cerr)
 	}
-	if rerr := store.RetryDelivery(ctx, id, "429", now+10_000); rerr != nil {
+	if rerr := store.RescheduleDelivery(ctx, id, "429", now+10_000); rerr != nil {
 		t.Fatal(rerr)
 	}
 	if due, derr := store.ClaimDeliveries(ctx, now+5_000, 10); derr != nil || len(due) != 0 {
@@ -109,7 +109,7 @@ func TestDeliveryRetryAndFail(t *testing.T) {
 	if err := store.FailDelivery(ctx, id, "banned", now+10_001); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RetryDelivery(ctx, id, "late", now+10_002); !errors.Is(err, ErrDeliveryNotFound) {
+	if err := store.RescheduleDelivery(ctx, id, "late", now+10_002); !errors.Is(err, ErrDeliveryNotFound) {
 		t.Fatalf("retry of failed = %v, want ErrDeliveryNotFound", err)
 	}
 	if n := count(t, db, `SELECT count(*) FROM gateway_deliveries`); n != 1 {

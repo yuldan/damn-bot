@@ -317,7 +317,7 @@ func toError(err error) *Error {
 	if !ok {
 		return &Error{Class: retry.ClassifyErr(err), Err: err}
 	}
-	e := &Error{HTTPStatus: se.StatusCode, Delay: se.RetryAfter(), Body: se.Body, Err: err}
+	e := &Error{HTTPStatus: se.StatusCode, Delay: se.ServerDelay(), Body: se.Body, Err: err}
 	var env apiError
 	if json.Unmarshal(se.Body, &env) == nil {
 		var code string

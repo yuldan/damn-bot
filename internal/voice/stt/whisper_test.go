@@ -24,7 +24,7 @@ import (
 func transcribe(ctx context.Context, t *testing.T, w *Whisper, r io.Reader, o Options) (Transcript, error) {
 	t.Helper()
 	var tr Transcript
-	err := testutil.ExecRetry(ctx, func() error {
+	err := testutil.Eventually(ctx, func() error {
 		if s, ok := r.(io.Seeker); ok {
 			if _, serr := s.Seek(0, io.SeekStart); serr != nil {
 				return fmt.Errorf("rewind: %w", serr)

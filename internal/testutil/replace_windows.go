@@ -3,6 +3,7 @@
 package testutil
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,30 +11,34 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/damnbot/damnbot/internal/netx/retry"
 )
 
 // replaceAttempts bounds the retry for Windows sharing violations.
 const replaceAttempts = 3
 
 // replaceFile installs tmp as dst. MoveFileEx refuses to replace an open
-// destination, so it is removed first; only ERROR_ACCESS_DENIED is retried.
+// destination, so it is removed first; only ERROR_ACCESS_DENIED is retried,
+// with the attempt bound and delay from the central retry policy.
 func replaceFile(tmp, dst string) error {
-	var err error
-	for attempt := range replaceAttempts {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * 25 * time.Millisecond)
+	return retry.Do(context.Background(), retry.Policy{
+		Attempts:  replaceAttempts,
+		Schedule:  func(n int, _ error) time.Duration { return time.Duration(n) * 25 * time.Millisecond },
+		Transient: func(err error) bool { return errors.Is(err, windows.ERROR_ACCESS_DENIED) },
+	}, func(context.Context, int) error {
+		return replaceOnce(tmp, dst)
+	})
+}
+
+// replaceOnce is one remove-then-rename attempt, with the original error text.
+func replaceOnce(tmp, dst string) error {
+	if err := os.Remove(dst); err == nil || errors.Is(err, fs.ErrNotExist) {
+		if err = os.Rename(tmp, dst); err != nil {
+			return fmt.Errorf("rename %s: %w", tmp, err)
 		}
-		if err = os.Remove(dst); err == nil || errors.Is(err, fs.ErrNotExist) {
-			if err = os.Rename(tmp, dst); err == nil {
-				return nil
-			}
-			err = fmt.Errorf("rename %s: %w", tmp, err)
-		} else {
-			err = fmt.Errorf("remove %s: %w", dst, err)
-		}
-		if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
-			return err
-		}
+		return nil
+	} else {
+		return fmt.Errorf("remove %s: %w", dst, err)
 	}
-	return err
 }
