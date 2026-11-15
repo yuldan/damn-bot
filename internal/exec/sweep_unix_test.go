@@ -134,7 +134,7 @@ func sleepCommand(t *testing.T, seconds string) *exec.Cmd {
 	if err != nil {
 		t.Fatalf("sleep binary: %v", err)
 	}
-	return exec.CommandContext(context.Background(), path, seconds)
+	return exec.CommandContext(context.Background(), path, seconds) // #nosec G204 -- path is exec.LookPath("sleep"), arguments are literal
 }
 
 // waitMarkedPid waits until a scan sees pid carrying marker id. One scan can

@@ -43,7 +43,7 @@ func TestTestShardPartition(t *testing.T) {
 
 	run := func(shard string) string {
 		t.Helper()
-		cmd := exec.Command("bash", "scripts/test-shard.sh", "test", shard) // #nosec G204 -- fixed script and generated fixture
+		cmd := exec.CommandContext(t.Context(), "bash", "scripts/test-shard.sh", "test", shard) // #nosec G204 -- fixed script and generated fixture
 		cmd.Dir = filepath.Join("..", "..")
 		cmd.Env = append(os.Environ(),
 			"SHARD_INVENTORY="+invPath,

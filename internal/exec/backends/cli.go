@@ -240,13 +240,13 @@ const spawnAttempts = 5
 // is not reusable.
 func retrySpawn(ctx context.Context, start func() error) error {
 	var err error
-	for attempt := 0; attempt < spawnAttempts; attempt++ {
+	for attempt := range spawnAttempts {
 		if attempt > 0 {
 			t := time.NewTimer(25 * time.Millisecond << (attempt - 1))
 			select {
 			case <-ctx.Done():
 				t.Stop()
-				return ctx.Err()
+				return fmt.Errorf("spawn retry: %w", ctx.Err())
 			case <-t.C:
 			}
 		}

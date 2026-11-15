@@ -178,7 +178,7 @@ for t in "${tests[@]}"; do [[ $t == TestScenario ]] && scenario=true; done
 echo "shard $INDEX/$TOTAL: ${#tests[@]} tes di ${#pkgs[@]} paket"
 if [[ ${SHARD_PLAN_ONLY:-0} == 1 ]]; then
 	cat "$bucket" >&2
-	echo "regex ${#regex} byte, ${#pkgs[@]} paket" >&2
+	echo "regex ${#regex} byte, ${#pkgs[@]} paket"
 	exit 0
 fi
 if [[ $MODE == test ]]; then

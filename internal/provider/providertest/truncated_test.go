@@ -31,7 +31,9 @@ func TestServerIgnoresTruncatedRequestBody(t *testing.T) {
 	}()
 	res, err := http.DefaultClient.Do(req)
 	if err == nil {
-		_ = res.Body.Close()
+		if cerr := res.Body.Close(); cerr != nil {
+			t.Errorf("close truncated response body: %v", cerr)
+		}
 	}
 	<-done
 	// Close blocks until the handler has returned, so an Errorf (which would
