@@ -7193,3 +7193,19 @@ sengaja gagal sampai ledger ditutup. Artefak angka: `bench/scorecard/results/202
 `bench/speed/results/damnbot-8fab87144e.json`, `docs/SCORECARD-RC.md`,
 `docs/F9-ACCEPTANCE.md`, `docs/FEATURE-PARITY.md`.
 
+## ADR-358 — Klasifikasi error duplikat bertipe dan kenaikan `ctxdb` +7 (P20/F10)
+
+**Status:** Accepted 2026-11-15 (F10/P20). Menutup pelanggaran absolut "Klasifikasi error via string" tanpa menurunkan ambang, dan menaikkan plafon LOC core untuk kode yang benar-benar ditambahkan. Nomor 357 dipakai ADR fondasi F10 (ADR-357, berada lebih dulu di pohon ini); 358 dipilih agar tidak bertabrakan dengan blok ADR yang lebih baru di cabang lain.
+
+**Konteks.** `cmd/damnbot/cron_store.go` mengklasifikasi pelanggaran `UNIQUE` dengan `strings.Contains(err.Error(), "UNIQUE")`, satu-satunya situs produksi pada metrik scorecard (target 0). Pencocokan teks driver rapuh terhadap perubahan pesan/wrapping dan melanggar aturan klasifikasi error bertipe. Kelas galat sudah ada di `internal/ctxdb` (`classify` memetakan extended code SQLite), tetapi `SQLITE_CONSTRAINT_UNIQUE` (2067) dan `SQLITE_CONSTRAINT_PRIMARYKEY` (1555) belum punya identitas sendiri. Menambah `ctxdb.ErrDuplicate` + dua konstanta kode menaikkan kode non-test `internal/ctxdb` dari 6.289 menjadi **6.296** baris scc (kolom Code). Σ core resmi naik **57.656 → 57.663**, masih di bawah `maxCoreLOC` **57.700** (headroom 37); plafon tidak dinaikkan.
+
+**Keputusan.**
+
+1. **Identitas galat bertipe.** `ctxdb.ErrDuplicate` ditambahkan dan `classify` memetakannya untuk extended code 2067/1555, sehingga pemanggil memakai `errors.Is`. `cmd/damnbot/cron_store.go` mengganti `strings.Contains(err.Error(), "UNIQUE")` dengan `errors.Is(err, ctxdb.ErrDuplicate)` dan tetap membungkus `%w` agar rantai galat tidak hilang.
+2. **Allowlist E-21 tidak berubah.** `internal/ctxdb/errors.go` membandingkan teks trigger `RAISE` persis dengan `==` (bukan `Contains`), jadi tetap satu pengecualian yang tercatat. Tes baru `TestNoErrorStringClassification` (AST) gagal bila ada `strings.Contains(x.Error(), …)` baru di kode non-test, dan `TestUniqueConstraintTyped` membuktikan `UNIQUE` menjadi `ErrDuplicate` sedangkan pelanggaran `CHECK` tidak.
+3. **Plafon LOC.** Baris `ctxdb` 6.289 → 6.296 dan Σ core 57.656 → 57.663 dicatat di `loc.budget`, `docs/ENGINEERING.md` (dua baris Total core + prosa), serta komentar `maxCoreLOC`; `maxCoreLOC` tetap 57.700. Kenaikan +7 adalah angka ukur scc, bukan headroom baru.
+4. **Tanpa perubahan lain.** Tidak ada dependency, migrasi, config key, atau penurunan target/ambang scorecard. Baris `Peak RSS` tetap mengikuti definisi `VmHWM`; artefak soak 24 jam yang ada belum merekam `peak_kb`, sehingga baris itu `not_measured` sampai run yang menulis `peak_kb` (capture sudah ditambahkan di harness) tersedia.
+
+**Konsekuensi.** (+) Satu pelanggaran absolut hilang (klasifikasi error via string 1 → 0) dengan mekanisme bertipe yang bisa diuji, bukan pengecualian. (+) Budget tetap di bawah plafon dan setiap kenaikan tertaut ADR. (−) Tiga baris `errors.go` + dua konstanta menambah 7 LOC core; perubahan pesan galat cron kini menyertakan `duplicate` di rantai `%w`, yang lebih informatif tetapi mengubah teks galat yang terlihat.
+
+**Bukti.** `go test ./internal/ctxdb -run 'TestUniqueConstraintTyped|TestNonRefShaClosedList'`; `go test -tags goolm ./cmd/damnbot -run 'TestNoErrorStringClassification|TestCron'`; `make loc` (baris `ctxdb` 6.296 dan Σ core 57.663 ≤ 57.700); `go test ./internal/archtest -run 'TestBudgetTableSum|TestEngineeringTotalCoreMatchesLocBudget|TestADRUnique|TestADRMonotonic'`.

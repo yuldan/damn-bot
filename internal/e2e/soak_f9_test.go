@@ -183,6 +183,7 @@ type f9SoakMeta struct {
 
 type f9SoakSample struct {
 	RSSKB      int `json:"rss_kb"`
+	PeakKB     int `json:"peak_kb"` // VmHWM: process-lifetime peak RSS
 	Goroutines int `json:"goroutines"`
 	FDs        int `json:"fds"`
 }
@@ -777,7 +778,7 @@ func soakSampleNow(t *testing.T, rt *f9SoakRuntime) f9SoakSample {
 		t.Fatalf("count serve fds: %v", err)
 	}
 	body := soakMetricsBody(t, rt.client, rt.p.addr)
-	return f9SoakSample{RSSKB: proc.rssKB, Goroutines: soakMetricInt(t, body, "damnbot_goroutines"), FDs: fds}
+	return f9SoakSample{RSSKB: proc.rssKB, PeakKB: proc.peakKB, Goroutines: soakMetricInt(t, body, "damnbot_goroutines"), FDs: fds}
 }
 
 // soakSampleQuiet waits up to 30 s for the accept-loop and turn workers to be
@@ -1011,22 +1012,29 @@ func soakCommit() string {
 func TestF9ChaosFull(t *testing.T) {
 	kills := f9ChaosKills(t)
 	started := time.Now()
+	var kill9 chaosKill9Stats
 	t.Run("Kill9", func(t *testing.T) {
-		chaosKill9Rounds(t, kills)
+		kill9 = chaosKill9Rounds(t, kills)
 	})
 	t.Run("NetworkCut", chaosNetworkCut)
 	t.Run("DiskFullTmpfs", chaosDiskFullTmpfs)
 	t.Run("CorruptConfig", chaosCorruptConfig)
 	t.Run("CorruptDB", chaosCorruptDB)
-	t.Run("Reboot", chaosReboot)
+	var reboot time.Duration
+	t.Run("Reboot", func(t *testing.T) {
+		reboot = chaosRebootDuration(t)
+	})
 	t.Run("RestartGateway", chaosRestartGateway)
-	t.Run("Clients50", f9Chaos50Clients)
+	clients50 := t.Run("Clients50", f9Chaos50Clients)
 	res := map[string]any{
 		"phase": "F9", "test": "TestF9ChaosFull", "kills": kills,
-		"scenarios":        []string{"Kill9", "NetworkCut", "DiskFullTmpfs", "CorruptConfig", "CorruptDB", "Reboot", "RestartGateway", "Clients50"},
-		"duration_seconds": time.Since(started).Seconds(),
-		"commit":           soakCommit(),
-		"pass":             !t.Failed(),
+		"scenarios":          []string{"Kill9", "NetworkCut", "DiskFullTmpfs", "CorruptConfig", "CorruptDB", "Reboot", "RestartGateway", "Clients50"},
+		"duration_seconds":   time.Since(started).Seconds(),
+		"commit":             soakCommit(),
+		"kill9":              kill9,
+		"reboot_recovery_ms": float64(reboot.Microseconds()) / 1000,
+		"clients50_ran":      clients50,
+		"pass":               !t.Failed(),
 	}
 	writeF9Artifact(t, "chaos", fmt.Sprintf("%dkills", kills), res)
 }

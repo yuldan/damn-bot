@@ -176,11 +176,25 @@ func chaosKill9MidTurn(t *testing.T) {
 	chaosKill9Rounds(t, chaosRounds(t))
 }
 
+// chaosKill9Stats is the measured part of one kill -9 loop. Every failing
+// invariant aborts the test, so a passing run reports zero corruption, lost
+// turns and duplicates; the durations are the self-healing numbers.
+type chaosKill9Stats struct {
+	Rounds         int     `json:"rounds"`
+	MaxRecoveryMS  float64 `json:"max_recovery_ms"`
+	MeanRecoveryMS float64 `json:"mean_recovery_ms"`
+	Corrupt        int     `json:"corrupt"`
+	LostTurns      int     `json:"lost_turns"`
+	DuplicateRows  int     `json:"duplicate_rows"`
+	DuplicateMsgs  int     `json:"duplicate_messages"`
+	RepeatedTools  int     `json:"repeated_mutations"`
+}
+
 // chaosKill9Rounds is the shared kill -9 loop: the F4 acceptance runs
 // chaosRounds(t) (200 by default, 1.000 via make chaos) and the F9 full chaos
 // suite runs its own count. The assertions are identical, so both gates judge
 // the same durable-state invariants.
-func chaosKill9Rounds(t *testing.T, rounds int) {
+func chaosKill9Rounds(t *testing.T, rounds int) chaosKill9Stats {
 	e := New(t)
 	tg := NewFakeTG(t, FakeTGOptions{})
 	p := startGatewayServe(t, e, tg)
@@ -217,8 +231,10 @@ func chaosKill9Rounds(t *testing.T, rounds int) {
 	if n := len(tg.Edits()); n != 0 {
 		t.Fatalf("edits = %d, want 0: every turn was killed before its final answer", n)
 	}
+	mean := float64(totalRecovery.Microseconds()) / 1000 / float64(rounds)
 	t.Logf("kill -9: %d turns, %.1f ms mean recovery, %.1f ms max recovery, loadavg %s",
-		rounds, float64(totalRecovery.Microseconds())/1000/float64(rounds), float64(maxRecovery.Microseconds())/1000, loadAverage())
+		rounds, mean, float64(maxRecovery.Microseconds())/1000, loadAverage())
+	return chaosKill9Stats{Rounds: rounds, MaxRecoveryMS: float64(maxRecovery.Microseconds()) / 1000, MeanRecoveryMS: mean}
 }
 
 // chaosKill9Pre SIGKILLs p and checks the durable state before any recovery:
@@ -646,6 +662,10 @@ func chaosCorruptDB(t *testing.T) {
 // 10 s, take the dead process's lease over, reclaim the orphaned delivery
 // without duplicating it, and resume from the persisted Telegram offset.
 func chaosReboot(t *testing.T) {
+	chaosRebootDuration(t)
+}
+
+func chaosRebootDuration(t *testing.T) time.Duration {
 	e := New(t)
 	tg := NewFakeTG(t, FakeTGOptions{
 		// Fail the final edit once: the answer must travel through the outbox.
@@ -690,6 +710,7 @@ func chaosReboot(t *testing.T) {
 	})
 	chaosRebootCleanRestart(t, e, tg, p, crashBefore)
 	t.Logf("reboot recovery: %.1f ms (budget 10 s), loadavg %s", float64(took.Microseconds())/1000, loadAverage())
+	return took
 }
 
 // chaosSends counts successful sendMessage calls whose text is exactly text.

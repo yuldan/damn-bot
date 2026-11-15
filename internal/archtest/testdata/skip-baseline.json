@@ -1,5 +1,5 @@
 {
-  "total": 128,
+  "total": 130,
   "packages": {
     "cmd/damnbot": 16,
     "internal/archtest": 2,
@@ -9,7 +9,7 @@
     "internal/cron": 1,
     "internal/ctxdb": 5,
     "internal/ctxdb/journalstore": 4,
-    "internal/e2e": 22,
+    "internal/e2e": 23,
     "internal/exec": 22,
     "internal/exec/backends": 2,
     "internal/gateway/render": 2,
@@ -25,6 +25,7 @@
     "internal/skills": 2,
     "internal/testutil/phase": 1,
     "internal/tools": 4,
+    "internal/tui": 1,
     "internal/voice": 2,
     "internal/voice/stt": 1,
     "internal/voice/tts": 1,

@@ -25,6 +25,7 @@ var (
 	ErrDBBusy              = errors.New("db_busy")
 	ErrDiskFull            = errors.New("disk_full")
 	ErrNotFound            = errors.New("not_found")
+	ErrDuplicate           = errors.New("duplicate")
 	ErrIdempotencyConflict = errors.New("idempotency_conflict")
 	ErrInboundInvalid      = errors.New("inbound_invalid")
 	ErrMigrationRefused    = errors.New("migration_refused")
@@ -44,6 +45,8 @@ const (
 	codeFull              = 13
 	codeCantOpen          = 14
 	codeIOERR             = 10
+	codeConstraintUnique  = 2067 // SQLITE_CONSTRAINT_UNIQUE (primary result 19)
+	codeConstraintPrimary = 1555 // SQLITE_CONSTRAINT_PRIMARYKEY (primary result 19)
 	codeConstraintTrigger = 1811
 )
 
@@ -98,6 +101,8 @@ func classify(err error) error {
 		return fmt.Errorf("%w: %w", ErrDBBusy, err)
 	case code&0xff == codeFull:
 		return fmt.Errorf("%w: %w", ErrDiskFull, err)
+	case code == codeConstraintUnique, code == codeConstraintPrimary:
+		return fmt.Errorf("%w: %w", ErrDuplicate, err)
 	case code == codeConstraintTrigger:
 		return fmt.Errorf("%w: %w", raiseCode(se), err)
 	}

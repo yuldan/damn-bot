@@ -33,7 +33,7 @@ func TestScorecardGate(t *testing.T) {
 		t.Fatalf("dimensi SCORECARD §1.1–1.8 = %d, want 74 (tabel berubah; perbarui gate + artefak)", len(canonical))
 	}
 	if os.Getenv("SCORECARD_UPDATE") == "1" {
-		fresh, berr := Build(repoRoot, "2026-11-13T00:00:00Z", "8fab87144e")
+		fresh, berr := Build(repoRoot, BasisDate, BasisCommit)
 		if berr != nil {
 			t.Fatal(berr)
 		}
@@ -52,6 +52,14 @@ func TestScorecardGate(t *testing.T) {
 	}
 	if art.Meta.HermesCommit != HermesCommit {
 		t.Errorf("meta.hermes_commit = %q, want %q", art.Meta.HermesCommit, HermesCommit)
+	}
+	if art.Meta.DamnbotCommit != BasisCommit {
+		t.Errorf("meta.damnbot_commit = %q, want soak basis %q", art.Meta.DamnbotCommit, BasisCommit)
+	}
+	for _, src := range []string{Soak24hPath, ChaosPath} {
+		if _, ok := art.Meta.Sources[src]; !ok {
+			t.Errorf("sumber stabilitas %s tidak tercatat di meta.sources_sha256", src)
+		}
 	}
 
 	built, err := Build(repoRoot, art.Meta.Date, art.Meta.DamnbotCommit)

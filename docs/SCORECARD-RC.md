@@ -1,16 +1,23 @@
 # SCORECARD RC F9 — artefak terpublikasi (P20 dire-fase ke F10, ADR-356)
 
-Artefak mesin: [`bench/scorecard/results/2026-11-13-8fab87144e.json`](../bench/scorecard/results/2026-11-13-8fab87144e.json).
+Artefak mesin: [`bench/scorecard/results/2026-11-15-6b63d78f16.json`](../bench/scorecard/results/2026-11-15-6b63d78f16.json).
 Gate: `TestScorecardGate` (`bench/scorecard/scorecard_test.go`); artefak dibangun
-ulang oleh tes yang sama (`SCORECARD_UPDATE=1`). Basis: `8fab87144e`, hermes `868b9f244f`.
+ulang oleh tes yang sama (`SCORECARD_UPDATE=1`). Basis: `6b63d78f16` (pohon produk P20 setelah rebase ke `ee2647d7`; sumber soak 24 jam tetap `8fbafafa`, chaos `0001e301`, tooling `8fab87144e`, dan dicatat per baris), hermes `868b9f244f`.
 
 Status: **P20 dire-fase ke F10 (ADR-356)**. Owner menyetujui Opsi A pada 2026-11-13:
 baris agregat F9 "Artefak rilis & scorecard" **tidak** diklaim `LULUS`; statusnya
 `N/A — re-phased to F10 (ADR-356; P20 RC)` (lihat [`F9-ACCEPTANCE.md`](F9-ACCEPTANCE.md) §1
-dan [`DECISIONS.md`](DECISIONS.md) ADR-356). Artefak ini memuat **43 dimensi terukur
-dan 31 `not_measured`**, dengan **6 pelanggaran pada dimensi terukur**: fungsi
-terpanjang 132 > 80, kompleksitas 40 > 15, retry 38 > 1, klasifikasi error string
-1 > 0, flake 72% (18/25 nightly) > 0,1%, dan CI p90 32,62 > 12 menit. Bukti positif
+dan [`DECISIONS.md`](DECISIONS.md) ADR-356). Artefak P20 terbaru memuat **46 dimensi terukur
+dan 28 `not_measured`**, dengan **5 pelanggaran pada dimensi terukur**: fungsi
+terpanjang 132 > 80, kompleksitas 40 > 15, retry 38 > 1, flake 72% (18/25 nightly)
+> 0,1%, dan CI p90 32,62 > 12 menit. Klasifikasi error via string kini **0**
+(`cron_store.go` memakai `ctxdb.ErrDuplicate`, ditegakkan
+`TestNoErrorStringClassification`). Tiga dimensi stabilitas terukur dari
+soak/chaos: crash/hang 0, kill -9 0/0/0, dan self-healing 0,597 s. `Peak RSS`
+tetap `not_measured`: artefak soak 24 jam/1.000 turn `8fbafafa` hanya merekam RSS
+awal/akhir, bukan `VmHWM`; harness kini menulis `peak_kb` (VmHWM) untuk run
+berikutnya, dan angka 98,5 MB dari soak 14,5 jam yang gagal (`9717027e`) tidak
+diklaim. Bukti positif
 tidak disembunyikan: first token 6,178 ms vs hermes 39,407 ms = **6,38×** (margin
 inti ≥5× terpenuhi) dan 16 dimensi pembanding hermes lulus. Tidak ada target yang
 diturunkan dan tidak ada angka yang dikarang.
@@ -55,11 +62,15 @@ Angka diambil ulang dari artefak fase (SHA-256 tercatat di `meta.sources_sha256`
 | Fungsi terpanjang / >80 | 616 baris / 716 | 132 baris / 6 | ≤80 / 0 | **gagal** (absolut) |
 | Kompleksitas maks / >15 | 102 / 2.475 | 40 / 23 | ≤15 / 0 | **gagal** (absolut) |
 | Implementasi retry | 169 | 38 fungsi (1 kebijakan) | 1 | **gagal** (absolut) |
-| Klasifikasi error via string | 41 + 88 | 1 (`cron_store.go:88`) | 0 | **gagal** |
+| Klasifikasi error via string | 41 + 88 | 0 | 0 | lulus |
 | Kebocoran goroutine | n/a | 0 (53 paket goleak) | 0 | lulus |
 | Exec spawn overhead | n/a | p95 1,202 ms (mean 0,751) | <15 ms | lulus |
 | Flake rate | n/a | 72% (18/25; 18/20 dieksekusi) | ≤0,1% | **gagal** |
 | Waktu CI PR p90 | n/a | 32,62 menit (median 25,35) | ≤12 | **gagal** |
+| Crash/hang rate [I] | 0 | 0 per 1.000 turn | 0 | lulus (soak 24 jam) |
+| Pemulihan setelah `kill -9` [I] | 0 | 0/0/0 (200 kill) | 0 | lulus |
+| Self-healing [I] | 10 s | 0,597 s maks (kill -9), 0,178 s reboot | ≤10 s | lulus |
+| Peak RSS | 211,5 MB (peak idle F4) | `not_measured` | ≤0,5× | belum terukur; artefak soak hanya RSS akhir, `peak_kb` (VmHWM) baru dicatat run berikutnya |
 
 Sumber: `bench/budget/results/hermes-868b9f244f.json`, `internal/assemble/testdata/p1/all-modules.request.json`,
 `bench/f2/results/hermes-868b9f244f-F2.json`, `bench/f3/results/{damnbot-8fab87144e,damnbot-6d01e7a1d5,hermes-868b9f244f}-F3.json`,
@@ -74,15 +85,13 @@ hermes 66,276 s; first token/startup memakai artefak final `8fab87144e`.
 
 ## Dimensi belum terukur
 
-31 dimensi `not_measured` (rincian di artefak):
+28 dimensi `not_measured` (rincian di artefak):
 
 - Token input/output, biaya, cache, background token, task success, invalid tool
   call, klaim tanpa bukti, recall, fakta basi, routing skill, long-session, error
   recovery, overhead iterasi, wall-clock, prompt-injection: RC head-to-head penuh
   belum dijalankan (Q23-RC: model frontier & anggaran). Probe 10 task dengan
   `deepseek-v4.1-flash` ada di `bench/h2h/results/2026-11-1{2,3}-f9-rc-probe-*`.
-- Crash/hang, kill -9, self-healing, peak RSS: artefak F9 hanya profil CI
-  50 turn/50 kill, bukan soak 24 jam/1.000 turn/200 kill.
 - Ukuran & waktu install dari nol, langkah setup, baris config: butuh VM bersih
   10 Mbit/s; host ini bukan VM RC dan tidak ada docker/root.
 - Harness yang belum punya artefak terukur: code tools (korpus/host beda),
@@ -93,11 +102,14 @@ hermes 66,276 s; first token/startup memakai artefak final `8fab87144e`.
 
 ## Speed parity
 
-`TestF9SpeedParity` masih SKIP/gagal: hanya **3 dari 163** operasi hermes yang punya
-pengukuran Damn-Bot dengan protokol sama (`bench/speed/results/damnbot-8fab87144e.json`:
-`TOOL-045` patch 5,238 ms, `TOOL-046` read 0,509 ms, `TOOL-047` search 10,519 ms; sumber
-`bench/codetools/results/f1-7d0f6bd.json`). `TOOL-045` juga **regresi** terhadap hermes
-3,091 ms. Sisa 160 ID belum diukur dengan protokol itu; tidak ada angka yang dikarang.
+`TestF9SpeedParity` masih SKIP/gagal: **96 dari 163** operasi hermes kini punya
+pengukuran Damn-Bot dengan protokol yang sama
+(`bench/speed/results/damnbot-6b63d78f16.json`; CLI cold start 1 warm-up + 5,
+tools/assemble/gateway/TUI in-process 1 + 20). Tujuh baris masih **regresi**
+terhadap hermes: `EXEC-012`, `TOOL-022`, `SKILL-002`, `SKILL-016`, `TOOL-076`,
+`TOOL-048`, dan `TOOL-045` (3,09 ms). **67 ID** menunggu parity dan tetap
+`not_measured` dengan alasan FEATURE-PARITY (ADR-350); tidak ada angka hermes yang
+disalin.
 
 ## Komitmen F10 (ADR-356, ledger ADR-357)
 
@@ -109,13 +121,13 @@ eksekusinya ada di [`F10-ACCEPTANCE.md`](F10-ACCEPTANCE.md); F10 wajib menutup:
    harness code-tools, `Error informatif` (2 penilai manusia), dan scorecard mingguan.
 2. **Enam pelanggaran** sampai ambangnya: fungsi ≤80, kompleksitas ≤15, retry 1,
    klasifikasi error string 0, flake ≤0,1%, CI PR p90 ≤12 menit.
-3. **P28 160 ID** sisanya dengan protokol `bench/speed`/`BenchmarkSpeedParity` yang sama,
-   plus regresi `TOOL-045` (5,238 ms vs hermes 3,091 ms) ditutup.
+3. **P28 67 ID** yang menunggu parity dengan protokol `bench/speed` yang sama,
+   plus tujuh regresi terukur (termasuk `TOOL-045`) ditutup.
 4. Publikasi ulang artefak RC dan baris agregat `LULUS` hanya lewat PR F10 yang membuat
    `DAMNBOT_RELEASE=1 go test ./scorecard` dan `TestF9SpeedParity` hijau.
 
-Artefak: [`bench/scorecard/results/2026-11-13-8fab87144e.json`](../bench/scorecard/results/2026-11-13-8fab87144e.json),
-[`bench/speed/results/damnbot-8fab87144e.json`](../bench/speed/results/damnbot-8fab87144e.json),
+Artefak: [`bench/scorecard/results/2026-11-15-6b63d78f16.json`](../bench/scorecard/results/2026-11-15-6b63d78f16.json),
+[`bench/speed/results/damnbot-6b63d78f16.json`](../bench/speed/results/damnbot-6b63d78f16.json),
 `bench/scorecard/results/tooling-8fab87144e.json`. Keputusan: [`DECISIONS.md`](DECISIONS.md) ADR-356.
 
 ## Regenerasi
@@ -124,7 +136,7 @@ Artefak: [`bench/scorecard/results/2026-11-13-8fab87144e.json`](../bench/scoreca
 cd bench
 SCORECARD_UPDATE=1 go test -count=1 -run '^TestScorecardGate$' ./scorecard  # tulis ulang artefak
 go test -count=1 ./scorecard                 # skip ber-alasan tanpa penanda rilis
-DAMNBOT_RELEASE=1 go test -count=1 ./scorecard  # gagal: 31 dimensi belum terukur + 6 pelanggaran
+DAMNBOT_RELEASE=1 go test -count=1 ./scorecard  # gagal: 28 dimensi belum terukur + 5 pelanggaran
 ```
 
 `TestScorecardGate` membangun ulang artefak dan membandingkan setiap baris

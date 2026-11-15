@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -112,4 +114,32 @@ func countRuns(t *testing.T, db *ctxdb.Store, jobID string) int {
 		t.Fatal(err)
 	}
 	return n
+}
+
+// TestCronStoreDuplicateIDTyped: the UNIQUE(id) insert path classifies the
+// driver error through ctxdb.ErrDuplicate, never through message text.
+func TestCronStoreDuplicateIDTyped(t *testing.T) {
+	t.Parallel()
+	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: t.TempDir(), Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Errorf("close db: %v", cerr)
+		}
+	})
+	store := newCronStore(db)
+	ctx := t.Context()
+	first, _, err := store.Create(ctx, &cron.Job{ID: "dup", Name: "one", Schedule: "0 * * * *", Prompt: "p1", Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = store.Create(ctx, &cron.Job{ID: first.ID, Name: "two", Schedule: "0 * * * *", Prompt: "p2", Cwd: t.TempDir()})
+	if !errors.Is(err, ctxdb.ErrDuplicate) {
+		t.Fatalf("duplicate id = %v, want ctxdb.ErrDuplicate", err)
+	}
+	if !strings.Contains(err.Error(), `"two" already exists`) {
+		t.Fatalf("duplicate message = %v", err)
+	}
 }

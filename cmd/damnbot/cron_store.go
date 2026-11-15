@@ -85,8 +85,8 @@ func (s *cronStore) Create(ctx context.Context, j *cron.Job) (cron.Job, bool, er
 			j.ID, j.Name, cmp.Or(j.Owner, "local"), j.Schedule, nullText(j.TZ), j.Prompt, sha, j.Cwd,
 			nullText(j.Gate), enabled, now)
 		if err != nil {
-			if strings.Contains(err.Error(), "UNIQUE") {
-				return fmt.Errorf("cron job %q already exists", j.Name)
+			if errors.Is(err, ctxdb.ErrDuplicate) {
+				return fmt.Errorf("cron job %q already exists: %w", j.Name, ctxdb.ErrDuplicate)
 			}
 			return fmt.Errorf("insert job: %w", err)
 		}
