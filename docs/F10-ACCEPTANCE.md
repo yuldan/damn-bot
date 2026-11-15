@@ -75,7 +75,7 @@ memuat **37 `LULUS`, 6 pelanggaran, 31 `not_measured`** (semua pelanggaran dan
 | P20-20 | Idle RSS | 1.2 | LULUS | artefak scorecard |
 | P20-21 | Image preflight | 1.2 | LULUS | Q14 bukan gate |
 | P20-22 | Overhead agent per iterasi | 1.2 | BELUM | Q23-RC |
-| P20-23 | Peak RSS | 1.2 | BELUM | soak |
+| P20-23 | Peak RSS | 1.2 | BELUM | harness VmHWM (serve+api-server) siap; run 1 jam/1.000 turn tertunda host (ADR-359) |
 | P20-24 | Startup | 1.2 | LULUS | 27,2× |
 | P20-25 | Task wall-clock end-to-end | 1.2 | BELUM | Q23-RC |
 | P20-26 | Voice end-to-end | 1.2 | LULUS | artefak scorecard |

@@ -18,7 +18,7 @@
   "Overhead agent per iterasi": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)",
   "Task wall-clock end-to-end": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)",
   "Prompt-injection suite": "head-to-head penuh RC F9 (Q23-RC) belum dijalankan: model frontier dan anggaran belum ditetapkan owner (OPEN-QUESTIONS Q23-RC)",
-  "Peak RSS": "artefak soak 24 jam/1.000 turn `8fbafafa` belum merekam VmHWM (hanya RSS awal/akhir, bukan definisi metrik); harness kini menulis `peak_kb` (VmHWM) untuk run berikutnya. Angka 98,5 MB hanya berasal dari soak 14,5 jam yang gagal (`9717027e`), jadi tidak diklaim sebagai artefak sah",
+  "Peak RSS": "harness kini merekam VmHWM `peak_kb` (serve) dan `api_peak_kb` (anak api-server) pada tiap sampel, tetapi belum ada run 1.000 turn yang sah: dua percobaan profil 1 jam berhenti pada 492 s (ack webhook `context deadline exceeded`) dan 1.828 s (timeout di tengah run) saat host bersama jenuh, dan `agent-guard.sh check` menolak start >30 menit (load5 7,5–11,1 > 6,0). Angka tidak diklaim; artefak 24 jam `8fbafafa` tetap tidak merekam VmHWM.",
   "Code tools": "artefak code-tools terakhir memakai corpus/host berbeda dan mencatat regresi; tidak boleh dibandingkan sebagai angka RC",
   "Proses yatim / perintah hang": "tidak ada artefak harness terukur untuk dimensi ini di bench/*/results",
   "Edit salah lokasi": "tidak ada artefak harness terukur untuk dimensi ini di bench/*/results",
