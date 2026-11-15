@@ -51,6 +51,13 @@ type Policy struct {
 	// Wait blocks for d or until ctx ends; nil = a real timer. Tests that
 	// cannot run inside a synctest bubble (real sockets) inject a fake.
 	Wait func(ctx context.Context, d time.Duration) error
+	// Schedule overrides the SPEC delay curve for local retries (filesystem,
+	// process spawn); n is the failed attempt, 1-based. nil = SPEC curve.
+	Schedule func(n int) time.Duration
+	// Retryable marks a local retry: the error classes do not apply, op's
+	// error is handed back unchanged (never wrapped in [Error]) so callers
+	// keep using errors.Is, and a dead ctx returns its cause.
+	Retryable func(err error) bool
 }
 
 // Error is the failure returned by [Do]: the last attempt's error with its
@@ -80,6 +87,7 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 	if limit <= 0 {
 		limit = MaxAttempts
 	}
+	local := p.Retryable != nil
 	for n := 1; ; n++ {
 		err := op(ctx, n)
 		class := ClassifyErr(err)
@@ -88,16 +96,32 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 		}
 		if ctx.Err() != nil {
 			// The caller's context ended: never retry, keep its class.
+			if local {
+				return fmt.Errorf("retry wait: %w", context.Cause(ctx))
+			}
 			return &Error{Class: ClassifyErr(context.Cause(ctx)), Attempts: n, Err: err}
 		}
-		if !class.Retryable() || errors.Is(err, ErrCircuitOpen) {
+		retryable := class.Retryable()
+		if local {
+			retryable = p.Retryable(err)
+		}
+		if !retryable || errors.Is(err, ErrCircuitOpen) {
+			if local {
+				return err
+			}
 			return &Error{Class: class, Attempts: n, Err: err}
 		}
 		if n == limit {
+			if local {
+				return err
+			}
 			return &Error{Class: class, Attempts: n, Err: fmt.Errorf("%w: %w", ErrExhausted, err)}
 		}
 		delay, ok := p.delay(n, err)
 		if !ok {
+			if local {
+				return err
+			}
 			return &Error{Class: class, Attempts: n, Err: fmt.Errorf("%w: %w", ErrRetryAfterTooLong, err)}
 		}
 		if p.Notify != nil {
@@ -108,6 +132,9 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 			w = p.Wait
 		}
 		if werr := w(ctx, delay); werr != nil {
+			if local {
+				return werr
+			}
 			return &Error{Class: ClassifyErr(werr), Attempts: n, Err: err}
 		}
 	}
@@ -116,6 +143,9 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 // delay picks the wait after failed attempt n; ok=false when the server
 // asks for more than MaxRetryAfter.
 func (p Policy) delay(n int, err error) (time.Duration, bool) {
+	if p.Schedule != nil {
+		return p.Schedule(n), true
+	}
 	var ra ServerHint
 	if errors.As(err, &ra) && ra.RetryAfter() > 0 {
 		d := ra.RetryAfter()

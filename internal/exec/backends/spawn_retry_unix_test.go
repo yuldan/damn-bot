@@ -18,7 +18,7 @@ func TestRetrySpawnRetriesETXTBSY(t *testing.T) {
 	t.Parallel()
 	busy := &os.PathError{Op: "fork/exec", Path: "fake-cli", Err: syscall.ETXTBSY}
 	attempts := 0
-	err := retrySpawn(t.Context(), func() error {
+	err := startSpawn(t.Context(), func() error {
 		attempts++
 		if attempts < 3 {
 			return busy
@@ -39,7 +39,7 @@ func TestRetrySpawnStopsOnOtherError(t *testing.T) {
 	t.Parallel()
 	attempts := 0
 	want := &os.PathError{Op: "fork/exec", Path: "missing", Err: syscall.ENOENT}
-	err := retrySpawn(t.Context(), func() error {
+	err := startSpawn(t.Context(), func() error {
 		attempts++
 		return want
 	})
@@ -55,7 +55,7 @@ func TestRetrySpawnStopsOnContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	attempts := 0
-	err := retrySpawn(ctx, func() error {
+	err := startSpawn(ctx, func() error {
 		attempts++
 		return &os.PathError{Op: "fork/exec", Path: "fake-cli", Err: syscall.ETXTBSY}
 	})
