@@ -1,7 +1,7 @@
 {
  "meta": {
   "basis": "FEATURE-PARITY rows with class=measured in the hermes artefact",
-  "damnbot_commit": "713b8393ea",
+  "damnbot_commit": "6b63d78f16",
   "harness": "bench/speed: CLI cold start (1 warm-up+5), in-process tools/assemble (1+20), gateway/TUI slash (1+20); no hermes number copied",
   "phase": "F10"
  },
@@ -36,7 +36,7 @@
    "feature": "`hermes model`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-003",
@@ -44,7 +44,7 @@
    "feature": "`hermes moa`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-004",
@@ -52,7 +52,7 @@
    "feature": "`hermes fallback`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-005",
@@ -60,7 +60,7 @@
    "feature": "`hermes worktree`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-006",
@@ -87,7 +87,7 @@
    "feature": "`hermes secrets`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-008",
@@ -95,7 +95,7 @@
    "feature": "`hermes egress`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-010",
@@ -103,7 +103,7 @@
    "feature": "`hermes codex-runtime`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-011",
@@ -111,7 +111,7 @@
    "feature": "`hermes gateway`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-012",
@@ -138,7 +138,7 @@
    "feature": "`hermes lsp`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-014",
@@ -241,7 +241,7 @@
    "feature": "`hermes logout`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-021",
@@ -249,7 +249,7 @@
    "feature": "`hermes auth`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-022",
@@ -257,7 +257,7 @@
    "feature": "`hermes status`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-023",
@@ -379,7 +379,7 @@
    "feature": "`hermes hooks`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-032",
@@ -406,7 +406,7 @@
    "feature": "`hermes verify`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-035",
@@ -414,7 +414,7 @@
    "feature": "`hermes approvals`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-036",
@@ -460,7 +460,7 @@
    "feature": "`hermes backup`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-039",
@@ -525,7 +525,7 @@
    "feature": "`hermes config`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-043",
@@ -533,7 +533,7 @@
    "feature": "`hermes skin`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-044",
@@ -541,7 +541,7 @@
    "feature": "`hermes console`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-045",
@@ -568,7 +568,7 @@
    "feature": "`hermes skills`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-047",
@@ -595,7 +595,7 @@
    "feature": "`hermes plugins`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-049",
@@ -660,7 +660,7 @@
    "feature": "`hermes tools`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-054",
@@ -706,7 +706,7 @@
    "feature": "`hermes sessions`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-058",
@@ -752,7 +752,7 @@
    "feature": "`hermes claw`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-062",
@@ -760,7 +760,7 @@
    "feature": "`hermes vault`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-063",
@@ -787,7 +787,7 @@
    "feature": "`hermes uninstall`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-065",
@@ -814,7 +814,7 @@
    "feature": "`hermes profile`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-067",
@@ -898,7 +898,7 @@
    "feature": "`hermes logs`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-072",
@@ -906,7 +906,7 @@
    "feature": "`hermes prompt-size`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "CLI-073",
@@ -983,7 +983,7 @@
   {
    "id": "CORE-003",
    "prefix": "CORE",
-   "feature": "Tool registry \u0026 dispatch",
+   "feature": "Tool registry & dispatch",
    "status": "planned",
    "class": "measured",
    "result": {
@@ -1017,7 +1017,7 @@
   {
    "id": "CORE-004",
    "prefix": "CORE",
-   "feature": "Toolsets \u0026 per-platform config",
+   "feature": "Toolsets & per-platform config",
    "status": "planned",
    "class": "measured",
    "result": {
@@ -1054,7 +1054,7 @@
    "feature": "Coding posture",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "EXEC-001",
@@ -1331,7 +1331,7 @@
    "feature": "Status",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "OPS-016",
@@ -1358,7 +1358,7 @@
    "feature": "Prompt size",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "OPS-038",
@@ -2005,7 +2005,7 @@
    "feature": "`/clear`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-005",
@@ -2013,7 +2013,7 @@
    "feature": "`/redraw`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-006",
@@ -2021,7 +2021,7 @@
    "feature": "`/history`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-007",
@@ -2029,7 +2029,7 @@
    "feature": "`/save`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-011",
@@ -2037,7 +2037,7 @@
    "feature": "`/title`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-014",
@@ -2045,7 +2045,7 @@
    "feature": "`/worktree`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-016",
@@ -2053,7 +2053,7 @@
    "feature": "`/rollback`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-017",
@@ -2061,7 +2061,7 @@
    "feature": "`/snapshot`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-020",
@@ -2069,7 +2069,7 @@
    "feature": "`/stop`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-026",
@@ -2077,7 +2077,7 @@
    "feature": "`/agents`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-028",
@@ -2119,7 +2119,7 @@
    "feature": "`/status`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-039",
@@ -2127,7 +2127,7 @@
    "feature": "`/egress`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-040",
@@ -2203,7 +2203,7 @@
    "feature": "`/profile`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-046",
@@ -2211,7 +2211,7 @@
    "feature": "`/config`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-049",
@@ -2253,7 +2253,7 @@
    "feature": "`/statusbar`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-051",
@@ -2261,7 +2261,7 @@
    "feature": "`/battery`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-052",
@@ -2303,7 +2303,7 @@
    "feature": "`/verbose`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-055",
@@ -2311,7 +2311,7 @@
    "feature": "`/focus`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-056",
@@ -2353,7 +2353,7 @@
    "feature": "`/yolo`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-058",
@@ -2361,7 +2361,7 @@
    "feature": "`/approvals`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-059",
@@ -2369,7 +2369,7 @@
    "feature": "`/reasoning`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-061",
@@ -2411,7 +2411,7 @@
    "feature": "`/indicator`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-065",
@@ -2419,7 +2419,7 @@
    "feature": "`/busy`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-066",
@@ -2427,7 +2427,7 @@
    "feature": "`/autoprune`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-067",
@@ -2435,7 +2435,7 @@
    "feature": "`/tools`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-068",
@@ -2443,7 +2443,7 @@
    "feature": "`/toolsets`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-069",
@@ -2451,7 +2451,7 @@
    "feature": "`/skills`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-070",
@@ -2459,7 +2459,7 @@
    "feature": "`/memory`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-071",
@@ -2467,7 +2467,7 @@
    "feature": "`/bundles`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-076",
@@ -2577,7 +2577,7 @@
    "feature": "`/reload`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-083",
@@ -2585,7 +2585,7 @@
    "feature": "`/reload-skills`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-085",
@@ -2593,7 +2593,7 @@
    "feature": "`/plugins`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-086",
@@ -2601,7 +2601,7 @@
    "feature": "`/commands`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-087",
@@ -2609,7 +2609,7 @@
    "feature": "`/help`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "SLASH-090",
@@ -2719,7 +2719,7 @@
    "feature": "`/version`",
    "status": "planned",
    "class": "not_measured",
-   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A — re-phased to F10 (ADR-350)"
+   "reason": "fitur belum ada di Damn-Bot; parity dire-fase ke F10 (ADR-350): N/A \u2014 re-phased to F10 (ADR-350)"
   },
   {
    "id": "TOOL-022",

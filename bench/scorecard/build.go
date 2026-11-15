@@ -13,12 +13,12 @@ import (
 )
 
 // ArtefactPath is the published RC scorecard path (SCORECARD §2.6).
-// BasisCommit is the P20 product tree the artifact attests to. The soak rows
-// come from the named source artifacts (24 h soak at 8fbafafa, 200-kill chaos
-// at 0001e301); every source digest is rebuilt here.
+// BasisCommit is the rebased P20 product tree the artifact attests to. The
+// soak rows come from the named source artifacts (24 h soak at 8fbafafa,
+// 200-kill chaos at 0001e301); every source digest is rebuilt here.
 const (
-	ArtefactPath = "scorecard/results/2026-11-15-713b8393ea.json"
-	BasisCommit  = "713b8393ea"
+	ArtefactPath = "scorecard/results/2026-11-15-6b63d78f16.json"
+	BasisCommit  = "6b63d78f16"
 	BasisDate    = "2026-11-15T00:00:00Z"
 	Soak24hPath  = "bench/f9/results/soak-acceptance-24h-1000t-8fbafafa-F9.json"
 	ChaosPath    = "bench/f9/results/chaos-200kills-0001e301-F9.json"
@@ -291,7 +291,7 @@ func (b *builder) measure() error {
 	mk("Kebocoran goroutine", RuleAbsMax, 0, "kebocoran",
 		"53 paket goleak.VerifyTestMain (ctxdb, exec, gateway, tui + 49); cmd dengan -tags goolm; 0 bocor; race di 4 paket kritis",
 		"code_quality", "goroutine_leaks")
-	errorString := "bench/scorecard/results/error-string-713b8393ea.json"
+	errorString := "bench/scorecard/results/error-string-6b63d78f16.json"
 	b.put(&Dimension{
 		Name: "Klasifikasi error via string", Rule: RuleAbsMax, Target: 0, Unit: "temuan", Hermes: new(129.0),
 		Damnbot: new(b.must(errorString, "classifications")), Source: []string{errorString},

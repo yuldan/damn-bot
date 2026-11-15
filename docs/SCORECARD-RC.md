@@ -1,8 +1,8 @@
 # SCORECARD RC F9 — artefak terpublikasi (P20 dire-fase ke F10, ADR-356)
 
-Artefak mesin: [`bench/scorecard/results/2026-11-15-713b8393ea.json`](../bench/scorecard/results/2026-11-15-713b8393ea.json).
+Artefak mesin: [`bench/scorecard/results/2026-11-15-6b63d78f16.json`](../bench/scorecard/results/2026-11-15-6b63d78f16.json).
 Gate: `TestScorecardGate` (`bench/scorecard/scorecard_test.go`); artefak dibangun
-ulang oleh tes yang sama (`SCORECARD_UPDATE=1`). Basis: `713b8393ea` (pohon produk P20; sumber soak 24 jam tetap `8fbafafa`, chaos `0001e301`, tooling `8fab87144e`, dan dicatat per baris), hermes `868b9f244f`.
+ulang oleh tes yang sama (`SCORECARD_UPDATE=1`). Basis: `6b63d78f16` (pohon produk P20 setelah rebase ke `ee2647d7`; sumber soak 24 jam tetap `8fbafafa`, chaos `0001e301`, tooling `8fab87144e`, dan dicatat per baris), hermes `868b9f244f`.
 
 Status: **P20 dire-fase ke F10 (ADR-356)**. Owner menyetujui Opsi A pada 2026-11-13:
 baris agregat F9 "Artefak rilis & scorecard" **tidak** diklaim `LULUS`; statusnya
@@ -104,7 +104,7 @@ hermes 66,276 s; first token/startup memakai artefak final `8fab87144e`.
 
 `TestF9SpeedParity` masih SKIP/gagal: **96 dari 163** operasi hermes kini punya
 pengukuran Damn-Bot dengan protokol yang sama
-(`bench/speed/results/damnbot-713b8393ea.json`; CLI cold start 1 warm-up + 5,
+(`bench/speed/results/damnbot-6b63d78f16.json`; CLI cold start 1 warm-up + 5,
 tools/assemble/gateway/TUI in-process 1 + 20). Tujuh baris masih **regresi**
 terhadap hermes: `EXEC-012`, `TOOL-022`, `SKILL-002`, `SKILL-016`, `TOOL-076`,
 `TOOL-048`, dan `TOOL-045` (3,09 ms). **67 ID** menunggu parity dan tetap
@@ -126,8 +126,8 @@ eksekusinya ada di [`F10-ACCEPTANCE.md`](F10-ACCEPTANCE.md); F10 wajib menutup:
 4. Publikasi ulang artefak RC dan baris agregat `LULUS` hanya lewat PR F10 yang membuat
    `DAMNBOT_RELEASE=1 go test ./scorecard` dan `TestF9SpeedParity` hijau.
 
-Artefak: [`bench/scorecard/results/2026-11-15-713b8393ea.json`](../bench/scorecard/results/2026-11-15-713b8393ea.json),
-[`bench/speed/results/damnbot-713b8393ea.json`](../bench/speed/results/damnbot-713b8393ea.json),
+Artefak: [`bench/scorecard/results/2026-11-15-6b63d78f16.json`](../bench/scorecard/results/2026-11-15-6b63d78f16.json),
+[`bench/speed/results/damnbot-6b63d78f16.json`](../bench/speed/results/damnbot-6b63d78f16.json),
 `bench/scorecard/results/tooling-8fab87144e.json`. Keputusan: [`DECISIONS.md`](DECISIONS.md) ADR-356.
 
 ## Regenerasi
