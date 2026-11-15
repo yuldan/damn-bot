@@ -68,7 +68,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--access-token-secret` | `whatsAppCloudSetup` | `` | keychain secret holding the access token |
 | `--actor` | `kanbanGlobalFlag` | `` |  |
 | `--addr` | `apiServerFlagSet` | `127.0.0.1:7877` | loopback listen address (use --allow-public-bind for anything else) |
-| `--all` | `projectCommand` | `` |  |
+| `--all` | `projectList` | `` |  |
 | `--all` | `serveSessionsRevoke` | `` | revoke every web session |
 | `--all-profiles` | `secretsPut` | `` | rotate across every profile |
 | `--allow-public-bind` | `apiServerFlagSet` | `` | accept a non-loopback --addr |
@@ -232,7 +232,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--file` | `debugTrace` | `` | trace file (required with --upload) |
 | `--fix` | `parseDoctorFlags` | `` | fix permission bits |
 | `--fix` | `runDoctor` | `` | fix permission bits |
-| `--folder` | `projectCreate` | `` |  |
+| `--folder` | `projectCreateArgs` | `` |  |
 | `--force` | `parseUndoFlags` | `` | overwrite files changed since the action |
 | `--format` | `adminFlag` | `` |  |
 | `--format` | `runDump` | `text` | text\|json |
@@ -368,7 +368,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--retry` | `runFlagSet` | `` | resend the last user message of the resumed session |
 | `--role` | `gatewayAllow` | `user` | owner\|user |
 | `--rollback` | `runUpdate` | `` | restore the previous binary from pending.json |
-| `--root` | `projectCreate` | `` |  |
+| `--root` | `projectCreateArgs` | `` |  |
 | `--route` | `parseEvalBatch` | `` | provider route label for the ledger |
 | `--run` | `runVerify` | `` | execute the detected recipe as a smoke test |
 | `--schedule` | `runCron` | `` | 5-field cron expression |

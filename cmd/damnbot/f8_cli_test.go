@@ -233,6 +233,30 @@ func projectMetaChecks(t *testing.T, data string) {
 	}
 }
 
+func TestF8CLI030ProjectCreateFlags(t *testing.T) {
+	data, root := t.TempDir(), t.TempDir()
+	a := filepath.Join(root, "a")
+	if err := os.MkdirAll(a, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := runF8CLI(t, runProject, "--data-dir", data, "create", "alpha", "--root", root, "--folder", a, "--folder", a)
+	if code != f8ExitOK || !strings.Contains(out, "folders=1") {
+		t.Fatalf("dedupe create = %d %q %q", code, out, errs)
+	}
+	if _, show, _ := runF8CLI(t, runProject, "--data-dir", data, "show", "alpha"); !strings.Contains(show, "primary: "+a) {
+		t.Fatalf("primary = %q", show)
+	}
+	if code, _, errs = runF8CLI(t, runProject, "--data-dir", data, "create", "beta", "--root", root, "--folder"); code != f8ExitUsage {
+		t.Fatalf("missing folder value = %d %q", code, errs)
+	}
+	if code, _, errs = runF8CLI(t, runProject, "--data-dir", data, "create", "gamma", "--root", root, "--bogus"); code != f8ExitUsage {
+		t.Fatalf("unknown flag = %d %q", code, errs)
+	}
+	if code, _, errs = runF8CLI(t, runProject, "--data-dir", data, "create", "delta", "--folder", a); code != f8ExitUsage || !strings.Contains(errs, "usage: damnbot project create") {
+		t.Fatalf("missing root = %d %q", code, errs)
+	}
+}
+
 func TestF8CLI030ProjectSubcommands(t *testing.T) {
 	data := t.TempDir()
 	if code, _, errs := runF8CLI(t, runProject, "--data-dir", data, "nope"); code != f8ExitUsage || !strings.Contains(errs, "unknown subcommand") {
