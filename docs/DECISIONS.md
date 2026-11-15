@@ -7211,6 +7211,14 @@ migrasi, baris `MODULE`, atau kenaikan plafon; kode berada di `cmd/damnbot` dan
 `docs/reference/CLI.md` diperbarui untuk gate `TestCLIDocsMatchHelp`. Verifikasi
 `make loc`/lint diserahkan ke CI.
 
+**Amandemen 2026-11-15 (ADR-357, parity wave 1/B4):** CLI-064 dan OPS-005
+kembali `LULUS` pada `setup --uninstall` berbasis `install-manifest.json` yang
+sudah ada (ADR-216): hanya path tercatat yang dihapus, hash berubah
+dipertahankan, blok rc dilepas tanpa memadatkan byte user, dan `--dry-run`
+mencetak diff unified. Bukti baru `TestF10UninstallDryRunKeepsChangedFile`
+(`cmd/damnbot/setup_uninstall_test.go`); tidak ada implementasi kedua, kode
+produk, dependency, migrasi, atau plafon baru.
+
 ## ADR-358 — Klasifikasi error duplikat bertipe dan kenaikan `ctxdb` +7 (P20/F10)
 
 **Status:** Accepted 2026-11-15 (F10/P20). Menutup pelanggaran absolut "Klasifikasi error via string" tanpa menurunkan ambang, dan menaikkan plafon LOC core untuk kode yang benar-benar ditambahkan. Nomor 357 dipakai ADR fondasi F10 (ADR-357, berada lebih dulu di pohon ini); 358 dipilih agar tidak bertabrakan dengan blok ADR yang lebih baru di cabang lain.
