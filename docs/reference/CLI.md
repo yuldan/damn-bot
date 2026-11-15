@@ -38,6 +38,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `damnbot pets` | Terminal mascots: install, select, scale, doctor |
 | `damnbot plugins` | Plugin catalog Q18: list, show, verify |
 | `damnbot project` | Named multi-folder workspaces: create, use, folders, boards |
+| `damnbot prompt-size` | Byte breakdown of the system prompt and tool schemas |
 | `damnbot proxy` | Local OpenAI-compatible proxy: start, status, providers |
 | `damnbot resume` | Lift the emergency stop set by pause |
 | `damnbot review` | Memory and skill quarantine review |
@@ -129,6 +130,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--config` | `runDump` | `` | config.toml path (default: profile path) |
 | `--config` | `runFlagSet` | `` | config.toml path (default: profile path) |
 | `--config` | `runMemory` | `` | config path |
+| `--config` | `runPromptSize` | `` | config file (default: the active profile) |
 | `--config` | `runProxy` | `` | config path |
 | `--config` | `runScorecard` | `` | config.toml path |
 | `--config` | `runServeOpen` | `` | config.toml path |
@@ -272,6 +274,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--json` | `runCron` | `` | machine-readable output |
 | `--json` | `runDoctor` | `` |  |
 | `--json` | `runMonitoring` | `` | print the status as JSON |
+| `--json` | `runPromptSize` | `` | machine-readable breakdown |
 | `--json` | `runScorecard` | `` | print the result as JSON |
 | `--json` | `runVerify` | `` | machine-readable report |
 | `--json` | `scanKanbanGlobals` | `` |  |
@@ -297,6 +300,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--model` | `parseEvalFlags` | `openai/gpt-5.4-mini` | provider/model |
 | `--model` | `runCron` | `` | run: provider/model reference |
 | `--model` | `runFlagSet` | `` | provider/model reference |
+| `--model` | `runPromptSize` | `` | provider/model whose prompt is measured |
 | `--model` | `runSetup` | `` | provider/model to write |
 | `--name` | `configProfilesImport` | `` | import under this profile name |
 | `--name` | `runCron` | `` | job name |

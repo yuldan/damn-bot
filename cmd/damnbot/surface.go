@@ -82,6 +82,7 @@ func surface() []surfaceEntry {
 		{Name: "webhook", Summary: "Webhook subscriptions: subscribe, list, remove, test", Phase: phaseF7, Run: runWebhook, Usage: webhookUsage},
 		{Name: "kanban", Summary: "Collaboration board", Phase: phaseF7, Run: runKanban, Usage: kanbanUsage},
 		{Name: "usage", Summary: "Ledger, budget guard, insights", Phase: phaseF3, Run: runUsageCommand, Usage: usageUsage},
+		{Name: "prompt-size", Summary: "Byte breakdown of the system prompt and tool schemas", Phase: phaseF3, Run: runPromptSize, Usage: promptSizeUsage},
 		evalSurface(),
 		monitoringSurface(),
 		{Name: "doctor", Summary: "Checks, repair, diagnostics, maintenance", Phase: phaseF3, Run: runDoctor, Usage: doctorUsage},
