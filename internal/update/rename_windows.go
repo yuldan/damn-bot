@@ -24,7 +24,7 @@ const sharingViolation syscall.Errno = 32
 func renameWithSharingWait(oldpath, newpath string) error {
 	return retry.Do(context.Background(), retry.Policy{
 		Attempts:  100,
-		Schedule:  func(int) time.Duration { return 20 * time.Millisecond },
+		Schedule:  func(int, error) time.Duration { return 20 * time.Millisecond },
 		Retryable: func(err error) bool { return errors.Is(err, sharingViolation) },
 	}, func(context.Context, int) error {
 		return os.Rename(oldpath, newpath)
