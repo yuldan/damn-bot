@@ -11,12 +11,12 @@ import (
 
 // Error is one typed connector failure.
 type Error struct {
-	Code        string
-	Message     string
-	Hint        string
-	Status      int
-	ServerDelay int64 // seconds; 0 when the server sent none
-	err         error
+	Code       string
+	Message    string
+	Hint       string
+	Status     int
+	RetryAfter int64 // seconds; 0 when the server sent none
+	err        error
 }
 
 // Error implements error.
@@ -33,8 +33,8 @@ func (e *Error) Unwrap() error { return e.err }
 // already a member of the closed tool set.
 func (e *Error) Host() *host.Error {
 	hint := e.Hint
-	if e.ServerDelay > 0 {
-		hint = strings.TrimSpace(hint + fmt.Sprintf("; retry after %d s", e.ServerDelay))
+	if e.RetryAfter > 0 {
+		hint = strings.TrimSpace(hint + fmt.Sprintf("; retry after %d s", e.RetryAfter))
 	}
 	return &host.Error{Code: e.Code, Message: e.Message, Hint: hint}
 }
