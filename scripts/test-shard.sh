@@ -54,6 +54,15 @@ FLAKE_COUNT=${FLAKE_COUNT:-20}
 FLAKE_WAVES=${FLAKE_WAVES:-10}
 WEIGHTS=${SHARD_WEIGHTS:-$ROOT/scripts/test-shard.weights}
 
+# Plan-only and inventory-fixture runs must reach the shard split even when
+# PKGS is narrowed: the `push: main` smoke tier runs `make test PKGS="…"` and
+# TestTestShardPartition feeds a fixture with SHARD_PLAN_ONLY=1. Evaluating
+# them before the focused-PKGS shortcut below keeps that space-separated list
+# from reaching `go test` as one package argument ("matched no packages").
+if [[ -n ${SHARD_INVENTORY:-} || ${SHARD_PLAN_ONLY:-0} == 1 ]]; then
+	PKGS=./...
+fi
+
 flake_waves() {
 	if ((FLAKE_COUNT % FLAKE_WAVES != 0)); then
 		echo "FLAKE_COUNT ($FLAKE_COUNT) harus habis dibagi FLAKE_WAVES ($FLAKE_WAVES)" >&2
