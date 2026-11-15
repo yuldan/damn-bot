@@ -29,7 +29,7 @@ func TestServerIgnoresTruncatedRequestBody(t *testing.T) {
 		}
 		_ = pw.CloseWithError(errors.New("client killed"))
 	}()
-	res, err := http.DefaultClient.Do(req)
+	res, err := s.srv.Client().Do(req)
 	if err == nil {
 		if cerr := res.Body.Close(); cerr != nil {
 			t.Errorf("close truncated response body: %v", cerr)
