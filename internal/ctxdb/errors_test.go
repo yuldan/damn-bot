@@ -94,3 +94,25 @@ func TestNonRefShaClosedList(t *testing.T) {
 		}
 	}
 }
+
+// TestUniqueConstraintTyped: a SQLITE_CONSTRAINT_UNIQUE violation carries
+// ErrDuplicate, so callers never have to match the driver's message text.
+// A CHECK violation keeps its own identity (no false duplicate).
+func TestUniqueConstraintTyped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := sql.OpenDB(connector{d: &sqlite.Driver{}, dsn: "file:" + filepath.Join(t.TempDir(), "unique.db")})
+	defer func() { must(t, db.Close()) }()
+	_, err := db.ExecContext(ctx, "CREATE TABLE t(n INTEGER UNIQUE CHECK (n > 0))")
+	must(t, err)
+	_, err = db.ExecContext(ctx, "INSERT INTO t(n) VALUES (1)")
+	must(t, err)
+	_, err = db.ExecContext(ctx, "INSERT INTO t(n) VALUES (1)")
+	if !errors.Is(classify(err), ErrDuplicate) {
+		t.Fatalf("duplicate insert = %v, want ErrDuplicate", err)
+	}
+	_, err = db.ExecContext(ctx, "INSERT INTO t(n) VALUES (-1)")
+	if errors.Is(classify(err), ErrDuplicate) {
+		t.Fatalf("CHECK violation misclassified as duplicate: %v", err)
+	}
+}

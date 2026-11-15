@@ -1,6 +1,6 @@
 # Budget LOC Go non-test per paket (ENGINEERING §2.4 E-19, tabel core; scc --no-gen, kolom Code).
 # Format: <grup> <LOC maks> <direktori...>. Sebuah file dihitung ke grup dengan prefix direktori terpanjang.
-# Σ core resmi (budgetCoreSum, jumlah cap baris core non-MODULE/non-infra) = 57.656;
+# Σ core resmi (budgetCoreSum, jumlah cap baris core non-MODULE/non-infra) = 57.663;
 # plafon maxCoreLOC (repometa_test) = 57.700, headroom 44. Angka ini harus sama dengan
 # docs/ENGINEERING.md (baris Total core + prosa), regex budget_doc_test, dan marker arch-budgetsum.
 # ADR-110 (amandemen REVIEW-F1-SEC8 LP8-16..20): loop 1500 -> 1800 (pairing setiap hasil tool +
@@ -205,7 +205,9 @@ boundary           150 internal/boundary
 # ctxdb 5919 -> 6000 = angka ukur scc 5961 + headroom 39; Σ core 47.511 -> 47.592 <= 47.600.
 # ADR-347 amandemen GAP-INF-02 (re-index FTS background/resumable): ctxdb 6022 -> 6267
 # = angka ukur scc pada head PR; Σ core 57.389 -> 57.634, plafon 57.400 -> 57.700 (headroom 66).
-ctxdb             6289 internal/ctxdb
+# P20 (F10): klasifikasi UNIQUE/PRIMARYKEY bertipe menambah ErrDuplicate + dua kode
+# di ctxdb; 6289 -> 6296 = angka ukur scc; Σ core 57.656 -> 57.663 (headroom 37).
+ctxdb             6296 internal/ctxdb
 # ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tidak berubah oleh ADR-074).
 # ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya dibukukan sebagai MODULE (ADR-245).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore

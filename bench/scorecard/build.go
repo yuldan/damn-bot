@@ -13,7 +13,16 @@ import (
 )
 
 // ArtefactPath is the published RC scorecard path (SCORECARD §2.6).
-const ArtefactPath = "scorecard/results/2026-11-13-8fab87144e.json"
+// BasisCommit is the final tree the artifact attests to. The soak rows come
+// from the named source artifacts (24 h soak at 8fbafafa, 200-kill chaos at
+// 0001e301); every source digest is rebuilt here.
+const (
+	ArtefactPath = "scorecard/results/2026-11-15-0001e301.json"
+	BasisCommit  = "0001e301"
+	BasisDate    = "2026-11-15T00:00:00Z"
+	Soak24hPath  = "bench/f9/results/soak-acceptance-24h-1000t-8fbafafa-F9.json"
+	ChaosPath    = "bench/f9/results/chaos-200kills-0001e301-F9.json"
+)
 
 // ToolingPath is the committed code-quality/security/behaviour measurement.
 const ToolingPath = "bench/scorecard/results/tooling-8fab87144e.json"
@@ -267,9 +276,10 @@ func (b *builder) measure() error {
 	mk("Kebocoran goroutine", RuleAbsMax, 0, "kebocoran",
 		"53 paket goleak.VerifyTestMain (ctxdb, exec, gateway, tui + 49); cmd dengan -tags goolm; 0 bocor; race di 4 paket kritis",
 		"code_quality", "goroutine_leaks")
+	errorString := "bench/scorecard/results/error-string-0001e301.json"
 	b.put(&Dimension{Name: "Klasifikasi error via string", Rule: RuleAbsMax, Target: 0, Unit: "temuan", Hermes: new(129.0),
-		Damnbot: new(b.must(tool, "code_quality", "error_string_classifications")), Source: []string{tool},
-		Detail: "1 produksi: cmd/damnbot/cron_store.go:88 strings.Contains(err.Error(), \"UNIQUE\"); 1 allowlist E-21 (ctxdb/errors.go:65); 196 assertion pesan di test tidak diklasifikasi; hermes 41 + 88"})
+		Damnbot: new(b.must(errorString, "classifications")), Source: []string{errorString},
+		Detail: "0 produksi (P20: cron_store.go memakai ctxdb.ErrDuplicate; TestNoErrorStringClassification); 1 allowlist E-21 (ctxdb/errors.go exact RAISE text); hermes 41 + 88"})
 	mk("Flake rate", RuleAbsMax, 0.1, "%",
 		"nightly make flake -count=20: 18/25 run gagal (18/20 yang dieksekusi), 5 cancelled, 2026-10-19..11-12; kategori internal/exec sweep dan exec/backends ETXTBSY",
 		"code_quality", "flake_rate_pct")
@@ -300,6 +310,44 @@ func (b *builder) measure() error {
 	b.put(&Dimension{Name: "Rasio test:source", Rule: RuleLower, Unit: "rasio", Hermes: new(1.48),
 		Damnbot: new(b.must(tool, "code_quality", "test_source_ratio")), Source: []string{tool},
 		Detail: "target 0,80–1,20; diukur make loc-ratio"})
+
+	// §1.3 Stabilitas: the F9 soak/chaos artefacts are the measured source.
+	// Crash/hang = crashes + open turns (a hang never closes turn_end);
+	// kill -9 = corruption + lost markers + repeated mutations; self-healing
+	// is the worst process/OS recovery; peak RSS is VmHWM over 1.000 turns.
+	soak := Soak24hPath
+	crashes := b.must(soak, "transcript", "crash_recovered")
+	openTurns := max(0.0, b.must(soak, "transcript", "turn_starts")-b.must(soak, "transcript", "turn_ends"))
+	b.put(&Dimension{
+		Name: "Crash/hang rate", Core: true, Rule: RuleAbsMax, Target: 0, Unit: "per 1.000 turn",
+		Hermes: new(0.0), Damnbot: new(crashes + openTurns), Source: []string{soak},
+		Detail: "sumber soak 24 jam/1.000 turn basis 8fbafafa: crash_recovered 0 dan turn_start = turn_end (tidak ada hang)",
+	})
+	chaos := ChaosPath
+	corrupt := b.must(chaos, "kill9", "corrupt")
+	lost := b.must(chaos, "kill9", "lost_turns")
+	repeated := b.must(chaos, "kill9", "repeated_mutations")
+	dupRows := b.must(chaos, "kill9", "duplicate_rows")
+	dupMsgs := b.must(chaos, "kill9", "duplicate_messages")
+	b.put(&Dimension{
+		Name: "Pemulihan setelah `kill -9`", Core: true, Rule: RuleAbsMax, Target: 0, Unit: "temuan",
+		Hermes: new(0.0), Damnbot: new(corrupt + lost + repeated + dupRows + dupMsgs), Source: []string{chaos},
+		Detail: "200 kill: 0 korupsi, 0 turn hilang tanpa penanda, 0 mutasi terulang, 0 baris/pesan ganda",
+	})
+	kill9Max := b.must(chaos, "kill9", "max_recovery_ms")
+	reboot := b.must(chaos, "reboot_recovery_ms")
+	b.put(&Dimension{
+		Name: "Self-healing", Core: true, Rule: RuleAbsMax, Target: 10, Unit: "detik",
+		Hermes: new(10.0), Damnbot: new(max(kill9Max, reboot) / 1000), Source: []string{chaos},
+		Detail: fmt.Sprintf("recovery terlama %.1f ms (kill -9) dan %.1f ms (reboot) ≤ 10 s; 0 pesan hilang/dobel",
+			kill9Max, reboot),
+	})
+	b.put(&Dimension{
+		Name: "Peak RSS", Rule: RuleLowerMax, MaxRatio: 0.5, Unit: "MB",
+		Hermes:  new(b.must(f4h, "dimensions", "rss_idle", "peak_mb")),
+		Damnbot: new(b.must(soak, "end", "rss_kb") / 1024), Source: []string{soak},
+		Detail: "arti jujur: artefak soak 24 jam/1.000 turn mencatat RSS awal/akhir, bukan VmHWM; nilai = RSS akhir 53,1 MB (batas 0,5× peak idle hermes 211,5 MB), bukan klaim VmHWM",
+	})
 
 	// §1.5 Inventory: counts from the committed tables/catalogs.
 	providers := "docs/PROVIDERS.md"

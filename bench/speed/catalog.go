@@ -102,6 +102,7 @@ type Catalog struct {
 // Kelas entri hasil.
 const (
 	ClassMeasured      = "measured"
+	ClassNotMeasured   = "not_measured"
 	ClassNotMeasurable = "not_measurable"
 	ClassDropped       = "dropped"
 	ClassUnclassified  = "unclassified"

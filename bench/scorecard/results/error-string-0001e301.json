@@ -1,0 +1,10 @@
+{
+ "meta": {
+  "date": "2026-11-15T00:00:00Z",
+  "damnbot_commit": "0001e301",
+  "method": "go/ast scan of non-test main-module files for strings.Contains(x.Error(), ...); enforced by TestNoErrorStringClassification"
+ },
+ "classifications": 0,
+ "sites": [],
+ "allowlist": "internal/ctxdb/errors.go compares an exact trigger RAISE text with == (E-21), not a Contains match"
+}

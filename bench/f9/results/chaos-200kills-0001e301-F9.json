@@ -1,0 +1,29 @@
+{
+ "commit": "0001e301",
+ "duration_seconds": 109.553638179,
+ "kill9": {
+  "rounds": 200,
+  "max_recovery_ms": 596.823,
+  "mean_recovery_ms": 167.74217499999997,
+  "corrupt": 0,
+  "lost_turns": 0,
+  "duplicate_rows": 0,
+  "duplicate_messages": 0,
+  "repeated_mutations": 0
+ },
+ "kills": 200,
+ "pass": true,
+ "phase": "F9",
+ "reboot_recovery_ms": 178.511,
+ "scenarios": [
+  "Kill9",
+  "NetworkCut",
+  "DiskFullTmpfs",
+  "CorruptConfig",
+  "CorruptDB",
+  "Reboot",
+  "RestartGateway",
+  "Clients50"
+ ],
+ "test": "TestF9ChaosFull"
+}
