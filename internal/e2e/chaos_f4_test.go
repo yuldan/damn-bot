@@ -394,6 +394,12 @@ func (p *chaosProxy) Cut() {
 // Heal restores the link; the adapter's own backoff decides when it retries.
 func (p *chaosProxy) Heal() { p.cut.Store(false) }
 
+// chaosPollBackoffCap mirrors telegram.Adapter.backoff: the poller caps its
+// reconnect delay at one minute. A wait for the *next poll* after a cut must
+// therefore exceed that bound; 20 s was below it and failed whenever the cut
+// landed on a high attempt (nightly 2026-11-05).
+const chaosPollBackoffCap = 75 * time.Second
+
 // chaosNetworkCut cuts both upstreams, then cuts only the provider mid-turn.
 // Recovery must restart from the persisted offset and retry with backoff; the
 // turn must be visible as failed (never a silent retry), and no reply may be
@@ -422,10 +428,10 @@ func chaosNetworkCut(t *testing.T) {
 	}
 	tgProxy.Heal()
 	provProxy.Heal()
-	waitFor(t, 20*time.Second, "one provider call after the link returns", func() bool {
+	waitFor(t, chaosPollBackoffCap, "one provider call after the link returns", func() bool {
 		return len(e.Server.Requests()) >= 1
 	})
-	waitFor(t, 20*time.Second, "the reply after the cut", func() bool {
+	waitFor(t, chaosPollBackoffCap, "the reply after the cut", func() bool {
 		return len(tg.Edits()) >= 1
 	})
 	if n := len(tg.Sends()); n != 1 {
@@ -441,7 +447,7 @@ func chaosNetworkCut(t *testing.T) {
 	provProxy.Cut()
 	beforeSend := len(tg.Sends())
 	tg.PushText(gatewayOwner, "provider-cut")
-	waitFor(t, 20*time.Second, "the placeholder of the cut turn", func() bool {
+	waitFor(t, chaosPollBackoffCap, "the placeholder of the cut turn", func() bool {
 		return len(tg.Sends()) == beforeSend+1
 	})
 	waitFor(t, 40*time.Second, "the provider-error edit", func() bool {
@@ -465,7 +471,7 @@ func chaosNetworkCut(t *testing.T) {
 	provProxy.Heal()
 	e.Server.Push(providertest.Text("healthy again"))
 	tg.PushText(gatewayOwner, "healthy")
-	waitFor(t, 20*time.Second, "the healthy reply", func() bool {
+	waitFor(t, chaosPollBackoffCap, "the healthy reply", func() bool {
 		edits := tg.Edits()
 		for i := range edits {
 			if edits[i].Text == "healthy again" {

@@ -65,9 +65,16 @@ jobs:
 
   # Flake: kode yang sama dengan malam sebelumnya sudah diuji 20×; tanpa commit baru 24 jam terakhir
   # job lulus dengan pesan (hemat menit runner, ADR-094). workflow_dispatch selalu menjalankan.
+  # Amandemen ADR-324 (2026-11-15): suite penuh ×20 tidak lagi muat dalam 60 menit, sehingga tes yang
+  # sama dipecah ke 16 shard deterministik (`make flake FLAKE_SHARD=i/16`). FLAKE_COUNT tetap 20 per
+  # test; timeout per binary tetap bawaan 10 menit.
   flake:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -89,7 +96,7 @@ jobs:
         with:
           go-version-file: go.mod
       - if: steps.fresh.outputs.run == 'true'
-        run: make flake
+        run: make flake FLAKE_SHARD="${{ matrix.shard }}/16"
 
   # ADR-127: backstop CT-09 di main — 5 set sampel terhadap referensi
   # tulis-durabel. Gate PR hanya memberi warning bila semua set invalid

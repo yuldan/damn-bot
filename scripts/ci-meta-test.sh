@@ -17,7 +17,7 @@ trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
 PATH="$(cd "$root" && go env GOROOT)/bin:$PATH"
 export GOTOOLCHAIN=local
 GATES=(
-	lint depguard lint-anchor vet-custom test race timing vet-cross build-matrix build-minimal-all fuzz coverage deadcode deadcode-linux flake perf
+	lint depguard lint-anchor vet-custom test test-shard race timing vet-cross build-matrix build-minimal-all fuzz coverage deadcode deadcode-linux flake perf
 	size-check loc loc-unmapped loc-ratio loc-ratio-testonly deps-check vuln licenses tidy-check mod-verify bench-budget
 	sqlite-engine skill-refs
 	phase-file phase-acceptance
@@ -40,7 +40,7 @@ target() {
 	depguard | lint-anchor) echo lint ;;
 	race) echo "test PKGS=$MINI" ;;
 	perf) echo "perf PERF_PKGS=$MINI" ;;
-	test | flake | phase-acceptance) echo "$1 PKGS=$MINI" ;;
+	test | test-shard | flake | phase-acceptance) echo "$1 PKGS=$MINI" ;;
 	timing) echo "test-timing PKGS=$MINI" ;;
 	fuzz) echo "fuzz PKGS=$MINI FUZZTIME=5s" ;;
 	coverage) echo "coverage PKGS=$MINI COVERPKG=$MINI" ;;
@@ -61,7 +61,7 @@ marker() {
 	depguard) echo "database/sql.*E-04.*\(depguard\)" ;;
 	lint-anchor) echo 'internal/tools/cmd/x\.go.*E-31' ;;
 	vet-custom) echo 'nohttpclient: E-05' ;;
-	test) echo 'TestMetaViolation' ;;
+	test | test-shard) echo 'TestMetaViolation' ;;
 	race) echo 'WARNING: DATA RACE' ;;
 	timing) echo 'timing budget meta tx' ;;
 	vet-cross) echo 'undefined: undefinedMetaCross' ;;

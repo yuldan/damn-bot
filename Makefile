@@ -33,7 +33,7 @@ CORPORA ?= C1 C2 C3 rg
 CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORPUS_C1=$(CORPORA_DIR)/C1 \
 	DAMNBOT_CORPUS_C3=$(CORPORA_DIR)/C3 $(if $(filter C2,$(CORPORA)),DAMNBOT_CORPUS_C2=$(CORPORA_DIR)/C2)
 
-.PHONY: all build build-minimal-all build-matrix lint vet-custom test test-windows-evidence test-timing archtest vet-cross size-check loc loc-ratio chaos soak chaos-full \
+.PHONY: all build build-minimal-all build-matrix lint vet-custom test test-shard test-windows-evidence test-timing archtest vet-cross size-check loc loc-ratio chaos soak chaos-full \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
 	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker image-test release ci-required ci-required-test deadcode-linux agent-guard-test hooks dep-age
@@ -136,6 +136,17 @@ ifeq ($(PKGS),./...)
 	go test $(GOTAGS) $(RACE) -shuffle=on -timeout $(TEST_TIMEOUT) -run '^TestScenario$$' $(SCENARIO_PKGS)
 endif
 
+# ADR-324 amandemen (2026-11-15): CI memecah tes yang sama ke shard deterministik
+# (`scripts/test-shard.sh`), karena `internal/e2e` dan `cmd/damnbot` menjalankan
+# tesnya serial di dalam satu paket. `make test` tetap gate lokal satu proses;
+# `make test-shard TEST_SHARD=i/n` menjalankan irisan tes yang sama (union = seluruh
+# inventaris), dengan tag/`-race`/`-shuffle`/timeout identik. PKGS eksplisit
+# (meta-test) melewati sharding dan berperilaku seperti `make test`.
+TEST_SHARD ?= 1/1
+test-shard:
+	TAGSCSV="$(TAGSCSV)" RACE="$(RACE)" TEST_TIMEOUT="$(TEST_TIMEOUT)" PKGS="$(PKGS)" \
+		scripts/test-shard.sh test "$(TEST_SHARD)"
+
 # Bukti bernama untuk acceptance ledger (ADR-165; amandemen ADR-324): `make test` hanya mencetak
 # ringkasan paket (`ok <pkg> <durasi>`), sehingga log Windows tidak membuktikan tes bernama dijalankan
 # dan bukan skip. `scripts/windows-test-evidence.sh` menjalankan kelima tes, mencetak namanya, dan
@@ -195,17 +206,15 @@ deadcode-linux:
 # FLAKE_COUNT habis dibagi FLAKE_WAVES.
 FLAKE_COUNT ?= 20
 FLAKE_WAVES ?= 10
+# Amandemen ADR-324 (2026-11-15): suite bertambah besar sehingga satu job tidak
+# lagi selesai dalam batas 60 menit. Sharding memindahkan FLAKE_COUNT putaran
+# yang sama ke 16 job nightly (`scripts/test-shard.sh`); tiap gelombang tetap
+# `-count=2` dengan timeout bawaan 10 menit per binary, sehingga hang sungguhan
+# tetap dilaporkan dengan stack. `FLAKE_SHARD=1/1` = seluruh suite seperti semula.
+FLAKE_SHARD ?= 1/1
 flake:
-	@set -e; \
-	if [ $$(( $(FLAKE_COUNT) % $(FLAKE_WAVES) )) -ne 0 ]; then \
-		echo "FLAKE_COUNT ($(FLAKE_COUNT)) harus habis dibagi FLAKE_WAVES ($(FLAKE_WAVES))" >&2; \
-		exit 2; \
-	fi; \
-	n=$$(( $(FLAKE_COUNT) / $(FLAKE_WAVES) )); \
-	for w in $$(seq 1 $(FLAKE_WAVES)); do \
-		echo "flake wave $$w/$(FLAKE_WAVES): -count=$$n -shuffle=on"; \
-		go test $(GOTAGS) -count=$$n -shuffle=on $(PKGS); \
-	done
+	TAGSCSV="$(TAGSCSV)" FLAKE_COUNT="$(FLAKE_COUNT)" FLAKE_WAVES="$(FLAKE_WAVES)" PKGS="$(PKGS)" \
+		scripts/test-shard.sh flake "$(FLAKE_SHARD)"
 
 # ADR-073/077, NEW-38, ADR-270: budget waktu absolut benchmark, tag perf (helper timing ×1,5 di runner
 # bersama). Semua test binary dibangun lebih dulu, lalu tiap paket pemilik benchmark dijalankan serial
