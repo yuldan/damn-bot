@@ -173,7 +173,10 @@ func allowedImports() map[string][]string {
 		// driven through the four wired adapters; see testOnlyPackages.
 		"internal/provider/replay": {"internal/provider", "internal/provider/anthropic", "internal/provider/gemini", "internal/provider/registry", "internal/provider/responses", "internal/netx", "internal/netx/retry"},
 
-		"internal/e2e":         {"internal/boundary", "internal/budget", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/gateway", "internal/gateway/outq", "internal/gateway/telegram", "internal/gwplat", "internal/gwplat/a2a", "internal/gwplat/line", "internal/journal", "internal/loop/event", "internal/netx", "internal/secret", "internal/voice"},
+		// E2E harness (`internal/e2e` is test-only) drives the production
+		// surfaces directly: assembly/tools dispatch, code execution, cron and
+		// sandbox/redaction for the P28 speed probes (ADR-358).
+		"internal/e2e":         {"internal/assemble", "internal/boundary", "internal/budget", "internal/codetools", "internal/cron", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/exec", "internal/exec/code", "internal/gateway", "internal/gateway/outq", "internal/gateway/telegram", "internal/gwplat", "internal/gwplat/a2a", "internal/gwplat/line", "internal/journal", "internal/loop/event", "internal/netx", "internal/redact", "internal/sandbox", "internal/secret", "internal/skills/catalog", "internal/tools", "internal/voice"},
 		"internal/integration": {"internal/ctxdb", "internal/ctxdb/memstore", "internal/ctxdb/compactstore", "internal/ctxdb/skillstore", "internal/ctxdb/carrierstore", "internal/compaction", "internal/backup", "internal/secret", "internal/redact", "internal/loop/event"},
 		"internal/testutil":    nil, "internal/testutil/timing": nil,
 		"internal/testutil/phase":        nil,

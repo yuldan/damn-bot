@@ -63,7 +63,7 @@ func probeBin(t *testing.T) string {
 	t.Helper()
 	bin := os.Getenv("DAMNBOT_SPEED_BIN")
 	if bin == "" {
-		t.Skip("DAMNBOT_SPEED_BIN unset (run bench/speed/run-damnbot.sh)")
+		t.Fatalf("DAMNBOT_SPEED_BIN unset (run bench/speed/run-damnbot.sh)")
 	}
 	return bin
 }
