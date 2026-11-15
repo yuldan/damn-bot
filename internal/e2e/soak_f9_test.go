@@ -297,9 +297,13 @@ func startF9Soak(t *testing.T, plan soakPlan) *f9SoakRuntime {
 			// A stalled request is diagnosed from the process stacks: SIGQUIT
 			// makes the Go runtime dump every goroutine before it exits.
 			logDBLocks(t, e.DataDir)
-			_ = p.cmd.Process.Signal(unix.SIGQUIT)
-			_ = rt.api.cmd.Process.Signal(unix.SIGQUIT)
-			time.Sleep(2 * time.Second)
+			if err := p.cmd.Process.Signal(unix.SIGQUIT); err != nil {
+				t.Logf("serve SIGQUIT: %v", err)
+			}
+			if err := rt.api.cmd.Process.Signal(unix.SIGQUIT); err != nil {
+				t.Logf("api-server SIGQUIT: %v", err)
+			}
+			<-time.After(2 * time.Second)
 			t.Logf("serve stderr:\n%s", p.stderr.String())
 			t.Logf("api-server stderr:\n%s", rt.api.stderr.String())
 		}
@@ -327,7 +331,7 @@ func logDBLocks(t *testing.T, dir string) {
 	}
 	needle := fmt.Sprintf(":%d ", st.Ino)
 	var held []string
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if strings.Contains(line, needle) {
 			held = append(held, line)
 		}
