@@ -1,3 +1,5 @@
+//go:build !minimal
+
 package main
 
 import (
@@ -74,7 +76,7 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	cfg, found, cfgErr := loadStatusConfig(loader, paths)
-	report := collectStatus(context.Background(), statusOptions{
+	report := collectStatus(context.Background(), &statusOptions{
 		Paths: paths, Config: cfg, ConfigFound: found, ConfigErr: cfgErr, SessionID: *session,
 	})
 	if *asJSON {
@@ -130,25 +132,21 @@ type statusOptions struct {
 
 // collectStatus builds every component from one snapshot. A component error is
 // reported in place; it never hides the components after it.
-func collectStatus(ctx context.Context, o statusOptions) statusReport {
+func collectStatus(ctx context.Context, o *statusOptions) statusReport {
 	rep := statusReport{Profile: activeProfileName()}
-	rep.Components = append(rep.Components, statusVersion())
-	rep.Components = append(rep.Components, statusConfig(o))
-	rep.Components = append(rep.Components, statusData(o.Paths.DataDir))
+	rep.Components = append(rep.Components, statusVersion(), statusConfig(o), statusData(o.Paths.DataDir))
 	db, dbErr := openStatusDB(ctx, o.Paths.DataDir)
 	if dbErr != nil {
-		rep.Components = append(rep.Components, statusComponent{"database", "warn", cleanLine(dbErr.Error())})
-		rep.Components = append(rep.Components, statusComponent{"cron", "warn", "database unavailable"})
+		rep.Components = append(rep.Components, statusComponent{"database", "warn", cleanLine(dbErr.Error())},
+			statusComponent{"cron", "warn", "database unavailable"})
 	} else {
-		defer func() { _ = db.Close() }()
-		rep.Components = append(rep.Components, statusDatabase(ctx, db))
-		rep.Components = append(rep.Components, statusCron(ctx, db))
+		defer func() { _ = db.Close() }() //nolint:errcheck // read-only probe closes the store after the snapshot
+		rep.Components = append(rep.Components, statusDatabase(ctx, db), statusCron(ctx, db))
 		if s, ok := readStatusSession(ctx, db, o.SessionID, int64(o.Config.Loop.TurnMaxInputTok)); ok {
 			rep.Session = &s
 		}
 	}
-	rep.Components = append(rep.Components, statusGateway(ctx, o.Paths.DataDir))
-	rep.Components = append(rep.Components, statusSkills(o.Paths.ConfigDir))
+	rep.Components = append(rep.Components, statusGateway(ctx, o.Paths.DataDir), statusSkills(o.Paths.ConfigDir))
 	return rep
 }
 
@@ -156,7 +154,7 @@ func statusVersion() statusComponent {
 	return statusComponent{"version", "ok", fmt.Sprintf("%s %s/%s go%s", version, runtime.GOOS, runtime.GOARCH, runtime.Version())}
 }
 
-func statusConfig(o statusOptions) statusComponent {
+func statusConfig(o *statusOptions) statusComponent {
 	path := o.Paths.ConfigFile()
 	switch {
 	case o.ConfigErr != nil:
@@ -187,7 +185,7 @@ func statusData(dir string) statusComponent {
 // openStatusDB opens the store read-only. A missing file is not an error: the
 // database has simply not been created yet.
 func openStatusDB(ctx context.Context, dataDir string) (*ctxdb.Store, error) {
-	if _, err := os.Stat(ctxdb.DBPath(dataDir)); err != nil {
+	if _, err := os.Stat(ctxdb.DBPath(dataDir)); err != nil { //nolint:gosec // data dir comes from config paths, not request input
 		return nil, fmt.Errorf("not initialized: %w", err)
 	}
 	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "cli", ReadOnly: true})

@@ -486,17 +486,27 @@ func (c *Commands) status(ctx context.Context, t *Ticket, _ Command) CommandResu
 	reply := fmt.Sprintf(
 		"status: up %s, queue %d, active turns %d, emergency stop %s, mode %s, version %s%s%s, tz %s",
 		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, stop, modeName(st.SafeMode), version, home, waiting, tzName)
-	if detail, ok := c.runtime.(StatusDetail); ok && t != nil {
-		if ss, serr := detail.SessionStatus(ctx, &t.Scope); serr == nil && ss.SessionID != "" {
-			model := ss.Model
-			if model == "" {
-				model = "unknown"
-			}
-			reply += fmt.Sprintf("; session %s, model %s, tokens %d/%d, context %d/%d",
-				ss.SessionID, model, ss.InputTokens, ss.OutputTokens, ss.ContextUsed, ss.ContextLimit)
-		}
+	return CommandResult{Handled: true, Reply: c.sessionStatusReply(ctx, t, reply)}
+}
+
+// sessionStatusReply appends the caller's session, model, ledger tokens, and
+// context window when the runtime implements StatusDetail (SLASH-038). A route
+// without a session, or a detail error, keeps the machine-wide reply intact.
+func (c *Commands) sessionStatusReply(ctx context.Context, t *Ticket, reply string) string {
+	detail, ok := c.runtime.(StatusDetail)
+	if !ok || t == nil {
+		return reply
 	}
-	return CommandResult{Handled: true, Reply: reply}
+	ss, err := detail.SessionStatus(ctx, &t.Scope)
+	if err != nil || ss.SessionID == "" {
+		return reply
+	}
+	model := ss.Model
+	if model == "" {
+		model = "unknown"
+	}
+	return reply + fmt.Sprintf("; session %s, model %s, tokens %d/%d, context %d/%d",
+		ss.SessionID, model, ss.InputTokens, ss.OutputTokens, ss.ContextUsed, ss.ContextLimit)
 }
 
 // TimeZones is the per-identity IANA zone of PROV-03. Implemented by the

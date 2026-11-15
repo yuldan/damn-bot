@@ -1,8 +1,11 @@
+//go:build !minimal
+
 package main
 
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,8 +44,8 @@ func seedStatusDB(t *testing.T, dataDir, sid, model string) {
 			t.Fatal(cerr)
 		}
 	}()
-	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: t.TempDir(), Model: model, ConfigSHA: "sha"}); err != nil {
-		t.Fatal(err)
+	if _, serr := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: t.TempDir(), Model: model, ConfigSHA: "sha"}); serr != nil {
+		t.Fatal(serr)
 	}
 	ids, err := db.Append(ctx, sid, nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "hi"})
 	if err != nil || len(ids) != 1 {
@@ -52,7 +55,10 @@ func seedStatusDB(t *testing.T, dataDir, sid, model string) {
 		_, xerr := tx.Exec(`INSERT INTO usage_ledger(session_id, turn_id, event_id, purpose, feature, provider, model,
 			input_tokens, output_tokens, cost_source, pricing_version, attempts, latency_ms, created_at)
 			VALUES (?1, 't1', ?2, 'turn', '', 'fake', ?3, 1200, 300, 'unknown', 'test', 1, 0, 1)`, sid, ids[0], model)
-		return xerr
+		if xerr != nil {
+			return fmt.Errorf("insert ledger: %w", xerr)
+		}
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +91,7 @@ func TestStatusCLI(t *testing.T) {
 	}
 }
 
-func TestStatusCLIJSONSession(t *testing.T) {
+func TestStatusCLIJSONSession(t *testing.T) { //nolint:gocyclo // one CLI round trip across text, JSON, and a missing session
 	dataDir, _ := isolateStatusHome(t)
 	seedStatusDB(t, dataDir, "sess-status", "fake/model")
 	code, out, errOut := runArgs(t, "status", "--json")
