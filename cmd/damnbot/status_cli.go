@@ -84,24 +84,37 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		if merr != nil {
 			return 1
 		}
-		return say(stdout, "%s\n", b)
+		if code := say(stdout, "%s\n", b); code != 0 {
+			return code
+		}
+		if statusFailed(report) {
+			return 1
+		}
+		return 0
 	}
 	say(stdout, "damnbot status · profile %s\n", report.Profile)
-	failed := false
 	for _, c := range report.Components {
 		say(stdout, "  %-5s %-9s %s\n", c.State, c.Component, c.Detail)
-		if c.State == "fail" {
-			failed = true
-		}
 	}
 	if s := report.Session; s != nil && s.Found {
 		say(stdout, "session %s · model %s · tokens %d/%d · context %d/%d\n",
 			s.ID, s.Model, s.InputTokens, s.OutputTokens, s.ContextUsed, s.ContextLimit)
 	}
-	if failed {
+	if statusFailed(report) {
 		return 1
 	}
 	return 0
+}
+
+// statusFailed reports whether any component row failed; both the text and
+// JSON renderings exit 1 on it.
+func statusFailed(rep statusReport) bool {
+	for _, c := range rep.Components {
+		if c.State == "fail" {
+			return true
+		}
+	}
+	return false
 }
 
 // loadStatusConfig mirrors doctor: a missing file is a warning, an invalid one

@@ -15,19 +15,18 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb"
 )
 
-// isolateStatusHome points config/data at a temp tree and returns both paths.
-func isolateStatusHome(t *testing.T) (dataDir, configDir string) {
+// isolateStatusHome points config/data at a temp tree.
+func isolateStatusHome(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()
-	dataDir = filepath.Join(home, "data")
-	configDir = filepath.Join(home, "config")
+	dataDir := filepath.Join(home, "data")
+	configDir := filepath.Join(home, "config")
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_DATA_HOME", dataDir)
 	t.Setenv("XDG_CONFIG_HOME", configDir)
 	t.Setenv("APPDATA", configDir)
 	t.Setenv("LOCALAPPDATA", dataDir)
-	return dataDir, configDir
 }
 
 // seedStatusDB writes one visible session and one ledger row, so the status

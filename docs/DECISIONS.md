@@ -7239,9 +7239,9 @@ membaca state yang sama tanpa I/O. Bukti `TestStatusCLI`,
 `TestStatusCLIJSONSession`, `TestStatusCLIInvalidConfig`,
 `TestStatusIncludesSessionDetail`, `TestSlashStatus`, dan
 `TestSlashStatusUnknownWindow`; satu baris surface baru dan tiga baris
-`docs/reference/CLI.md` yang digenerate; build `minimal` memakai stub `status`
-seperti command berat lain (P13). Tanpa dependency, migrasi, config key, atau
-plafon baru.
+`docs/reference/CLI.md` yang digenerate; build `minimal` tidak mendaftarkan
+`status` (pola `browser`/`mcp`/`cua`, P13). Tanpa dependency, migrasi, config
+key, atau plafon baru.
 
 ## ADR-358 — Klasifikasi error duplikat bertipe dan kenaikan `ctxdb` +7 (P20/F10)
 
