@@ -18,6 +18,7 @@ const (
 	slashBudget
 	slashModules
 	slashContext
+	slashStatus
 	slashReload
 	slashCompact
 	slashExport
@@ -62,6 +63,7 @@ func slashCatalog() []slashItem {
 		{"/budget", "turn/session/day budget", slashBudget},
 		{"/modules", "module registry status", slashModules},
 		{"/context", "context window panel", slashContext},
+		{"/status", "session, model, tokens, context", slashStatus},
 		{"/reload", "reload config snapshot", slashReload},
 		{"/compact", "run compaction", slashCompact},
 		{"/export", "write transcript to path", slashExport},

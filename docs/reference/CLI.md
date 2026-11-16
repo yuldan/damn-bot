@@ -50,6 +50,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `damnbot setup` | Setup wizard, credentials, uninstall |
 | `damnbot skills` | Local skills: list, install, update, trust |
 | `damnbot slack` | Slack integration helpers: app manifest with scopes and events |
+| `damnbot status` | Component, session, model, token, and context status |
 | `damnbot undo` | Universal undo and coding-checkpoint rollback |
 | `damnbot update` | Atomic self-update with rollback and channels |
 | `damnbot usage` | Ledger, budget guard, insights |
@@ -276,6 +277,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--json` | `runMonitoring` | `` | print the status as JSON |
 | `--json` | `runPromptSize` | `` | machine-readable breakdown |
 | `--json` | `runScorecard` | `` | print the result as JSON |
+| `--json` | `runStatus` | `` | machine-readable components |
 | `--json` | `runVerify` | `` | machine-readable report |
 | `--json` | `scanKanbanGlobals` | `` |  |
 | `--json` | `skillFlag` | `` |  |
@@ -386,6 +388,7 @@ Commands, flags and defaults generated from `cmd/damnbot` (surface registry and 
 | `--session` | `parseUndoFlags` | `` | session id (default: newest session with actions in this directory) |
 | `--session` | `parseWhyArgs` | `` | only this session id (optional) |
 | `--session` | `runFlagSet` | `` | resume an existing session id |
+| `--session` | `runStatus` | `` | session id (default: newest visible session) |
 | `--session-id` | `memorySetup` | `` | session id |
 | `--sha256` | `cuaRegister` | `` | expected SHA-256 of --source |
 | `--since` | `runInsights` | `` | first day (YYYY-MM-DD); overrides --days |

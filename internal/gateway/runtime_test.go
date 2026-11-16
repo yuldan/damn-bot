@@ -22,6 +22,8 @@ type fakeRuntime struct {
 	newScopes     []gateway.Scope
 	status        gateway.RuntimeStatus
 	statusErr     error
+	sessionStatus gateway.SessionStatus
+	sessionErr    error
 	report        gateway.UsageReport
 	usageOK       bool
 	usageErr      error
@@ -58,6 +60,10 @@ func (f *fakeRuntime) NewSession(_ context.Context, scope *gateway.Scope) (strin
 
 func (f *fakeRuntime) Status(context.Context) (gateway.RuntimeStatus, error) {
 	return f.status, f.statusErr
+}
+
+func (f *fakeRuntime) SessionStatus(context.Context, *gateway.Scope) (gateway.SessionStatus, error) {
+	return f.sessionStatus, f.sessionErr
 }
 
 func (f *fakeRuntime) Usage(_ context.Context, scope *gateway.Scope) (gateway.UsageReport, bool, error) {
@@ -241,6 +247,32 @@ func TestStatusReportsReadOnlyState(t *testing.T) {
 	rt.statusErr = errors.New("boom")
 	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/status"); res.Reply != "status unavailable" {
 		t.Fatalf("/status error = %+v", res)
+	}
+}
+
+// TestStatusIncludesSessionDetail: SLASH-038 adds the caller's session, model,
+// ledger tokens, and context window when the runtime implements StatusDetail;
+// a route without a session keeps the base reply clean.
+func TestStatusIncludesSessionDetail(t *testing.T) {
+	rt := &fakeRuntime{status: gateway.RuntimeStatus{Version: "1.2.3"}}
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt, Control: rt})
+	res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/status")
+	if strings.Contains(res.Reply, "; session") {
+		t.Fatalf("/status invented a session: %+v", res)
+	}
+	rt.sessionStatus = gateway.SessionStatus{
+		SessionID: "s-1", Model: "fake/model", InputTokens: 1200, OutputTokens: 300,
+		ContextUsed: 1500, ContextLimit: 200_000,
+	}
+	res = c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/status")
+	for _, want := range []string{"session s-1", "model fake/model", "tokens 1200/300", "context 1500/200000"} {
+		if !strings.Contains(res.Reply, want) {
+			t.Fatalf("/status reply %q lacks %q", res.Reply, want)
+		}
+	}
+	rt.sessionErr = errors.New("boom")
+	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/status"); !strings.Contains(res.Reply, "version 1.2.3") || strings.Contains(res.Reply, "; session") {
+		t.Fatalf("/status detail error = %+v", res)
 	}
 }
 

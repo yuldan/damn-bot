@@ -25,7 +25,9 @@ func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
 		}
 		m.appendNotice("plan mode " + state + " for the next turn")
 	case slashUnknown:
-		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /reload /compact /export /diff /btw /init /review /queue /steer /busy /browser /voice /wake /paste /image")
+		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /status /reload /compact /export /diff /btw /init /review /queue /steer /busy /browser /voice /wake /paste /image")
+	case slashStatus:
+		m.statusSlash(cmd)
 	case slashBrowser:
 		return m.browserSlash(cmd)
 	case slashTheme, slashModel, slashBudget, slashModules, slashContext, slashReload, slashQueue, slashSteer, slashBusy:
@@ -395,7 +397,7 @@ func (m *Model) sessionSlash(cmd slashCommand) tea.Cmd {
 		}
 	case slashUndo:
 		return m.undoCmd("")
-	case slashPlan, slashUnknown, slashTheme, slashModel, slashBudget, slashModules, slashContext,
+	case slashPlan, slashUnknown, slashTheme, slashModel, slashBudget, slashModules, slashContext, slashStatus,
 		slashReload, slashCompact, slashExport, slashDiff, slashBtw, slashInit, slashReview,
 		slashQueue, slashSteer, slashBusy, slashBrowser, slashVoice, slashWake:
 		return nil
