@@ -83,14 +83,14 @@ func (e *Error) FailureClass() Class { return e.Class }
 // Retry-After hint (≤ 30 s) or the jittered backoff (1 s, 4 s); any other
 // class, a cancelled ctx, or an open circuit returns at once. op receives the
 // 1-based attempt number. The result is nil or an *Error.
-//
-//nolint:gocognit // local and network return paths share one attempt loop; splitting hides the attempt state
 func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int) error) error {
+	if p.Transient != nil {
+		return doLocal(ctx, p, op)
+	}
 	limit := p.Attempts
 	if limit <= 0 {
 		limit = MaxAttempts
 	}
-	local := p.Transient != nil
 	for n := 1; ; n++ {
 		err := op(ctx, n)
 		class := ClassifyErr(err)
@@ -99,32 +99,16 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 		}
 		if ctx.Err() != nil {
 			// The caller's context ended: never retry, keep its class.
-			if local {
-				return fmt.Errorf("retry wait: %w", context.Cause(ctx))
-			}
 			return &Error{Class: ClassifyErr(context.Cause(ctx)), Attempts: n, Err: err}
 		}
-		retryable := class.Transient()
-		if local {
-			retryable = p.Transient(err)
-		}
-		if !retryable || errors.Is(err, ErrCircuitOpen) {
-			if local {
-				return err
-			}
+		if !class.Transient() || errors.Is(err, ErrCircuitOpen) {
 			return &Error{Class: class, Attempts: n, Err: err}
 		}
 		if n == limit {
-			if local {
-				return err
-			}
 			return &Error{Class: class, Attempts: n, Err: fmt.Errorf("%w: %w", ErrExhausted, err)}
 		}
 		delay, ok := p.delay(n, err)
 		if !ok {
-			if local {
-				return err
-			}
 			return &Error{Class: class, Attempts: n, Err: fmt.Errorf("%w: %w", ErrRetryAfterTooLong, err)}
 		}
 		if p.Notify != nil {
@@ -135,9 +119,6 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 			w = p.Wait
 		}
 		if werr := w(ctx, delay); werr != nil {
-			if local {
-				return werr
-			}
 			return &Error{Class: ClassifyErr(werr), Attempts: n, Err: err}
 		}
 	}
