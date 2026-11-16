@@ -25,12 +25,12 @@ type SendFunc func(ctx context.Context, text string) error
 // the adapter's renderer, chunks it to Caps, and enqueues every part through
 // the shared outq scheduler.
 type Reply struct {
-	Chat       string
-	Group      bool
-	Markdown   string
-	Send       SendFunc
-	RetryAfter func(error) (time.Duration, bool)
-	Priority   outq.Priority
+	Chat        string
+	Group       bool
+	Markdown    string
+	Send        SendFunc
+	ServerDelay func(error) (time.Duration, bool)
+	Priority    outq.Priority
 }
 
 // Outbox is the adapter-facing outbound seam of GAP-GW-03/GAP-GW-04: every
@@ -77,13 +77,13 @@ func (o *Outbox) Reply(ctx context.Context, r Reply) error {
 		parts[i] = outq.Part{Text: m.Text, Index: i}
 	}
 	msg := &outq.Message{
-		Platform:   o.desc.Name,
-		Chat:       r.Chat,
-		Group:      r.Group,
-		Priority:   r.Priority,
-		Parts:      parts,
-		Send:       func(ctx context.Context, part outq.Part) error { return r.Send(ctx, part.Text) },
-		RetryAfter: r.RetryAfter,
+		Platform:    o.desc.Name,
+		Chat:        r.Chat,
+		Group:       r.Group,
+		Priority:    r.Priority,
+		Parts:       parts,
+		Send:        func(ctx context.Context, part outq.Part) error { return r.Send(ctx, part.Text) },
+		ServerDelay: r.ServerDelay,
 	}
 	enqueue := func(ctx context.Context) error {
 		if err := o.sched.Enqueue(ctx, msg); err != nil {

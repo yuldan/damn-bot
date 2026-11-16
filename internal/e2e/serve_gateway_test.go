@@ -128,7 +128,7 @@ func TestServeTelegramSendAfterIdleBackoff(t *testing.T) {
 func TestServeTelegramOwnerStreamsAndResume(t *testing.T) {
 	e := New(t, providertest.Text("hello ", "world"), providertest.Text("second answer"))
 	tg := NewFakeTG(t, FakeTGOptions{Faults: map[string]FakeTGFault{
-		"sendChatAction": {Status: 429, RetryAfter: 1},
+		"sendChatAction": {Status: 429, ServerDelay: 1},
 	}})
 	p := startGatewayServe(t, e, tg)
 	tg.PushText(gatewayOwner, "hi")

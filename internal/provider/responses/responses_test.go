@@ -233,7 +233,7 @@ func TestFixtureErrorEvent(t *testing.T) {
 	if !errors.As(err, &pe) {
 		t.Fatalf("error = %v, want *provider.Error", err)
 	}
-	if pe.Class != retry.RateLimited || !pe.Class.Retryable() || pe.Code != "rate_limit_exceeded" {
+	if pe.Class != retry.RateLimited || !pe.Class.Transient() || pe.Code != "rate_limit_exceeded" {
 		t.Fatalf("error = %+v", pe)
 	}
 	if len(pe.Body) == 0 {

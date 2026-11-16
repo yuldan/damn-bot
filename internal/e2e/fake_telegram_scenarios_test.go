@@ -270,7 +270,7 @@ func runRateLimitRetry(t *testing.T) {
 	t.Helper()
 	const chatID = 2001
 	conv := NewConversation(t, &FakeTGOptions{Faults: map[string]FakeTGFault{
-		"sendMessage": {Status: 429, RetryAfter: 1, Times: 1},
+		"sendMessage": {Status: 429, ServerDelay: 1, Times: 1},
 	}})
 	var messageID int64
 	script := ConversationScript{
@@ -328,7 +328,7 @@ func runRateLimitRetry(t *testing.T) {
 func runRateLimitNoRetry(t *testing.T) {
 	t.Helper()
 	conv := NewConversation(t, &FakeTGOptions{Faults: map[string]FakeTGFault{
-		"sendMessage": {Status: 429, RetryAfter: 1, Times: 1},
+		"sendMessage": {Status: 429, ServerDelay: 1, Times: 1},
 	}})
 	if _, err := conv.Send(t.Context(), 2001, "reply"); err == nil {
 		t.Fatal("first send succeeded, want 429")
@@ -628,10 +628,10 @@ func waitRetryAfter(ctx context.Context, err error) error {
 	if !errors.As(err, &apiErr) {
 		return fmt.Errorf("not a Telegram API error: %w", err)
 	}
-	if apiErr.RetryAfter <= 0 {
-		return fmt.Errorf("retry_after = %d, want positive", apiErr.RetryAfter)
+	if apiErr.ServerDelay <= 0 {
+		return fmt.Errorf("retry_after = %d, want positive", apiErr.ServerDelay)
 	}
-	timer := time.NewTimer(time.Duration(apiErr.RetryAfter) * time.Second)
+	timer := time.NewTimer(time.Duration(apiErr.ServerDelay) * time.Second)
 	defer timer.Stop()
 	select {
 	case <-timer.C:

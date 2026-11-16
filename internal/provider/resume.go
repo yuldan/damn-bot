@@ -40,10 +40,10 @@ func (o *OpenAI) observeAttempt(ctx context.Context, rt *Route, br retry.Gate, r
 		return prev, at, resumes, rerr
 	}
 	prev, at, resumes = o.advanceCheckpoint(prev, at, resumes, next)
-	if n == limit || !retry.ClassifyErr(err).Retryable() {
+	if n == limit || !retry.ClassifyErr(err).Transient() {
 		return prev, at, resumes, err
 	}
-	if derr := o.retryDenied(ctx, rt, o.retryProjection(rt, resp, r, est, *billed)); derr != nil {
+	if derr := o.fallbackDenied(ctx, rt, o.projectionAfterDenial(rt, resp, r, est, *billed)); derr != nil {
 		return prev, at, resumes, derr
 	}
 	return prev, at, resumes, err
@@ -85,7 +85,7 @@ func (o *OpenAI) resumePoint(rt *Route, resp *Response, err error, prev *Respons
 }
 
 func resumeEligible(resp *Response, err error) bool {
-	if !retry.ClassifyErr(err).Retryable() || !resp.responded {
+	if !retry.ClassifyErr(err).Transient() || !resp.responded {
 		return false
 	}
 	return resp.Content != "" || resp.ReasoningText != "" || len(resp.ToolCalls) > 0 || len(resp.Reasoning) > 0

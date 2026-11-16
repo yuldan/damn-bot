@@ -59,7 +59,7 @@ func (b *Breaker) Allow() error {
 	return nil
 }
 
-// Record feeds the class of a finished request. Retryable classes count as
+// Record feeds the class of a finished request. Transient classes count as
 // failures; success closes a half-open circuit; other classes (auth,
 // bad_request, …) say nothing about provider health and only end a probe
 // as a success.
@@ -67,7 +67,7 @@ func (b *Breaker) Record(c Class) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	now := time.Now()
-	if !c.Retryable() {
+	if !c.Transient() {
 		if b.state == HalfOpen {
 			b.state, b.probing, b.fails = Closed, false, [BreakerFailures]time.Time{}
 		}

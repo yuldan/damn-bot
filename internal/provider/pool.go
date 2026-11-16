@@ -89,7 +89,7 @@ func (p *Pooled) Do(ctx context.Context, purpose Purpose, r *Request, onChunk fu
 			}
 			return resp, nil
 		}
-		if !retry.ClassifyErr(err).Retryable() {
+		if !retry.ClassifyErr(err).Transient() {
 			return resp, err
 		}
 		lastErr = err
@@ -132,15 +132,15 @@ func (p *Pooled) callPool(ctx context.Context, rt *Route, price *budget.Price, r
 			return last, err
 		}
 		reason, from = nextReason, cred.ID
-		cooled = pool.Fail(cred.ID, reason, retryAfter(err), p.o.now())
+		cooled = pool.Fail(cred.ID, reason, delayHint(err), p.o.now())
 		// A rotation is another logical call; keep the monetary projection
 		// cumulative across the credentials already billed in this Do.
-		if derr := p.o.retryDenied(ctx, &rtc, p.o.retryProjection(&rtc, &resp, r, est, priorBilled+billed)); derr != nil {
+		if derr := p.o.fallbackDenied(ctx, &rtc, p.o.projectionAfterDenial(&rtc, &resp, r, est, priorBilled+billed)); derr != nil {
 			return last, derr
 		}
 	}
 	return last, &Error{Class: retry.Auth, Err: &credpool.ExhaustedError{
-		Provider: rt.Provider, Count: pool.Len(), RetryAfter: pool.NextAvailable(p.o.now()),
+		Provider: rt.Provider, Count: pool.Len(), ServerDelay: pool.NextAvailable(p.o.now()),
 	}}
 }
 
@@ -170,10 +170,10 @@ func (p *Pooled) callCredential(ctx context.Context, rt *Route, price *budget.Pr
 			return err
 		}
 		billed++
-		if n == limit || !retry.ClassifyErr(err).Retryable() {
+		if n == limit || !retry.ClassifyErr(err).Transient() {
 			return err
 		}
-		if derr := o.retryDenied(ctx, rt, o.retryProjection(rt, &resp, r, est, billed+priorBilled)); derr != nil {
+		if derr := o.fallbackDenied(ctx, rt, o.projectionAfterDenial(rt, &resp, r, est, billed+priorBilled)); derr != nil {
 			return derr
 		}
 		return err
@@ -223,9 +223,9 @@ func (p *Pooled) notifyCredential(provider, from, to string, reason credpool.Rea
 // the same key. It reports a non-retryable class to the retry policy.
 type poolStop struct{ err error }
 
-func (p *poolStop) Error() string           { return p.err.Error() }
-func (p *poolStop) Unwrap() error           { return p.err }
-func (p *poolStop) RetryClass() retry.Class { return retry.Unclassified }
+func (p *poolStop) Error() string             { return p.err.Error() }
+func (p *poolStop) Unwrap() error             { return p.err }
+func (p *poolStop) FailureClass() retry.Class { return retry.Unclassified }
 
 // billingAmbiguous reports the provider's 400 "out of extra usage" envelope:
 // the key may still be valid, so it earns a short cooldown, not a permanent
@@ -264,11 +264,11 @@ func poolReason(err error) (credpool.Reason, bool) {
 	return "", false
 }
 
-// retryAfter exposes the provider Retry-After hint, if any.
-func retryAfter(err error) time.Duration {
+// delayHint exposes the provider Retry-After hint, if any.
+func delayHint(err error) time.Duration {
 	var hint retry.ServerHint
 	if errors.As(err, &hint) {
-		return hint.RetryAfter()
+		return hint.ServerDelay()
 	}
 	return 0
 }

@@ -172,7 +172,7 @@ func decodeTGValue[T any](body []byte) (T, error) {
 		var zero T
 		out := FakeTGAPIError{Code: env.ErrorCode, Description: env.Description}
 		if env.Parameters != nil {
-			out.RetryAfter = env.Parameters.RetryAfter
+			out.ServerDelay = env.Parameters.ServerDelay
 		}
 		return zero, out
 	}

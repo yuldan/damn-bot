@@ -237,7 +237,7 @@ func TestF7GAPGW11Breaker(t *testing.T) {
 		{gwwa.ReasonNone, gwwa.ActionNone, 0},
 	} {
 		v := gwwa.Evaluate(gwwa.Health{State: gwwa.StateDisconnected, Reason: tc.reason})
-		if v.Action != tc.action || v.RetryAfter != tc.retry {
+		if v.Action != tc.action || v.ServerDelay != tc.retry {
 			t.Fatalf("%s = %+v, want %s/%s", tc.reason, v, tc.action, tc.retry)
 		}
 		if v.Action == gwwa.ActionNeedsAttention && v.Instruction == "" {

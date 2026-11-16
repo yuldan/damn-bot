@@ -56,7 +56,7 @@ func (f *fakeOutbox) Sent(_ context.Context, id int64, ref string, _ time.Time) 
 	return nil
 }
 
-func (f *fakeOutbox) Retry(_ context.Context, id int64, _ string, at time.Time) error {
+func (f *fakeOutbox) Reschedule(_ context.Context, id int64, _ string, at time.Time) error {
 	d := f.rows[id]
 	d.Status, d.NextAt = gateway.StatusQueued, at
 	f.rows[id] = d
@@ -130,7 +130,7 @@ func TestOutboxRetryUpdatesRow(t *testing.T) {
 	if err != nil || len(claimed) != 1 || claimed[0].Attempts != 1 {
 		t.Fatalf("claim: %+v err=%v", claimed, err)
 	}
-	next, rerr := box.Retry(t.Context(), q.ID, 1, "rate limited", 0, t0)
+	next, rerr := box.Reschedule(t.Context(), q.ID, 1, "rate limited", 0, t0)
 	if rerr != nil || !next.Equal(t0.Add(time.Second)) {
 		t.Fatalf("retry next=%v err=%v", next, rerr)
 	}
@@ -165,7 +165,7 @@ func TestOutboxRetryAfterAndSent(t *testing.T) {
 	if _, cerr := box.Claim(t.Context(), t0, 1); cerr != nil {
 		t.Fatal(cerr)
 	}
-	next, err := box.Retry(t.Context(), q.ID, 2, "429", 30*time.Second, t0)
+	next, err := box.Reschedule(t.Context(), q.ID, 2, "429", 30*time.Second, t0)
 	if err != nil || !next.Equal(t0.Add(30*time.Second)) {
 		t.Fatalf("retry_after next=%v err=%v", next, err)
 	}
@@ -196,7 +196,7 @@ func TestBackoff(t *testing.T) {
 		{1, 5 * time.Minute, 5 * time.Minute},
 	}
 	for _, c := range cases {
-		if got := gateway.Backoff(at, c.attempt, c.after).Sub(at); got != c.want {
+		if got := gateway.NextAttempt(at, c.attempt, c.after).Sub(at); got != c.want {
 			t.Errorf("Backoff(attempt=%d, after=%v) = %v, want %v", c.attempt, c.after, got, c.want)
 		}
 	}
@@ -339,7 +339,7 @@ func TestOutboxRetryKeepsQueued(t *testing.T) {
 	q := enqueueOne(t, box)
 	t0 := time.Unix(1_700_000_000, 0)
 	singleClaim(t, box, t0, 1)
-	next, err := box.Retry(t.Context(), q.ID, 1, "connection reset", 0, t0)
+	next, err := box.Reschedule(t.Context(), q.ID, 1, "connection reset", 0, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +361,7 @@ func TestOutboxFailTerminal(t *testing.T) {
 	singleClaim(t, box, t0, 1)
 
 	// Attempt 1 fails transiently: the row goes back to the queue, not failed.
-	next, err := box.Retry(t.Context(), q.ID, 1, "503 unavailable", 0, t0)
+	next, err := box.Reschedule(t.Context(), q.ID, 1, "503 unavailable", 0, t0)
 	if err != nil {
 		t.Fatal(err)
 	}

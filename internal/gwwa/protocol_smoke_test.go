@@ -78,7 +78,7 @@ func checkVerdicts(t *testing.T) {
 	if v := Evaluate(Health{Reason: ReasonBanned}); v.Action != ActionNeedsAttention || v.Instruction == "" {
 		t.Errorf("banned verdict = %+v", v)
 	}
-	if v := Evaluate(Health{Reason: ReasonTemporaryBan}); v.RetryAfter == 0 || v.Action != ActionNeedsAttention {
+	if v := Evaluate(Health{Reason: ReasonTemporaryBan}); v.ServerDelay == 0 || v.Action != ActionNeedsAttention {
 		t.Errorf("temporary ban verdict = %+v", v)
 	}
 }

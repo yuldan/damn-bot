@@ -102,12 +102,12 @@ const (
 	LimitGroupMessages
 )
 
-// QuotaResult is Take's answer. Limit is LimitNone when admitted; RetryAfter
+// QuotaResult is Take's answer. Limit is LimitNone when admitted; ServerDelay
 // and Reset say when a retry can succeed, and the Remaining fields report the
 // quota left after this message. RemainingGroup is -1 for a non-group chat.
 type QuotaResult struct {
 	Limit             LimitKind
-	RetryAfter        time.Duration
+	ServerDelay       time.Duration
 	Reset             time.Time
 	RemainingMessages int
 	RemainingTurns    int
@@ -234,7 +234,7 @@ func (q *Quota) rollDay(id *identityQuota, now time.Time) {
 func refuse(res QuotaResult, k LimitKind, reset, now time.Time) QuotaResult {
 	res.Limit = k
 	res.Reset = reset
-	res.RetryAfter = max(reset.Sub(now), 0)
+	res.ServerDelay = max(reset.Sub(now), 0)
 	return res
 }
 

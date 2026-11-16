@@ -88,7 +88,7 @@ func parseAll(r io.Reader, maxEvent int) ([]refEvent, time.Duration, error) {
 	for {
 		ev, err := p.Next()
 		if err != nil {
-			d, ok := p.Retry()
+			d, ok := p.ReconnectDelay()
 			if !ok {
 				d = -1
 			}

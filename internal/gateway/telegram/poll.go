@@ -51,7 +51,7 @@ func (a *Adapter) Run(ctx context.Context, in chan<- Inbound) error {
 			if stopped(ctx) {
 				return nil
 			}
-			delay, retryable := a.retryDelay(err, &attempt)
+			delay, retryable := a.nextDelay(err, &attempt)
 			if !retryable {
 				return err
 			}
@@ -185,7 +185,7 @@ func entityText(s string, e tgEntity) string {
 	return string(utf16.Decode(units[e.Offset:end]))
 }
 
-func (a *Adapter) retryDelay(err error, attempt *int) (time.Duration, bool) {
+func (a *Adapter) nextDelay(err error, attempt *int) (time.Duration, bool) {
 	if errors.Is(err, netx.ErrOffline) || errors.Is(err, netx.ErrEgressDisabled) ||
 		errors.Is(err, netx.ErrBlockedHost) || errors.Is(err, netx.ErrPurpose) ||
 		errors.Is(err, netx.ErrNonLoopbackInTest) || errors.Is(err, context.Canceled) {
@@ -195,29 +195,29 @@ func (a *Adapter) retryDelay(err error, attempt *int) (time.Duration, bool) {
 		switch {
 		case ae.Code == 409:
 			// Another poller owns the bot (REL-02): wait out its long poll,
-			// then retry with reconnect backoff. Never drop the queue.
+			// then retry with reconnect delayFor. Never drop the queue.
 			*attempt++
 			if a.conflictAt.IsZero() {
 				a.conflictAt, a.notified = a.clock.Now(), false
 			}
-			return a.conflictWait + a.backoff(*attempt), true
+			return a.conflictWait + a.delayFor(*attempt), true
 		case ae.Code == 429:
-			if ae.RetryAfter > 0 {
-				return ae.RetryAfter, true
+			if ae.AfterHint > 0 {
+				return ae.AfterHint, true
 			}
 			return time.Second, true
 		case ae.Code >= 500 && ae.Code < 600:
 			*attempt++
-			return a.backoff(*attempt), true
+			return a.delayFor(*attempt), true
 		default:
 			return 0, false
 		}
 	}
 	*attempt++
-	return a.backoff(*attempt), true
+	return a.delayFor(*attempt), true
 }
 
-func (a *Adapter) backoff(attempt int) time.Duration {
+func (a *Adapter) delayFor(attempt int) time.Duration {
 	d := time.Second << min(max(attempt-1, 0), 6)
 	d = min(d, time.Minute)
 	return time.Duration(float64(d) * (1 - retry.Jitter + 2*retry.Jitter*rand.Float64())) //nolint:gosec // jitter, not a secret

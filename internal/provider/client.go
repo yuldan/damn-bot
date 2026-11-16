@@ -184,7 +184,7 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 			}
 			return resp, nil
 		}
-		if !retry.ClassifyErr(err).Retryable() {
+		if !retry.ClassifyErr(err).Transient() {
 			return resp, err
 		}
 		lastErr = err
@@ -222,11 +222,11 @@ func (o *OpenAI) checkBudget(ctx context.Context, rt *Route, price *budget.Price
 	return nil
 }
 
-// retryDenied re-consults the guard before retrying an attempt that already
+// fallbackDenied re-consults the guard before retrying an attempt that already
 // received a response, with an unknown-cost projection: it denies only when
 // a monetary cap is configured (ADR-123 butir 3), in which case retrying
 // would multiply unaccounted spend (SEC6-9).
-func (o *OpenAI) retryDenied(ctx context.Context, rt *Route, estimateMicros int64) error {
+func (o *OpenAI) fallbackDenied(ctx context.Context, rt *Route, estimateMicros int64) error {
 	if o.guard == nil {
 		return nil
 	}
@@ -240,10 +240,10 @@ func (o *OpenAI) retryDenied(ctx context.Context, rt *Route, estimateMicros int6
 	return nil
 }
 
-// retryProjection is the cumulative micro-USD estimate of the next retry:
+// projectionAfterDenial is the cumulative micro-USD estimate of the next retry:
 // this route's dated price for the attempts already billed in this Do plus
 // the next one. Unpriced is -1 so the guard fails closed.
-func (o *OpenAI) retryProjection(rt *Route, resp *Response, r *Request, est int64, billed int) int64 {
+func (o *OpenAI) projectionAfterDenial(rt *Route, resp *Response, r *Request, est int64, billed int) int64 {
 	price := resp.Price
 	if price == nil {
 		price = rt.Prices.At(o.now())

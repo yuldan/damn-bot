@@ -199,7 +199,7 @@ func New(cfg *Config) (*Adapter, error) {
 type apiError struct {
 	Method, Description string
 	Code                int
-	RetryAfter          time.Duration
+	AfterHint           time.Duration
 }
 
 // checkText is the SEC-16 gate: message text is tool-derived egress, so it
@@ -226,20 +226,20 @@ func (e *apiError) Error() string {
 	return fmt.Sprintf("telegram: %s: %d %s", e.Method, e.Code, e.Description)
 }
 
-// RetryAfter reports the deadline a Telegram 429 carries. A 429 without the
+// AfterHint reports the deadline a Telegram 429 carries. A 429 without the
 // parameter means one second, the Bot API default.
-func RetryAfter(err error) (time.Duration, bool) {
+func AfterHint(err error) (time.Duration, bool) {
 	ae, ok := errors.AsType[*apiError](err)
 	if !ok || ae.Code != 429 {
 		return 0, false
 	}
-	return cmp.Or(ae.RetryAfter, time.Second), true
+	return cmp.Or(ae.AfterHint, time.Second), true
 }
 
 // penalize forwards a 429 deadline to the shared limiter so pacing honours it
 // per chat (EC-PLAT-014). It returns the wait for callers that retry in place.
 func (a *Adapter) penalize(chat string, err error) (time.Duration, bool) {
-	wait, ok := RetryAfter(err)
+	wait, ok := AfterHint(err)
 	if !ok {
 		return 0, false
 	}
@@ -279,7 +279,7 @@ func (a *Adapter) post(ctx context.Context, method string, body io.Reader, conte
 		if e.Code == 0 {
 			e.Code = resp.StatusCode
 		}
-		e.RetryAfter = time.Duration(env.Parameters["retry_after"]) * time.Second
+		e.AfterHint = time.Duration(env.Parameters["retry_after"]) * time.Second
 		if isThreadNotFound(env.Description) {
 			return fmt.Errorf("%w: %w", ErrThreadNotFound, e)
 		}

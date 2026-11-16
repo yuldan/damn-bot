@@ -61,7 +61,7 @@ type OutboxStore interface {
 	Enqueue(ctx context.Context, d *Delivery) (id int64, inserted bool, err error)
 	Claim(ctx context.Context, now time.Time, limit int) ([]Delivery, error)
 	Sent(ctx context.Context, id int64, ref string, at time.Time) error
-	Retry(ctx context.Context, id int64, reason string, at time.Time) error
+	Reschedule(ctx context.Context, id int64, reason string, at time.Time) error
 	Fail(ctx context.Context, id int64, reason string) error
 }
 
@@ -155,11 +155,11 @@ func (o *Outbox) Sent(ctx context.Context, id int64, ref string, at time.Time) e
 	return nil
 }
 
-// Retry re-queues a failed delivery with the next_at of Backoff. The row is
+// Reschedule re-queues a failed delivery with the next_at of NextAttempt. The row is
 // updated, never re-inserted, so the outbox length is unchanged.
-func (o *Outbox) Retry(ctx context.Context, id int64, attempt int, cause string, retryAfter time.Duration, at time.Time) (time.Time, error) {
-	next := Backoff(at, attempt, retryAfter)
-	if err := o.store.Retry(ctx, id, cause, next); err != nil {
+func (o *Outbox) Reschedule(ctx context.Context, id int64, attempt int, cause string, retryAfter time.Duration, at time.Time) (time.Time, error) {
+	next := NextAttempt(at, attempt, retryAfter)
+	if err := o.store.Reschedule(ctx, id, cause, next); err != nil {
 		return time.Time{}, fmt.Errorf("gateway: retry delivery %d: %w", id, err)
 	}
 	return next, nil
@@ -173,16 +173,16 @@ func (o *Outbox) Fail(ctx context.Context, id int64, cause string) error {
 	return nil
 }
 
-// Backoff bounds. Delays are deterministic (no jitter) so retries are
+// NextAttempt bounds. Delays are deterministic (no jitter) so retries are
 // reproducible: 1s, 2s, 4s, ... up to RetryMax.
 const (
 	RetryBase = time.Second
 	RetryMax  = time.Minute
 )
 
-// Backoff returns the next attempt time after attempt failures at at. A
+// NextAttempt returns the next attempt time after attempt failures at at. A
 // platform retry_after wins when it is larger (Telegram 429, SPEC §9.7).
-func Backoff(at time.Time, attempt int, retryAfter time.Duration) time.Time {
+func NextAttempt(at time.Time, attempt int, retryAfter time.Duration) time.Time {
 	delay := RetryBase
 	for i := 1; i < attempt && delay < RetryMax; i++ {
 		delay *= 2

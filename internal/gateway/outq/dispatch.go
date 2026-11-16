@@ -171,9 +171,9 @@ func (s *Scheduler) finish(r result) {
 	}
 	j := r.job
 	now := s.now()
-	delay := s.backoff(j.attempts + 1)
-	if j.msg.RetryAfter != nil {
-		if ra, ok := j.msg.RetryAfter(r.err); ok && ra > 0 {
+	delay := s.delayFor(j.attempts + 1)
+	if j.msg.ServerDelay != nil {
+		if ra, ok := j.msg.ServerDelay(r.err); ok && ra > 0 {
 			delay = max(delay, ra)
 			s.pacer.Penalize(j.msg.Chat, now.Add(ra))
 		}

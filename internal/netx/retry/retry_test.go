@@ -28,9 +28,9 @@ type classErr struct {
 	ra time.Duration
 }
 
-func (e classErr) Error() string             { return "fake " + e.c.String() }
-func (e classErr) RetryClass() Class         { return e.c }
-func (e classErr) RetryAfter() time.Duration { return e.ra }
+func (e classErr) Error() string              { return "fake " + e.c.String() }
+func (e classErr) FailureClass() Class        { return e.c }
+func (e classErr) ServerDelay() time.Duration { return e.ra }
 
 func allClasses() []Class {
 	out := make([]Class, 0, Unclassified)
@@ -73,7 +73,7 @@ func checkMatrix(t *testing.T, c Class, r float64) {
 	t.Helper()
 	calls, took, err := run(t, r, func(context.Context, int) error { return classErr{c: c} })
 	wantCalls, wantWait := 1, time.Duration(0)
-	if c.Retryable() {
+	if c.Transient() {
 		wantCalls = MaxAttempts
 		f := 1 - Jitter + 2*Jitter*r
 		wantWait = time.Duration(float64(time.Second)*f) + time.Duration(float64(4*time.Second)*f)
@@ -82,11 +82,11 @@ func checkMatrix(t *testing.T, c Class, r float64) {
 	if !errors.As(err, &re) || re.Class != c || re.Attempts != wantCalls || calls != wantCalls {
 		t.Fatalf("err=%v calls=%d, want class %s after %d", err, calls, c, wantCalls)
 	}
-	if took != wantWait || took > 6*time.Second || c.Retryable() && took < 4*time.Second {
+	if took != wantWait || took > 6*time.Second || c.Transient() && took < 4*time.Second {
 		t.Errorf("waited %v, want %v (1 s/4 s ±20 %%)", took, wantWait)
 	}
-	if c.Retryable() != errors.Is(err, ErrExhausted) {
-		t.Errorf("ErrExhausted = %v, want %v", errors.Is(err, ErrExhausted), c.Retryable())
+	if c.Transient() != errors.Is(err, ErrExhausted) {
+		t.Errorf("ErrExhausted = %v, want %v", errors.Is(err, ErrExhausted), c.Transient())
 	}
 	if ClassifyErr(err) != c {
 		t.Errorf("ClassifyErr(Do error) = %s, want %s", ClassifyErr(err), c)
@@ -169,6 +169,74 @@ func TestRetryCancel(t *testing.T) {
 			t.Errorf("deadline: err=%v calls=%d", err, calls)
 		}
 	})
+}
+
+// TestRetryLocalPolicy pins the local retry mode (Policy.Transient): Schedule
+// sets the delay, the operation error comes back unchanged, and a dead
+// context wins over the attempt budget.
+//nolint:gocyclo // one assertion block per local-mode contract
+func TestRetryLocalPolicy(t *testing.T) {
+	t.Parallel()
+	transient := errors.New("sharing violation")
+	permanent := errors.New("not permitted")
+	local := func(err error) bool { return errors.Is(err, transient) }
+	var waits []time.Duration
+	policy := func() Policy {
+		waits = nil
+		return Policy{
+			Attempts:  3,
+			Transient: local,
+			Schedule:  func(n int, _ error) time.Duration { return time.Duration(n) * 10 * time.Millisecond },
+			Wait: func(_ context.Context, d time.Duration) error {
+				waits = append(waits, d)
+				return nil
+			},
+		}
+	}
+
+	calls := 0
+	err := Do(t.Context(), policy(), func(context.Context, int) error {
+		calls++
+		if calls < 3 {
+			return transient
+		}
+		return nil
+	})
+	if err != nil || calls != 3 {
+		t.Fatalf("transient = %v after %d calls, want nil after 3", err, calls)
+	}
+	if len(waits) != 2 || waits[0] != 10*time.Millisecond || waits[1] != 20*time.Millisecond {
+		t.Fatalf("waits = %v, want [10ms 20ms]", waits)
+	}
+
+	calls = 0
+	err = Do(t.Context(), policy(), func(context.Context, int) error {
+		calls++
+		return permanent
+	})
+	if !errors.Is(err, permanent) || calls != 1 || len(waits) != 0 {
+		t.Fatalf("permanent = %v after %d calls (waits %v), want immediate", err, calls, waits)
+	}
+
+	calls = 0
+	err = Do(t.Context(), policy(), func(context.Context, int) error {
+		calls++
+		return transient
+	})
+	if !errors.Is(err, transient) || errors.Is(err, ErrExhausted) || calls != 3 {
+		t.Fatalf("exhaustion = %v after %d calls, want the operation error after 3", err, calls)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	calls = 0
+	err = Do(ctx, policy(), func(context.Context, int) error {
+		calls++
+		return transient
+	})
+	if !errors.Is(err, context.Canceled) || calls != 1 || len(waits) != 0 {
+		t.Fatalf("dead context = %v after %d calls (waits %v), want canceled after 1", err, calls, waits)
+	}
 }
 
 func TestClassifyStatus(t *testing.T) {

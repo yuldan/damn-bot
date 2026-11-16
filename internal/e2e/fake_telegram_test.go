@@ -183,7 +183,7 @@ func checkSendEditRecords(t *testing.T, reqs []FakeTGRequest, messageID int64) {
 func TestFakeTelegramRateLimit(t *testing.T) {
 	t.Parallel()
 	s := NewFakeTG(t, FakeTGOptions{Faults: map[string]FakeTGFault{
-		"sendMessage": {Status: http.StatusTooManyRequests, RetryAfter: 3, Times: 1},
+		"sendMessage": {Status: http.StatusTooManyRequests, ServerDelay: 3, Times: 1},
 	}})
 	form := url.Values{"chat_id": {"7"}, "text": {"limited"}}
 	status, body := callTG(t, s, "sendMessage", form)
@@ -194,7 +194,7 @@ func TestFakeTelegramRateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode 429: %v", err)
 	}
-	if apiErr.Code != http.StatusTooManyRequests || apiErr.RetryAfter != 3 {
+	if apiErr.Code != http.StatusTooManyRequests || apiErr.ServerDelay != 3 {
 		t.Fatalf("429 error = %+v, want code 429 retry_after 3", apiErr)
 	}
 

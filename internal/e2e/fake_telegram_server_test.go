@@ -43,14 +43,14 @@ type FakeTGOptions struct {
 // which calls are hit: Every=2 hits the 2nd, 4th, … matching call, while
 // Times stops after that many faulted calls (zero means no limit). Close drops
 // the TCP connection, Drop holds the handler until the request context ends,
-// and Status (with RetryAfter for 429) replies with a Telegram error envelope.
+// and Status (with ServerDelay for 429) replies with a Telegram error envelope.
 type FakeTGFault struct {
-	Status     int
-	RetryAfter int
-	Every      int
-	Times      int
-	Drop       bool
-	Close      bool
+	Status      int
+	ServerDelay int
+	Every       int
+	Times       int
+	Drop        bool
+	Close       bool
 }
 
 // FakeTGFile is one small media file exposed through getFile and /file/.
@@ -157,13 +157,13 @@ type FakeTGRequest struct {
 type FakeTGAPIError struct {
 	Code        int
 	Description string
-	RetryAfter  int
+	ServerDelay int
 }
 
 // Error implements error so conversation drivers can branch on Telegram errors.
 func (e FakeTGAPIError) Error() string {
-	if e.RetryAfter > 0 {
-		return fmt.Sprintf("telegram %d: %s (retry_after %d)", e.Code, e.Description, e.RetryAfter)
+	if e.ServerDelay > 0 {
+		return fmt.Sprintf("telegram %d: %s (retry_after %d)", e.Code, e.Description, e.ServerDelay)
 	}
 	return fmt.Sprintf("telegram %d: %s", e.Code, e.Description)
 }
@@ -622,7 +622,7 @@ func DecodeFakeTGError(body []byte) (FakeTGAPIError, error) {
 	}
 	out := FakeTGAPIError{Code: env.ErrorCode, Description: env.Description}
 	if env.Parameters != nil {
-		out.RetryAfter = env.Parameters.RetryAfter
+		out.ServerDelay = env.Parameters.ServerDelay
 	}
 	return out, nil
 }
@@ -636,7 +636,7 @@ type tgEnvelope struct {
 }
 
 type tgParameters struct {
-	RetryAfter int `json:"retry_after,omitempty"`
+	ServerDelay int `json:"retry_after,omitempty"`
 }
 
 func (s *FakeTG) begin() func() {
@@ -823,7 +823,7 @@ func (s *FakeTG) applyFault(w http.ResponseWriter, r *http.Request, fault FakeTG
 		<-r.Context().Done()
 		return true
 	case fault.Status >= http.StatusBadRequest:
-		writeTGError(w, fault.Status, faultDescription(fault), fault.RetryAfter)
+		writeTGError(w, fault.Status, faultDescription(fault), fault.ServerDelay)
 		return true
 	default:
 		return false
@@ -832,7 +832,7 @@ func (s *FakeTG) applyFault(w http.ResponseWriter, r *http.Request, fault FakeTG
 
 func faultDescription(fault FakeTGFault) string {
 	if fault.Status == http.StatusTooManyRequests {
-		return fmt.Sprintf("Too Many Requests: retry after %d", fault.RetryAfter)
+		return fmt.Sprintf("Too Many Requests: retry after %d", fault.ServerDelay)
 	}
 	return http.StatusText(fault.Status)
 }
@@ -1026,7 +1026,7 @@ func writeTGResult(w http.ResponseWriter, result any) {
 func writeTGError(w http.ResponseWriter, status int, description string, retryAfter int) {
 	env := tgEnvelope{ErrorCode: status, Description: description}
 	if retryAfter > 0 {
-		env.Parameters = &tgParameters{RetryAfter: retryAfter}
+		env.Parameters = &tgParameters{ServerDelay: retryAfter}
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 	}
 	writeTGJSON(w, status, env)
