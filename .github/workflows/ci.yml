@@ -157,7 +157,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
@@ -218,7 +218,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum # kunci cache = go.sum + versi Go (dalam kunci setup-go)
@@ -252,7 +252,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -270,7 +270,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
@@ -304,7 +304,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
@@ -329,7 +329,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
@@ -353,7 +353,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -375,7 +375,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -400,7 +400,7 @@ jobs:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -434,7 +434,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -455,7 +455,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -478,7 +478,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -504,7 +504,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -525,7 +525,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -548,7 +548,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
@@ -570,7 +570,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
@@ -595,7 +595,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
@@ -640,7 +640,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
       - name: Fixture controls (fresh fails, old passes)
@@ -667,7 +667,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -693,7 +693,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -722,7 +722,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
@@ -776,7 +776,7 @@ jobs:
         with:
           ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
